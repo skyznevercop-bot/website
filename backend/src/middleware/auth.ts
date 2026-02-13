@@ -58,8 +58,8 @@ export function verifyWalletSignature(
 /** Issue a JWT for the given wallet address. */
 export function issueToken(address: string): string {
   return jwt.sign({ address }, config.jwtSecret, {
-    expiresIn: config.jwtExpiresIn,
-  });
+    expiresIn: config.jwtExpiresIn as string,
+  } as jwt.SignOptions);
 }
 
 /** Get or create user nonce (stored in Firebase). */

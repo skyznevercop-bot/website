@@ -8,7 +8,7 @@ export const config = {
   // Firebase
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT || null,
   firebaseDatabaseUrl:
-    process.env.FIREBASE_DATABASE_URL || "https://solfight-default-rtdb.firebaseio.com",
+    process.env.FIREBASE_DATABASE_URL || "https://solfight-6e7d2-default-rtdb.firebaseio.com",
 
   // Solana
   solanaRpcUrl:

@@ -7,3 +7,9 @@ build/
 ios/Flutter/flutter_export_environment.sh
 ios/Flutter/Generated.xcconfig
 .vercel
+
+# Backend secrets
+backend/.env
+backend/firebase-service-account.json
+backend/node_modules/
+backend/dist/

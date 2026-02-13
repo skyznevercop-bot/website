@@ -28,7 +28,7 @@ async function fetchPricesFromCoinGecko(): Promise<PriceData | null> {
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd"
     );
     if (!response.ok) return null;
-    const data = await response.json();
+    const data = (await response.json()) as Record<string, Record<string, number>>;
     return {
       btc: data.bitcoin?.usd ?? latestPrices.btc,
       eth: data.ethereum?.usd ?? latestPrices.eth,
@@ -58,10 +58,11 @@ async function fetchPricesFromBinance(): Promise<PriceData | null> {
 
     if (results.some((r) => r === null)) return null;
 
+    const typed = results as Array<{ price: string }>;
     return {
-      btc: parseFloat(results[0].price),
-      eth: parseFloat(results[1].price),
-      sol: parseFloat(results[2].price),
+      btc: parseFloat(typed[0].price),
+      eth: parseFloat(typed[1].price),
+      sol: parseFloat(typed[2].price),
       timestamp: Date.now(),
     };
   } catch {

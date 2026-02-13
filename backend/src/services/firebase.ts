@@ -1,20 +1,35 @@
 import admin from "firebase-admin";
+import path from "path";
+import fs from "fs";
 import { config } from "../config";
 
 // Initialize Firebase Admin SDK.
+// Supports three credential modes:
+// 1. FIREBASE_SERVICE_ACCOUNT_JSON env var (inline JSON string — for cloud deploys)
+// 2. FIREBASE_SERVICE_ACCOUNT file path (for local dev)
+// 3. Application default credentials (for GCP environments)
 if (!admin.apps.length) {
-  if (config.firebaseServiceAccountPath) {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const serviceAccount = require(config.firebaseServiceAccountPath);
+  const inlineJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (inlineJson) {
+    const serviceAccount = JSON.parse(inlineJson);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       databaseURL: config.firebaseDatabaseUrl,
     });
+  } else if (config.firebaseServiceAccountPath) {
+    const absPath = path.resolve(config.firebaseServiceAccountPath);
+    if (fs.existsSync(absPath)) {
+      const serviceAccount = JSON.parse(fs.readFileSync(absPath, "utf-8"));
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+        databaseURL: config.firebaseDatabaseUrl,
+      });
+    } else {
+      console.warn(`[Firebase] Service account file not found at ${absPath}, using default credentials`);
+      admin.initializeApp({ databaseURL: config.firebaseDatabaseUrl });
+    }
   } else {
-    // Fallback: use application default credentials (e.g. in Cloud Run).
-    admin.initializeApp({
-      databaseURL: config.firebaseDatabaseUrl,
-    });
+    admin.initializeApp({ databaseURL: config.firebaseDatabaseUrl });
   }
 }
 
