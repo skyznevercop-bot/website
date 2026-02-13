@@ -17,7 +17,7 @@ pub struct ClaimWinnings<'info> {
         mut,
         seeds = [Game::SEED, game.game_id.to_le_bytes().as_ref()],
         bump = game.bump,
-        constraint = game.status == GameStatus::Settled @ SolFightError::GameNotActive,
+        constraint = (game.status == GameStatus::Settled || game.status == GameStatus::Forfeited) @ SolFightError::NotClaimable,
         constraint = game.winner == Some(winner.key()) @ SolFightError::NotWinner,
     )]
     pub game: Account<'info, Game>,

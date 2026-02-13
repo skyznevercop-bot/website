@@ -1,9 +1,18 @@
-import { PrismaClient } from "@prisma/client";
-import { calculateElo } from "../utils/elo";
+import { config } from "../config";
+import {
+  matchesRef,
+  getPositions,
+  updatePosition,
+  updateMatch,
+  updateUser,
+  getUser,
+  DbPosition,
+} from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 
-const prisma = new PrismaClient();
+const DEMO_BALANCE = config.demoInitialBalance;
+const TIE_TOLERANCE = config.tieTolerance;
 
 /**
  * Start the settlement loop — checks every 5 seconds for matches
@@ -12,22 +21,21 @@ const prisma = new PrismaClient();
 export function startSettlementLoop(): void {
   setInterval(async () => {
     try {
-      const now = new Date();
+      const snap = await matchesRef
+        .orderByChild("status")
+        .equalTo("active")
+        .once("value");
 
-      // Find active matches past their end time.
-      const expiredMatches = await prisma.match.findMany({
-        where: {
-          status: "ACTIVE",
-          endTime: { lte: now },
-        },
-        include: {
-          positions: true,
-        },
+      if (!snap.exists()) return;
+
+      const now = Date.now();
+
+      snap.forEach((child) => {
+        const match = child.val();
+        if (match.endTime && match.endTime <= now) {
+          void settleMatch(child.key!, match);
+        }
       });
-
-      for (const match of expiredMatches) {
-        await settleMatch(match);
-      }
     } catch (err) {
       console.error("[Settlement] Error:", err);
     }
@@ -37,26 +45,53 @@ export function startSettlementLoop(): void {
 }
 
 /**
- * Settle a single match: calculate PnL, determine winner, update stats.
+ * Settle a match via forfeit (player disconnected).
+ */
+export async function settleByForfeit(
+  matchId: string,
+  disconnectedPlayer: string
+): Promise<void> {
+  const snap = await matchesRef.child(matchId).once("value");
+  if (!snap.exists()) return;
+
+  const match = snap.val();
+  if (match.status !== "active") return;
+
+  const winner =
+    disconnectedPlayer === match.player1 ? match.player2 : match.player1;
+
+  await updateMatch(matchId, {
+    status: "forfeited",
+    winner,
+    player1Roi: 0,
+    player2Roi: 0,
+    settledAt: Date.now(),
+  });
+
+  await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
+
+  broadcastToMatch(matchId, {
+    type: "match_end",
+    matchId,
+    winner,
+    p1Roi: 0,
+    p2Roi: 0,
+    isForfeit: true,
+    isTie: false,
+  });
+
+  console.log(
+    `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer} disconnected | Winner: ${winner}`
+  );
+}
+
+/**
+ * Settle a single match: calculate ROI, determine winner, update stats.
  */
 async function settleMatch(
-  match: Awaited<ReturnType<typeof prisma.match.findFirst>> & {
-    positions: Array<{
-      id: string;
-      playerAddress: string;
-      assetSymbol: string;
-      isLong: boolean;
-      entryPrice: number;
-      exitPrice: number | null;
-      size: number;
-      leverage: number;
-      pnl: number | null;
-      closedAt: Date | null;
-    }>;
-  }
+  matchId: string,
+  match: Record<string, unknown>
 ): Promise<void> {
-  if (!match) return;
-
   const prices = getLatestPrices();
   const priceMap: Record<string, number> = {
     BTC: prices.btc,
@@ -64,113 +99,127 @@ async function settleMatch(
     SOL: prices.sol,
   };
 
-  // Close any open positions at current prices.
-  const openPositions = match.positions.filter((p) => !p.closedAt);
-  for (const pos of openPositions) {
-    const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
-    const priceDiff = pos.isLong
-      ? currentPrice - pos.entryPrice
-      : pos.entryPrice - currentPrice;
-    const pnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+  const allPositions = await getPositions(matchId);
 
-    await prisma.position.update({
-      where: { id: pos.id },
-      data: {
+  // Close any open positions at current prices.
+  for (const pos of allPositions) {
+    if (!pos.closedAt) {
+      const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
+      const pnl = calculatePnl(pos, currentPrice);
+
+      await updatePosition(matchId, pos.id, {
         exitPrice: currentPrice,
         pnl,
-        closedAt: new Date(),
+        closedAt: Date.now(),
         closeReason: "match_end",
-      },
-    });
+      });
+
+      pos.exitPrice = currentPrice;
+      pos.pnl = pnl;
+      pos.closedAt = Date.now();
+    }
   }
 
-  // Calculate total PnL for each player.
-  const allPositions = await prisma.position.findMany({
-    where: { matchId: match.id },
-  });
+  const player1 = match.player1 as string;
+  const player2 = match.player2 as string;
+  const betAmount = match.betAmount as number;
 
   const p1Pnl = allPositions
-    .filter((p) => p.playerAddress === match.player1Address)
+    .filter((p) => p.playerAddress === player1)
     .reduce((sum, p) => sum + (p.pnl || 0), 0);
 
   const p2Pnl = allPositions
-    .filter((p) => p.playerAddress === match.player2Address)
+    .filter((p) => p.playerAddress === player2)
     .reduce((sum, p) => sum + (p.pnl || 0), 0);
 
-  // Determine winner (higher PnL wins; tie goes to player 1).
-  const winnerAddress =
-    p1Pnl >= p2Pnl ? match.player1Address : match.player2Address;
-  const loserAddress =
-    winnerAddress === match.player1Address
-      ? match.player2Address
-      : match.player1Address;
+  const p1Roi = p1Pnl / DEMO_BALANCE;
+  const p2Roi = p2Pnl / DEMO_BALANCE;
 
-  // Fetch player profiles for ELO.
-  const [winner, loser] = await Promise.all([
-    prisma.user.findUnique({ where: { walletAddress: winnerAddress } }),
-    prisma.user.findUnique({ where: { walletAddress: loserAddress } }),
-  ]);
+  const isTie = Math.abs(p1Roi - p2Roi) <= TIE_TOLERANCE;
+  let winner: string | undefined;
+  let status: "completed" | "tied";
 
-  if (!winner || !loser) return;
+  if (isTie) {
+    status = "tied";
+  } else {
+    status = "completed";
+    winner = p1Roi > p2Roi ? player1 : player2;
+  }
 
-  const { newWinnerElo, newLoserElo } = calculateElo(
-    winner.eloRating,
-    loser.eloRating,
-    winner.wins + winner.losses,
-    loser.wins + loser.losses
-  );
-
-  // Update match.
-  await prisma.match.update({
-    where: { id: match.id },
-    data: {
-      status: "COMPLETED",
-      winnerAddress,
-      player1Pnl: p1Pnl,
-      player2Pnl: p2Pnl,
-      settledAt: new Date(),
-    },
+  await updateMatch(matchId, {
+    status,
+    winner,
+    player1Roi: p1Roi,
+    player2Roi: p2Roi,
+    settledAt: Date.now(),
   });
 
-  // Update winner stats.
-  await prisma.user.update({
-    where: { walletAddress: winnerAddress },
-    data: {
-      eloRating: newWinnerElo,
-      wins: { increment: 1 },
-      totalPnl: { increment: match.betAmount },
-      currentStreak: { increment: 1 },
-    },
-  });
+  await updatePlayerStats(player1, player2, winner, betAmount, isTie);
 
-  // Update loser stats.
-  await prisma.user.update({
-    where: { walletAddress: loserAddress },
-    data: {
-      eloRating: newLoserElo,
-      losses: { increment: 1 },
-      totalPnl: { decrement: match.betAmount },
-      currentStreak: 0,
-    },
-  });
-
-  // Broadcast match end to both players.
-  broadcastToMatch(match.id, {
+  broadcastToMatch(matchId, {
     type: "match_end",
-    matchId: match.id,
-    winner: winnerAddress,
-    p1Pnl,
-    p2Pnl,
-    eloChange: {
-      [winnerAddress]: newWinnerElo - winner.eloRating,
-      [loserAddress]: newLoserElo - loser.eloRating,
-    },
+    matchId,
+    winner: winner || null,
+    p1Roi: Math.round(p1Roi * 10000) / 100,
+    p2Roi: Math.round(p2Roi * 10000) / 100,
+    isTie,
+    isForfeit: false,
   });
 
   console.log(
-    `[Settlement] Match ${match.id} settled | Winner: ${winnerAddress} | PnL: ${p1Pnl.toFixed(2)} vs ${p2Pnl.toFixed(2)}`
+    `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner}`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
   );
+}
 
-  // TODO: Call Anchor end_game instruction for on-chain settlement.
-  // TODO: Notify winner they can call claim_winnings.
+function calculatePnl(pos: DbPosition, currentPrice: number): number {
+  const exitPrice = pos.exitPrice ?? currentPrice;
+  const priceDiff = pos.isLong
+    ? exitPrice - pos.entryPrice
+    : pos.entryPrice - exitPrice;
+  return (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+}
+
+async function updatePlayerStats(
+  player1: string,
+  player2: string,
+  winner: string | undefined,
+  betAmount: number,
+  isTie: boolean
+): Promise<void> {
+  const [p1, p2] = await Promise.all([getUser(player1), getUser(player2)]);
+  if (!p1 || !p2) return;
+
+  if (isTie) {
+    await Promise.all([
+      updateUser(player1, {
+        ties: (p1.ties || 0) + 1,
+        gamesPlayed: (p1.gamesPlayed || 0) + 1,
+        currentStreak: 0,
+      }),
+      updateUser(player2, {
+        ties: (p2.ties || 0) + 1,
+        gamesPlayed: (p2.gamesPlayed || 0) + 1,
+        currentStreak: 0,
+      }),
+    ]);
+  } else if (winner) {
+    const loser = winner === player1 ? player2 : player1;
+    const winnerStats = winner === player1 ? p1 : p2;
+    const loserStats = winner === player1 ? p2 : p1;
+
+    await Promise.all([
+      updateUser(winner, {
+        wins: (winnerStats.wins || 0) + 1,
+        gamesPlayed: (winnerStats.gamesPlayed || 0) + 1,
+        totalPnl: (winnerStats.totalPnl || 0) + betAmount * 0.5,
+        currentStreak: (winnerStats.currentStreak || 0) + 1,
+      }),
+      updateUser(loser, {
+        losses: (loserStats.losses || 0) + 1,
+        gamesPlayed: (loserStats.gamesPlayed || 0) + 1,
+        totalPnl: (loserStats.totalPnl || 0) - betAmount,
+        currentStreak: 0,
+      }),
+    ]);
+  }
 }

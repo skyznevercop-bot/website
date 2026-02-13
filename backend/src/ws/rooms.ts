@@ -92,6 +92,14 @@ export function broadcastToUser(
 }
 
 /**
+ * Check if a user currently has any active WebSocket connections.
+ */
+export function isUserConnected(address: string): boolean {
+  const conns = userConnections.get(address);
+  return !!conns && conns.size > 0;
+}
+
+/**
  * Get the number of active match rooms.
  */
 export function getActiveRoomCount(): number {

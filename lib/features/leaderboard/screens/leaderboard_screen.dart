@@ -8,12 +8,12 @@ import '../../wallet/providers/wallet_provider.dart';
 import '../models/leaderboard_models.dart';
 import '../providers/leaderboard_provider.dart';
 
-/// Leaderboard screen — gradient hero with top-3 podium + ELO rankings table.
+/// Leaderboard screen — gradient hero with top-3 podium + rankings table.
 class LeaderboardScreen extends ConsumerWidget {
   const LeaderboardScreen({super.key});
 
   static const _periods = ['Weekly', 'Monthly', 'All Time'];
-  static const _timeframes = ['All', '15m', '30m', '1h', '4h', '12h', '24h'];
+  static const _timeframes = ['All', '15m', '1h', '4h', '12h', '24h'];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -86,7 +86,7 @@ class LeaderboardScreen extends ConsumerWidget {
                 children: [
                   _HeaderCell('#', width: 48),
                   Expanded(child: _HeaderCell('Player')),
-                  _HeaderCell('ELO', width: 80),
+                  _HeaderCell('Wins', width: 80),
                   if (!isMobile) _HeaderCell('Win Rate', width: 90),
                   if (!isMobile) _HeaderCell('Games', width: 70),
                   _HeaderCell('PnL', width: 100),
@@ -347,7 +347,7 @@ class _PodiumSlot extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Name + ELO
+        // Name + Wins
         Text(
           player.gamerTag,
           style: GoogleFonts.inter(
@@ -360,7 +360,7 @@ class _PodiumSlot extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          '${player.eloRating} ELO',
+          '${player.wins}W ${player.losses}L',
           style: GoogleFonts.inter(
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -613,11 +613,11 @@ class _LeaderboardRowState extends State<_LeaderboardRow> {
               ),
             ),
 
-            // ELO
+            // Wins
             SizedBox(
               width: 80,
               child: Text(
-                '${p.eloRating}',
+                '${p.wins}',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

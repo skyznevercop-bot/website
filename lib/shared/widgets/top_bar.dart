@@ -99,20 +99,14 @@ class _Logo extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Purple diamond icon
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                gradient: AppTheme.purpleGradient,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Center(
-                child: Icon(
-                  Icons.bolt_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
+            // Logo image
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                'assets/logo.png',
+                width: 36,
+                height: 36,
+                fit: BoxFit.cover,
               ),
             ),
             if (!compact) ...[

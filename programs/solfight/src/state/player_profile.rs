@@ -8,12 +8,12 @@ pub struct PlayerProfile {
     /// Display name (max 16 UTF-8 bytes).
     #[max_len(16)]
     pub gamer_tag: String,
-    /// Current ELO rating (default 1200).
-    pub elo_rating: u32,
     /// Total wins.
     pub wins: u32,
     /// Total losses.
     pub losses: u32,
+    /// Total ties.
+    pub ties: u32,
     /// Cumulative PnL in USDC lamports (signed).
     pub total_pnl: i64,
     /// Current winning streak.

@@ -1,83 +1,92 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import { AuthRequest, requireAuth } from "../middleware/auth";
+import { clansRef, getUser } from "../services/firebase";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** GET /api/clan — List all clans. */
 router.get("/", async (req, res) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
-  const skip = (page - 1) * limit;
 
-  const [clans, total] = await Promise.all([
-    prisma.clan.findMany({
-      include: { members: { select: { id: true } } },
-      orderBy: { trophies: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.clan.count(),
-  ]);
+  const snap = await clansRef.once("value");
+  if (!snap.exists()) {
+    res.json({ clans: [], total: 0, page, limit });
+    return;
+  }
 
-  const result = clans.map((c) => ({
-    id: c.id,
-    name: c.name,
-    tag: c.tag,
-    description: c.description,
-    leaderAddress: c.leaderAddress,
-    memberCount: c.members.length,
-    maxMembers: c.maxMembers,
-    totalWins: c.totalWins,
-    totalLosses: c.totalLosses,
-    trophies: c.trophies,
-    createdAt: c.createdAt,
-  }));
+  const clans: Array<Record<string, unknown>> = [];
+  snap.forEach((child) => {
+    const c = child.val();
+    const members = c.members ? Object.keys(c.members) : [];
+    clans.push({
+      id: child.key,
+      name: c.name,
+      tag: c.tag,
+      description: c.description,
+      leaderAddress: c.leaderAddress,
+      memberCount: members.length,
+      maxMembers: c.maxMembers || 50,
+      totalWins: c.totalWins || 0,
+      totalLosses: c.totalLosses || 0,
+      trophies: c.trophies || 0,
+      createdAt: c.createdAt,
+    });
+  });
 
-  res.json({ clans: result, total, page, limit });
+  clans.sort((a, b) => (b.trophies as number) - (a.trophies as number));
+
+  const total = clans.length;
+  const start = (page - 1) * limit;
+
+  res.json({
+    clans: clans.slice(start, start + limit),
+    total,
+    page,
+    limit,
+  });
 });
 
 /** GET /api/clan/:id — Get clan details. */
 router.get("/:id", async (req, res) => {
-  const clan = await prisma.clan.findUnique({
-    where: { id: req.params.id },
-    include: {
-      members: {
-        include: {
-          user: {
-            select: {
-              walletAddress: true,
-              gamerTag: true,
-              eloRating: true,
-              wins: true,
-              losses: true,
-            },
-          },
-        },
-        orderBy: { role: "asc" },
-      },
-    },
-  });
+  const snap = await clansRef.child(req.params.id).once("value");
 
-  if (!clan) {
+  if (!snap.exists()) {
     res.status(404).json({ error: "Clan not found" });
     return;
   }
 
+  const clan = snap.val();
+  const membersObj = clan.members || {};
+  const memberAddresses = Object.keys(membersObj);
+
+  const members = await Promise.all(
+    memberAddresses.map(async (addr) => {
+      const user = await getUser(addr);
+      return {
+        address: addr,
+        gamerTag: user?.gamerTag || addr.slice(0, 8),
+        role: membersObj[addr].role,
+        wins: user?.wins || 0,
+        losses: user?.losses || 0,
+        joinedAt: membersObj[addr].joinedAt,
+      };
+    })
+  );
+
   res.json({
-    ...clan,
-    memberCount: clan.members.length,
-    members: clan.members.map((m) => ({
-      address: m.userAddress,
-      gamerTag: m.user.gamerTag || m.userAddress.slice(0, 8),
-      role: m.role,
-      elo: m.user.eloRating,
-      wins: m.user.wins,
-      losses: m.user.losses,
-      donations: m.donations,
-      joinedAt: m.joinedAt,
-    })),
+    id: req.params.id,
+    name: clan.name,
+    tag: clan.tag,
+    description: clan.description,
+    leaderAddress: clan.leaderAddress,
+    memberCount: members.length,
+    maxMembers: clan.maxMembers || 50,
+    totalWins: clan.totalWins || 0,
+    totalLosses: clan.totalLosses || 0,
+    trophies: clan.trophies || 0,
+    createdAt: clan.createdAt,
+    members,
   });
 });
 
@@ -91,117 +100,133 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   }
 
   // Check if user is already in a clan.
-  const existingMember = await prisma.clanMember.findUnique({
-    where: { userAddress: req.userAddress! },
-  });
+  const allClans = await clansRef.once("value");
+  let alreadyInClan = false;
 
-  if (existingMember) {
+  if (allClans.exists()) {
+    allClans.forEach((child) => {
+      const c = child.val();
+      if (c.members && c.members[req.userAddress!]) {
+        alreadyInClan = true;
+      }
+    });
+  }
+
+  if (alreadyInClan) {
     res.status(409).json({ error: "Already in a clan" });
     return;
   }
 
-  try {
-    const clan = await prisma.clan.create({
-      data: {
-        name,
-        tag: tag.toUpperCase(),
-        description: description || null,
-        leaderAddress: req.userAddress!,
-        members: {
-          create: {
-            userAddress: req.userAddress!,
-            role: "LEADER",
-          },
-        },
+  const ref = clansRef.push();
+  await ref.set({
+    name,
+    tag: tag.toUpperCase(),
+    description: description || null,
+    leaderAddress: req.userAddress!,
+    maxMembers: 50,
+    totalWins: 0,
+    totalLosses: 0,
+    trophies: 0,
+    createdAt: Date.now(),
+    members: {
+      [req.userAddress!]: {
+        role: "LEADER",
+        joinedAt: Date.now(),
       },
-    });
+    },
+  });
 
-    res.json(clan);
-  } catch {
-    res.status(409).json({ error: "Clan name or tag already taken" });
-  }
+  res.json({ id: ref.key, name, tag: tag.toUpperCase() });
 });
 
 /** POST /api/clan/:id/join — Join a clan. */
 router.post("/:id/join", requireAuth, async (req: AuthRequest, res) => {
   // Check if already in a clan.
-  const existing = await prisma.clanMember.findUnique({
-    where: { userAddress: req.userAddress! },
-  });
+  const allClans = await clansRef.once("value");
+  let alreadyInClan = false;
 
-  if (existing) {
+  if (allClans.exists()) {
+    allClans.forEach((child) => {
+      const c = child.val();
+      if (c.members && c.members[req.userAddress!]) {
+        alreadyInClan = true;
+      }
+    });
+  }
+
+  if (alreadyInClan) {
     res.status(409).json({ error: "Already in a clan" });
     return;
   }
 
-  const clan = await prisma.clan.findUnique({
-    where: { id: req.params.id },
-    include: { members: { select: { id: true } } },
-  });
-
-  if (!clan) {
+  const clanSnap = await clansRef.child(req.params.id).once("value");
+  if (!clanSnap.exists()) {
     res.status(404).json({ error: "Clan not found" });
     return;
   }
 
-  if (clan.members.length >= clan.maxMembers) {
+  const clan = clanSnap.val();
+  const memberCount = clan.members ? Object.keys(clan.members).length : 0;
+
+  if (memberCount >= (clan.maxMembers || 50)) {
     res.status(400).json({ error: "Clan is full" });
     return;
   }
 
-  await prisma.clanMember.create({
-    data: {
-      clanId: clan.id,
-      userAddress: req.userAddress!,
-      role: "MEMBER",
-    },
+  await clansRef.child(req.params.id).child("members").child(req.userAddress!).set({
+    role: "MEMBER",
+    joinedAt: Date.now(),
   });
 
-  res.json({ status: "joined", clanId: clan.id });
+  res.json({ status: "joined", clanId: req.params.id });
 });
 
 /** DELETE /api/clan/:id/leave — Leave a clan. */
 router.delete("/:id/leave", requireAuth, async (req: AuthRequest, res) => {
-  const member = await prisma.clanMember.findUnique({
-    where: { userAddress: req.userAddress! },
-  });
+  const clanSnap = await clansRef.child(req.params.id).once("value");
+  if (!clanSnap.exists()) {
+    res.status(404).json({ error: "Clan not found" });
+    return;
+  }
 
-  if (!member || member.clanId !== req.params.id) {
+  const clan = clanSnap.val();
+  if (!clan.members || !clan.members[req.userAddress!]) {
     res.status(404).json({ error: "Not in this clan" });
     return;
   }
 
-  if (member.role === "LEADER") {
-    // Transfer leadership or dissolve clan.
-    const otherMembers = await prisma.clanMember.findMany({
-      where: { clanId: req.params.id, NOT: { userAddress: req.userAddress! } },
-      orderBy: { role: "asc" },
-    });
+  const memberRole = clan.members[req.userAddress!].role;
+
+  if (memberRole === "LEADER") {
+    const otherMembers = Object.entries(clan.members).filter(
+      ([addr]) => addr !== req.userAddress
+    );
 
     if (otherMembers.length > 0) {
-      // Transfer to next highest role.
-      await prisma.clanMember.update({
-        where: { id: otherMembers[0].id },
-        data: { role: "LEADER" },
+      // Transfer leadership.
+      const [newLeaderAddr] = otherMembers[0];
+      await clansRef.child(req.params.id).update({
+        leaderAddress: newLeaderAddr,
       });
-      await prisma.clan.update({
-        where: { id: req.params.id },
-        data: { leaderAddress: otherMembers[0].userAddress },
-      });
+      await clansRef
+        .child(req.params.id)
+        .child("members")
+        .child(newLeaderAddr)
+        .update({ role: "LEADER" });
     } else {
       // Dissolve clan.
-      await prisma.clan.delete({ where: { id: req.params.id } });
-      await prisma.clanMember.delete({
-        where: { userAddress: req.userAddress! },
-      });
+      await clansRef.child(req.params.id).remove();
       res.json({ status: "clan_dissolved" });
       return;
     }
   }
 
-  await prisma.clanMember.delete({
-    where: { userAddress: req.userAddress! },
-  });
+  // Remove member.
+  await clansRef
+    .child(req.params.id)
+    .child("members")
+    .child(req.userAddress!)
+    .remove();
 
   res.json({ status: "left" });
 });

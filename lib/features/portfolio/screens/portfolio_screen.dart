@@ -9,8 +9,6 @@ import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
 import '../models/transaction_models.dart';
 import '../providers/portfolio_provider.dart';
-import '../widgets/deposit_modal.dart';
-import '../widgets/withdraw_modal.dart';
 
 /// Portfolio screen — wallet balance, open positions, match history, PnL chart.
 class PortfolioScreen extends ConsumerWidget {
@@ -102,8 +100,6 @@ class PortfolioScreen extends ConsumerWidget {
               child: _PortfolioHero(
                 balance: wallet.usdcBalance ?? 0,
                 isMobile: isMobile,
-                onDeposit: () => showDepositModal(context),
-                onWithdraw: () => showWithdrawModal(context),
               ),
             ),
             const SizedBox(height: 32),
@@ -277,14 +273,10 @@ class PortfolioScreen extends ConsumerWidget {
 class _PortfolioHero extends StatelessWidget {
   final double balance;
   final bool isMobile;
-  final VoidCallback onDeposit;
-  final VoidCallback onWithdraw;
 
   const _PortfolioHero({
     required this.balance,
     required this.isMobile,
-    required this.onDeposit,
-    required this.onWithdraw,
   });
 
   @override
@@ -501,66 +493,6 @@ class _PortfolioHero extends StatelessWidget {
                         ),
                 ),
 
-                const SizedBox(height: 20),
-
-                // Action buttons
-                Row(
-                  children: [
-                    Expanded(
-                      child: SizedBox(
-                        height: 46,
-                        child: ElevatedButton.icon(
-                          onPressed: onDeposit,
-                          icon: const Icon(Icons.arrow_downward_rounded,
-                              size: 18),
-                          label: Text(
-                            'Deposit',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.solanaGreen,
-                            foregroundColor: AppTheme.background,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMd),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: SizedBox(
-                        height: 46,
-                        child: OutlinedButton.icon(
-                          onPressed: onWithdraw,
-                          icon: const Icon(Icons.arrow_upward_rounded,
-                              size: 18),
-                          label: Text(
-                            'Withdraw',
-                            style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  AppTheme.radiusMd),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),

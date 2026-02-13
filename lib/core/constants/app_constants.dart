@@ -14,13 +14,16 @@ class AppConstants {
 
   // ── Queue Timeframes ──────────────────────────────────────────────────────
   static const List<QueueTimeframe> timeframes = [
-    QueueTimeframe(label: '15m', duration: Duration(minutes: 15), entryFee: 10),
-    QueueTimeframe(label: '30m', duration: Duration(minutes: 30), entryFee: 10),
-    QueueTimeframe(label: '1h', duration: Duration(hours: 1), entryFee: 25),
-    QueueTimeframe(label: '4h', duration: Duration(hours: 4), entryFee: 25),
-    QueueTimeframe(label: '12h', duration: Duration(hours: 12), entryFee: 50),
-    QueueTimeframe(label: '24h', duration: Duration(hours: 24), entryFee: 50),
+    QueueTimeframe(label: '15m', duration: Duration(minutes: 15)),
+    QueueTimeframe(label: '1h', duration: Duration(hours: 1)),
+    QueueTimeframe(label: '4h', duration: Duration(hours: 4)),
+    QueueTimeframe(label: '12h', duration: Duration(hours: 12)),
+    QueueTimeframe(label: '24h', duration: Duration(hours: 24)),
   ];
+
+  // ── Bet Amounts (USDC) ──────────────────────────────────────────────────
+  static const List<int> betAmounts = [1, 2, 5, 10, 25, 50, 100];
+  static const int defaultBetIndex = 3; // $10
 
   // ── Layout ────────────────────────────────────────────────────────────────
   static const double topBarHeight = 64.0;
@@ -43,11 +46,9 @@ class AppConstants {
 class QueueTimeframe {
   final String label;
   final Duration duration;
-  final double entryFee; // in USDC
 
   const QueueTimeframe({
     required this.label,
     required this.duration,
-    required this.entryFee,
   });
 }

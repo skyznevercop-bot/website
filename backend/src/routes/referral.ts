@@ -1,53 +1,46 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import { AuthRequest, requireAuth } from "../middleware/auth";
+import { referralsRef, usersRef } from "../services/firebase";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** GET /api/referral/code — Get or generate referral code. */
 router.get("/code", requireAuth, async (req: AuthRequest, res) => {
   const address = req.userAddress!;
-  // Referral code = first 4 + last 4 characters of wallet address.
   const code =
     `${address.substring(0, 4)}${address.substring(address.length - 4)}`.toUpperCase();
-
   res.json({ code });
 });
 
 /** GET /api/referral/stats — Get referral statistics. */
 router.get("/stats", requireAuth, async (req: AuthRequest, res) => {
-  const referrals = await prisma.referral.findMany({
-    where: { referrerAddress: req.userAddress! },
-    include: {
-      referee: {
-        select: { gamerTag: true, walletAddress: true },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  const snap = await referralsRef
+    .orderByChild("referrerAddress")
+    .equalTo(req.userAddress!)
+    .once("value");
 
-  const totalEarned = referrals.reduce((sum, r) => sum + r.rewardPaid, 0);
+  const referrals: Array<Record<string, unknown>> = [];
+  let totalEarned = 0;
 
-  // Calculate pending reward (referees who deposited but reward not yet claimed).
-  const pendingReferrals = referrals.filter(
-    (r) => r.status === "DEPOSITED" || r.status === "PLAYED"
-  );
-  const pendingReward = pendingReferrals.reduce((sum, r) => {
-    const maxReward = r.status === "PLAYED" ? 10 : 5;
-    return sum + Math.max(0, maxReward - r.rewardPaid);
-  }, 0);
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      const r = child.val();
+      referrals.push({
+        refereeAddress: child.key,
+        status: r.status,
+        rewardEarned: r.rewardPaid || 0,
+        joinedAt: r.createdAt,
+      });
+      totalEarned += r.rewardPaid || 0;
+    });
+  }
 
+  const address = req.userAddress!;
   res.json({
-    code: `${req.userAddress!.substring(0, 4)}${req.userAddress!.substring(req.userAddress!.length - 4)}`.toUpperCase(),
-    referrals: referrals.map((r) => ({
-      gamerTag: r.referee.gamerTag || r.referee.walletAddress.slice(0, 8),
-      status: r.status,
-      rewardEarned: r.rewardPaid,
-      joinedAt: r.createdAt,
-    })),
+    code: `${address.substring(0, 4)}${address.substring(address.length - 4)}`.toUpperCase(),
+    referrals,
     totalEarned,
-    pendingReward,
+    pendingReward: 0,
   });
 });
 
@@ -59,52 +52,50 @@ router.post("/apply", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  // Find the referrer by their code.
-  const allUsers = await prisma.user.findMany({
-    select: { walletAddress: true },
-  });
+  // Find the referrer by scanning users.
+  const usersSnap = await usersRef.once("value");
+  let referrerAddress: string | null = null;
 
-  const referrer = allUsers.find((u) => {
-    const userCode =
-      `${u.walletAddress.substring(0, 4)}${u.walletAddress.substring(u.walletAddress.length - 4)}`.toUpperCase();
-    return userCode === code.toUpperCase();
-  });
+  if (usersSnap.exists()) {
+    usersSnap.forEach((child) => {
+      const addr = child.key!;
+      const userCode =
+        `${addr.substring(0, 4)}${addr.substring(addr.length - 4)}`.toUpperCase();
+      if (userCode === code.toUpperCase()) {
+        referrerAddress = addr;
+      }
+    });
+  }
 
-  if (!referrer) {
+  if (!referrerAddress) {
     res.status(404).json({ error: "Referral code not found" });
     return;
   }
 
-  if (referrer.walletAddress === req.userAddress) {
+  if (referrerAddress === req.userAddress) {
     res.status(400).json({ error: "Cannot refer yourself" });
     return;
   }
 
   // Check if already referred.
-  const existing = await prisma.referral.findUnique({
-    where: { refereeAddress: req.userAddress! },
-  });
-
-  if (existing) {
+  const existingSnap = await referralsRef.child(req.userAddress!).once("value");
+  if (existingSnap.exists()) {
     res.status(409).json({ error: "Already referred" });
     return;
   }
 
-  await prisma.referral.create({
-    data: {
-      referrerAddress: referrer.walletAddress,
-      refereeAddress: req.userAddress!,
-      status: "JOINED",
-    },
+  await referralsRef.child(req.userAddress!).set({
+    referrerAddress,
+    status: "JOINED",
+    rewardPaid: 0,
+    createdAt: Date.now(),
   });
 
-  res.json({ status: "applied", referrer: referrer.walletAddress });
+  res.json({ status: "applied", referrer: referrerAddress });
 });
 
 /** POST /api/referral/claim — Claim pending referral rewards. */
-router.post("/claim", requireAuth, async (req: AuthRequest, res) => {
-  // Rewards are auto-credited by wallet-monitor when status changes.
-  // This endpoint is for any manual claim logic if needed.
+router.post("/claim", requireAuth, async (_req: AuthRequest, res) => {
   res.json({ status: "ok", message: "Rewards are auto-credited on referral milestones" });
 });
 

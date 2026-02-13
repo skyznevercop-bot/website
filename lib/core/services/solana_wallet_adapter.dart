@@ -9,34 +9,42 @@ class WalletConnectionResult {
 }
 
 /// Adapter for connecting to Solana wallets via browser extension JS interop.
+///
+/// Supports two connection modes:
+/// - **Legacy providers**: Phantom, Solflare, Backpack inject globals like
+///   `window.phantom.solana`, `window.solflare`, `window.backpack`.
+/// - **Wallet Standard**: Jupiter (and other modern wallets) register via the
+///   Wallet Standard protocol. A JS bridge in index.html exposes them through
+///   `window._walletStandard`.
 class SolanaWalletAdapter {
   SolanaWalletAdapter._();
+
+  // ── Detection ─────────────────────────────────────────────
 
   /// Check if a wallet extension is installed.
   static bool isWalletInstalled(String walletName) {
     try {
-      switch (walletName.toLowerCase()) {
-        case 'phantom':
-          final phantom =
-              globalContext.getProperty('phantom'.toJS) as JSObject?;
-          if (phantom == null) return false;
-          final solana = phantom.getProperty('solana'.toJS);
-          return solana != null && solana.isA<JSObject>();
-        case 'solflare':
-          final solflare = globalContext.getProperty('solflare'.toJS);
-          return solflare != null && solflare.isA<JSObject>();
-        case 'backpack':
-          final backpack = globalContext.getProperty('backpack'.toJS);
-          return backpack != null && backpack.isA<JSObject>();
-        default:
-          return false;
-      }
+      if (_getProvider(walletName) != null) return true;
+      // Fallback: check Wallet Standard registry.
+      return _isWalletStandardAvailable(walletName);
     } catch (_) {
       return false;
     }
   }
 
-  /// Get the wallet provider object for the given wallet name.
+  /// Get all detected wallet names.
+  static List<String> getDetectedWallets() {
+    final wallets = <String>[];
+    if (isWalletInstalled('phantom')) wallets.add('Phantom');
+    if (isWalletInstalled('solflare')) wallets.add('Solflare');
+    if (isWalletInstalled('backpack')) wallets.add('Backpack');
+    if (isWalletInstalled('jupiter')) wallets.add('Jupiter');
+    return wallets;
+  }
+
+  // ── Legacy provider lookup ────────────────────────────────
+
+  /// Get the legacy wallet provider object for the given wallet name.
   static JSObject? _getProvider(String walletName) {
     try {
       switch (walletName.toLowerCase()) {
@@ -50,8 +58,17 @@ class SolanaWalletAdapter {
           final solflare = globalContext.getProperty('solflare'.toJS);
           return solflare.isA<JSObject>() ? solflare as JSObject : null;
         case 'backpack':
+          final xnft = globalContext.getProperty('xnft'.toJS);
+          if (xnft != null && xnft.isA<JSObject>()) {
+            final solana = (xnft as JSObject).getProperty('solana'.toJS);
+            if (solana != null && solana.isA<JSObject>()) {
+              return solana as JSObject;
+            }
+          }
           final backpack = globalContext.getProperty('backpack'.toJS);
-          return backpack.isA<JSObject>() ? backpack as JSObject : null;
+          return backpack != null && backpack.isA<JSObject>()
+              ? backpack as JSObject
+              : null;
         default:
           return null;
       }
@@ -60,37 +77,120 @@ class SolanaWalletAdapter {
     }
   }
 
+  // ── Wallet Standard helpers ───────────────────────────────
+
+  static JSObject? get _walletStandardBridge {
+    final ws = globalContext.getProperty('_walletStandard'.toJS);
+    return ws != null && ws.isA<JSObject>() ? ws as JSObject : null;
+  }
+
+  static bool _isWalletStandardAvailable(String walletName) {
+    try {
+      final bridge = _walletStandardBridge;
+      if (bridge == null) return false;
+      final wallet = bridge.callMethod('getByName'.toJS, walletName.toJS);
+      return wallet != null && wallet.isA<JSObject>();
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Connect ───────────────────────────────────────────────
+
   /// Connect to a wallet. Returns the public key string on success.
   static Future<WalletConnectionResult> connect(String walletName) async {
+    // Try legacy provider first (Phantom, Solflare, Backpack).
     final provider = _getProvider(walletName);
-    if (provider == null) {
-      throw WalletException('$walletName wallet not found');
+    if (provider != null) {
+      return _connectLegacy(provider, walletName);
     }
 
+    // Fall back to Wallet Standard (Jupiter and others).
+    // Always attempt for wallets without a legacy provider — the JS bridge
+    // has a built-in retry loop that waits for late-loading extensions.
+    if (_walletStandardBridge != null) {
+      return _connectWalletStandard(walletName);
+    }
+
+    throw WalletException(
+        '$walletName wallet not found. Please install the $walletName browser extension.');
+  }
+
+  /// Connect via a legacy injected provider.
+  static Future<WalletConnectionResult> _connectLegacy(
+      JSObject provider, String walletName) async {
     final connectResult =
         provider.callMethod('connect'.toJS) as JSPromise;
-    final result = (await connectResult.toDart) as JSObject;
+    final result = await connectResult.toDart;
 
-    final publicKey = result.getProperty('publicKey'.toJS) as JSObject;
-    final base58 =
-        publicKey.callMethod('toString'.toJS) as JSString;
+    // Some wallets (Phantom) return { publicKey } from connect().
+    // Others (Solflare) resolve to a boolean and expose publicKey on the
+    // provider object instead. Handle both cases.
+    JSObject publicKey;
+    if (result.isA<JSObject>()) {
+      final pk = (result as JSObject).getProperty('publicKey'.toJS);
+      if (pk != null && pk.isA<JSObject>()) {
+        publicKey = pk as JSObject;
+      } else {
+        final providerPk = provider.getProperty('publicKey'.toJS);
+        if (providerPk != null && providerPk.isA<JSObject>()) {
+          publicKey = providerPk as JSObject;
+        } else {
+          throw WalletException('Failed to get public key from $walletName');
+        }
+      }
+    } else {
+      final providerPk = provider.getProperty('publicKey'.toJS);
+      if (providerPk != null && providerPk.isA<JSObject>()) {
+        publicKey = providerPk as JSObject;
+      } else {
+        throw WalletException('Failed to get public key from $walletName');
+      }
+    }
 
+    final base58 = publicKey.callMethod('toString'.toJS) as JSString;
     return WalletConnectionResult(base58.toDart);
   }
 
+  /// Connect via the Wallet Standard JS bridge.
+  static Future<WalletConnectionResult> _connectWalletStandard(
+      String walletName) async {
+    final bridge = _walletStandardBridge!;
+    final promise =
+        bridge.callMethod('connect'.toJS, walletName.toJS) as JSPromise;
+    final result = (await promise.toDart) as JSObject;
+
+    final pk = result.getProperty('publicKey'.toJS) as JSString;
+    return WalletConnectionResult(pk.toDart);
+  }
+
+  // ── Disconnect ────────────────────────────────────────────
+
   /// Disconnect the wallet.
   static Future<void> disconnect(String walletName) async {
+    // Legacy provider.
     final provider = _getProvider(walletName);
-    if (provider == null) return;
+    if (provider != null) {
+      try {
+        final disconnectResult =
+            provider.callMethod('disconnect'.toJS) as JSPromise;
+        await disconnectResult.toDart;
+      } catch (_) {}
+      return;
+    }
 
-    try {
-      final disconnectResult =
-          provider.callMethod('disconnect'.toJS) as JSPromise;
-      await disconnectResult.toDart;
-    } catch (_) {
-      // Some wallets don't support disconnect — ignore.
+    // Wallet Standard.
+    final bridge = _walletStandardBridge;
+    if (bridge != null) {
+      try {
+        final promise =
+            bridge.callMethod('disconnect'.toJS, walletName.toJS) as JSPromise;
+        await promise.toDart;
+      } catch (_) {}
     }
   }
+
+  // ── Sign Message ──────────────────────────────────────────
 
   /// Sign a message with the wallet (for authentication).
   /// Returns the signature as a Uint8List.
@@ -98,22 +198,33 @@ class SolanaWalletAdapter {
     String walletName,
     Uint8List message,
   ) async {
+    // Legacy provider.
     final provider = _getProvider(walletName);
-    if (provider == null) {
-      throw WalletException('$walletName wallet not found');
+    if (provider != null) {
+      final jsMessage = message.toJS;
+      final signResult = provider.callMethod(
+          'signMessage'.toJS, jsMessage, 'utf8'.toJS) as JSPromise;
+      final result = (await signResult.toDart) as JSObject;
+      final signature =
+          result.getProperty('signature'.toJS) as JSUint8Array;
+      return signature.toDart;
     }
 
-    final jsMessage = message.toJS;
+    // Wallet Standard.
+    final bridge = _walletStandardBridge;
+    if (bridge != null && _isWalletStandardAvailable(walletName)) {
+      final promise = bridge.callMethod(
+          'signMessage'.toJS, walletName.toJS, message.toJS) as JSPromise;
+      final result = (await promise.toDart) as JSObject;
+      final signature =
+          result.getProperty('signature'.toJS) as JSUint8Array;
+      return signature.toDart;
+    }
 
-    final signResult = provider.callMethod(
-        'signMessage'.toJS, jsMessage, 'utf8'.toJS) as JSPromise;
-    final result = (await signResult.toDart) as JSObject;
-
-    final signature =
-        result.getProperty('signature'.toJS) as JSUint8Array;
-
-    return signature.toDart;
+    throw WalletException('$walletName wallet not found');
   }
+
+  // ── Sign & Send Transaction ───────────────────────────────
 
   /// Sign and send a transaction.
   /// [transactionBytes] is the serialized transaction.
@@ -146,15 +257,6 @@ class SolanaWalletAdapter {
         result.getProperty('signature'.toJS) as JSString;
 
     return signature.toDart;
-  }
-
-  /// Get all detected wallet names.
-  static List<String> getDetectedWallets() {
-    final wallets = <String>[];
-    if (isWalletInstalled('phantom')) wallets.add('Phantom');
-    if (isWalletInstalled('solflare')) wallets.add('Solflare');
-    if (isWalletInstalled('backpack')) wallets.add('Backpack');
-    return wallets;
   }
 }
 

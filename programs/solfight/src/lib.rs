@@ -38,17 +38,24 @@ pub mod solfight {
     }
 
     /// Backend settles the game with the winner and PnL data.
+    /// Pass `winner = None` for ties, `is_forfeit = true` for disconnect forfeits.
     pub fn end_game(
         ctx: Context<EndGame>,
-        winner: Pubkey,
+        winner: Option<Pubkey>,
         player_one_pnl: i64,
         player_two_pnl: i64,
+        is_forfeit: bool,
     ) -> Result<()> {
-        instructions::end_game::handler(ctx, winner, player_one_pnl, player_two_pnl)
+        instructions::end_game::handler(ctx, winner, player_one_pnl, player_two_pnl, is_forfeit)
     }
 
-    /// Winner claims their payout from the escrow.
+    /// Winner claims their payout from the escrow (Settled or Forfeited games).
     pub fn claim_winnings(ctx: Context<ClaimWinnings>) -> Result<()> {
         instructions::claim_winnings::handler(ctx)
+    }
+
+    /// Refund escrow to both players (Tied or Cancelled games).
+    pub fn refund_escrow(ctx: Context<RefundEscrow>) -> Result<()> {
+        instructions::refund_escrow::handler(ctx)
     }
 }

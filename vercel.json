@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "buildCommand": null,
+  "outputDirectory": "build/web",
+  "rewrites": [
+    {
+      "source": "/((?!assets|canvaskit|icons|flutter|main|manifest|version|favicon|tradingview).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        }
+      ]
+    }
+  ]
+}

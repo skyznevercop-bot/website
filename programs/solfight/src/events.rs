@@ -33,11 +33,11 @@ pub struct GameStarted {
 #[event]
 pub struct GameSettled {
     pub game_id: u64,
-    pub winner: Pubkey,
+    pub winner: Option<Pubkey>,
     pub player_one_pnl: i64,
     pub player_two_pnl: i64,
-    pub winner_new_elo: u32,
-    pub loser_new_elo: u32,
+    pub is_tie: bool,
+    pub is_forfeit: bool,
 }
 
 #[event]
@@ -46,4 +46,12 @@ pub struct WinningsClaimed {
     pub winner: Pubkey,
     pub payout: u64,
     pub fee: u64,
+}
+
+#[event]
+pub struct EscrowRefunded {
+    pub game_id: u64,
+    pub player_one: Pubkey,
+    pub player_two: Pubkey,
+    pub refund_amount: u64,
 }

@@ -65,6 +65,7 @@
 </head>
 <body>
   <div class="loading" id="loading">
+    <img src="icons/Icon-192.png" alt="SolFight" width="80" height="80" style="border-radius: 16px; margin-bottom: 16px;">
     <h1>Sol<span>Fight</span></h1>
     <p>Loading the arena...</p>
     <div class="spinner"></div>
@@ -87,6 +88,159 @@
   <script>
     // Expose solanaWeb3 globally for Dart JS interop.
     window.solanaWeb3 = solanaWeb3;
+
+    // Fetch USDC balance from Solana mainnet via native fetch (avoids Dart http CORS issues).
+    window._getUsdcBalance = function(address) {
+      return fetch('https://api.mainnet-beta.solana.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getTokenAccountsByOwner',
+          params: [
+            address,
+            { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
+            { encoding: 'jsonParsed' }
+          ]
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var accounts = data.result && data.result.value;
+        if (!accounts || !accounts.length) return 0;
+        var total = 0;
+        for (var i = 0; i < accounts.length; i++) {
+          try {
+            var amt = accounts[i].account.data.parsed.info.tokenAmount;
+            total += parseFloat(amt.uiAmountString || '0');
+          } catch(e) {}
+        }
+        return total;
+      })
+      .catch(function() { return 0; });
+    };
+
+    // Fetch SOL balance from Solana mainnet.
+    window._getSolBalance = function(address) {
+      return fetch('https://api.mainnet-beta.solana.com', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getBalance',
+          params: [address]
+        })
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        var lamports = data.result && data.result.value;
+        return typeof lamports === 'number' ? lamports / 1e9 : 0;
+      })
+      .catch(function() { return 0; });
+    };
+  </script>
+
+  <!-- Wallet Standard discovery bridge (for Jupiter and other modern wallets) -->
+  <script>
+    (function() {
+      var wallets = [];
+
+      function addWallet(w) {
+        // Deduplicate by name.
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name === w.name) return;
+        }
+        wallets.push(w);
+      }
+
+      // Listen for wallets that register after app-ready.
+      window.addEventListener('wallet-standard:register-wallet', function(e) {
+        if (e.detail && typeof e.detail.register === 'function') {
+          e.detail.register(function(wallet) { addWallet(wallet); });
+        }
+      });
+
+      // Tell wallets the app is ready (triggers wallets that loaded first).
+      function emitAppReady() {
+        window.dispatchEvent(new CustomEvent('wallet-standard:app-ready', {
+          detail: {
+            register: function() {
+              for (var i = 0; i < arguments.length; i++) { addWallet(arguments[i]); }
+            }
+          }
+        }));
+      }
+      emitAppReady();
+
+      // Fuzzy name lookup: exact match first, then substring match.
+      function findByName(name) {
+        var lower = name.toLowerCase();
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name && wallets[i].name.toLowerCase() === lower) return wallets[i];
+        }
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name && wallets[i].name.toLowerCase().indexOf(lower) !== -1) return wallets[i];
+        }
+        return null;
+      }
+
+      // Expose helpers for Dart JS interop.
+      window._walletStandard = {
+        getWallets: function() { return wallets; },
+        getByName: findByName,
+        // Connect with retry — handles extensions that inject asynchronously.
+        connect: function(name) {
+          return new Promise(function(resolve, reject) {
+            var attempts = 0;
+            function tryConnect() {
+              var wallet = findByName(name);
+              if (wallet) {
+                var feat = wallet.features && wallet.features['standard:connect'];
+                if (!feat || typeof feat.connect !== 'function') {
+                  return reject(new Error(name + ' does not support connect'));
+                }
+                return feat.connect().then(function(result) {
+                  var acct = result.accounts && result.accounts[0];
+                  if (!acct) throw new Error('No accounts returned from ' + name);
+                  resolve({ publicKey: acct.address });
+                }).catch(reject);
+              }
+              attempts++;
+              if (attempts <= 15) {
+                // Re-emit app-ready on first retry to catch late-loading wallets.
+                if (attempts === 1) emitAppReady();
+                setTimeout(tryConnect, 200);
+              } else {
+                reject(new Error(name + ' wallet not found. Please install the ' + name + ' browser extension.'));
+              }
+            }
+            tryConnect();
+          });
+        },
+        disconnect: function(name) {
+          var wallet = findByName(name);
+          if (!wallet) return Promise.resolve();
+          var feat = wallet.features && wallet.features['standard:disconnect'];
+          if (!feat || typeof feat.disconnect !== 'function') return Promise.resolve();
+          return feat.disconnect();
+        },
+        signMessage: function(name, messageBytes) {
+          var wallet = findByName(name);
+          if (!wallet) return Promise.reject(new Error(name + ' wallet not found'));
+          var feat = wallet.features && wallet.features['solana:signMessage'];
+          if (!feat || typeof feat.signMessage !== 'function') {
+            return Promise.reject(new Error(name + ' does not support signMessage'));
+          }
+          var account = wallet.accounts && wallet.accounts[0];
+          if (!account) return Promise.reject(new Error('Not connected to ' + name));
+          return feat.signMessage({ message: messageBytes, account: account }).then(function(result) {
+            return { signature: result.signature };
+          });
+        }
+      };
+    })();
   </script>
 
   <script src="flutter_bootstrap.js" async></script>

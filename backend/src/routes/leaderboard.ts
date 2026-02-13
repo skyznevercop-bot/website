@@ -1,70 +1,64 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import { usersRef } from "../services/firebase";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** GET /api/leaderboard — Query the leaderboard. */
 router.get("/", async (req, res) => {
-  const sortBy = (req.query.sortBy as string) || "elo";
+  const sortBy = (req.query.sortBy as string) || "wins";
   const page = parseInt(req.query.page as string) || 1;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-  const skip = (page - 1) * limit;
 
-  let orderBy: Record<string, string>;
+  const snap = await usersRef.once("value");
+  if (!snap.exists()) {
+    res.json({ players: [], total: 0, page, limit });
+    return;
+  }
+
+  const players: Array<Record<string, unknown>> = [];
+  snap.forEach((child) => {
+    const u = child.val();
+    const gamesPlayed = (u.wins || 0) + (u.losses || 0) + (u.ties || 0);
+    if (gamesPlayed > 0) {
+      players.push({
+        walletAddress: child.key,
+        gamerTag: u.gamerTag,
+        wins: u.wins || 0,
+        losses: u.losses || 0,
+        ties: u.ties || 0,
+        totalPnl: u.totalPnl || 0,
+        currentStreak: u.currentStreak || 0,
+        gamesPlayed,
+        winRate:
+          gamesPlayed > 0
+            ? Math.round(((u.wins || 0) / gamesPlayed) * 100)
+            : 0,
+      });
+    }
+  });
+
   switch (sortBy) {
-    case "wins":
-      orderBy = { wins: "desc" };
-      break;
     case "pnl":
-      orderBy = { totalPnl: "desc" };
+      players.sort((a, b) => (b.totalPnl as number) - (a.totalPnl as number));
       break;
     case "streak":
-      orderBy = { currentStreak: "desc" };
+      players.sort(
+        (a, b) => (b.currentStreak as number) - (a.currentStreak as number)
+      );
       break;
-    case "elo":
+    case "wins":
     default:
-      orderBy = { eloRating: "desc" };
+      players.sort((a, b) => (b.wins as number) - (a.wins as number));
       break;
   }
 
-  const [players, total] = await Promise.all([
-    prisma.user.findMany({
-      where: {
-        // Only include players who have played at least 1 game.
-        OR: [{ wins: { gt: 0 } }, { losses: { gt: 0 } }],
-      },
-      select: {
-        walletAddress: true,
-        gamerTag: true,
-        eloRating: true,
-        wins: true,
-        losses: true,
-        totalPnl: true,
-        currentStreak: true,
-      },
-      orderBy,
-      skip,
-      take: limit,
-    }),
-    prisma.user.count({
-      where: {
-        OR: [{ wins: { gt: 0 } }, { losses: { gt: 0 } }],
-      },
-    }),
-  ]);
+  const total = players.length;
+  const start = (page - 1) * limit;
+  const paged = players.slice(start, start + limit);
 
-  // Add rank based on position in results.
-  const ranked = players.map((player, idx) => ({
-    rank: skip + idx + 1,
+  const ranked = paged.map((player, idx) => ({
+    rank: start + idx + 1,
     ...player,
-    gamesPlayed: player.wins + player.losses,
-    winRate:
-      player.wins + player.losses > 0
-        ? Math.round(
-            (player.wins / (player.wins + player.losses)) * 100
-          )
-        : 0,
   }));
 
   res.json({ players: ranked, total, page, limit });

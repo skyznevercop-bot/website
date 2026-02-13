@@ -7,7 +7,6 @@ import { setupWebSocket } from "./ws/handler";
 import { startMatchmakingLoop } from "./services/matchmaking";
 import { startPriceOracle } from "./services/price-oracle";
 import { startSettlementLoop } from "./services/settlement";
-import { startWalletMonitor } from "./services/wallet-monitor";
 
 // Routes
 import userRoutes from "./routes/user";
@@ -47,7 +46,6 @@ setupWebSocket(server);
 startMatchmakingLoop();
 startPriceOracle();
 startSettlementLoop();
-startWalletMonitor();
 
 // Start server
 server.listen(config.port, () => {
@@ -59,10 +57,10 @@ server.listen(config.port, () => {
   │  WebSocket: ws://localhost:${config.port}/ws     │
   │                                         │
   │  Services:                              │
-  │    ✓ Matchmaking (500ms loop)           │
+  │    ✓ Matchmaking (500ms FIFO)           │
   │    ✓ Price Oracle (3s fetch, 1s push)   │
   │    ✓ Settlement (5s check)              │
-  │    ✓ Wallet Monitor (10s poll)          │
+  │    ✓ Firebase Realtime Database         │
   └─────────────────────────────────────────┘
   `);
 });

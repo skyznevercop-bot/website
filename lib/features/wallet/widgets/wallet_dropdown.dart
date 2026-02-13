@@ -7,8 +7,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../portfolio/widgets/deposit_modal.dart';
-import '../../portfolio/widgets/withdraw_modal.dart';
 import '../providers/wallet_provider.dart';
 
 /// Profile dropdown shown in the top bar when wallet is connected.
@@ -123,17 +121,6 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             icon: Icons.copy_rounded,
             label: 'Copy Address',
             value: 'copy_address',
-          ),
-          _buildMenuItem(
-            icon: Icons.arrow_downward_rounded,
-            label: 'Deposit',
-            value: 'deposit',
-            color: AppTheme.solanaGreen,
-          ),
-          _buildMenuItem(
-            icon: Icons.arrow_upward_rounded,
-            label: 'Withdraw',
-            value: 'withdraw',
           ),
           _buildMenuItem(
             icon: Icons.bar_chart_rounded,
@@ -276,12 +263,6 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
         break;
       case 'edit_tag':
         _showGamerTagDialog(context);
-        break;
-      case 'deposit':
-        showDepositModal(context);
-        break;
-      case 'withdraw':
-        showWithdrawModal(context);
         break;
       case 'referrals':
         context.go(AppConstants.referralRoute);

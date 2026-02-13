@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import {
   AuthRequest,
   requireAuth,
@@ -7,9 +6,9 @@ import {
   verifyWalletSignature,
   issueToken,
 } from "../middleware/auth";
+import { getUser, updateUser, noncesRef } from "../services/firebase";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** GET /api/auth/nonce?address=... — Get a nonce for wallet signature. */
 router.get("/auth/nonce", async (req, res) => {
@@ -33,11 +32,10 @@ router.post("/auth/verify", async (req, res) => {
   }
 
   // Verify the nonce matches what we stored.
-  const user = await prisma.user.findUnique({
-    where: { walletAddress: address },
-  });
+  const storedNonceSnap = await noncesRef.child(address).once("value");
+  const storedNonce = storedNonceSnap.val();
 
-  if (!user || user.nonce !== nonce) {
+  if (!storedNonce || storedNonce !== nonce) {
     res.status(401).json({ error: "Invalid nonce" });
     return;
   }
@@ -52,10 +50,7 @@ router.post("/auth/verify", async (req, res) => {
   }
 
   // Clear nonce (single-use) and issue token.
-  await prisma.user.update({
-    where: { walletAddress: address },
-    data: { nonce: null },
-  });
+  await noncesRef.child(address).remove();
 
   const token = issueToken(address);
   res.json({ token, address });
@@ -63,10 +58,7 @@ router.post("/auth/verify", async (req, res) => {
 
 /** GET /api/user/:address — Get user profile. */
 router.get("/user/:address", async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { walletAddress: req.params.address },
-    include: { clanMember: { include: { clan: true } } },
-  });
+  const user = await getUser(req.params.address);
 
   if (!user) {
     res.status(404).json({ error: "User not found" });
@@ -74,17 +66,14 @@ router.get("/user/:address", async (req, res) => {
   }
 
   res.json({
-    walletAddress: user.walletAddress,
+    walletAddress: req.params.address,
     gamerTag: user.gamerTag,
-    eloRating: user.eloRating,
     wins: user.wins,
     losses: user.losses,
+    ties: user.ties,
     totalPnl: user.totalPnl,
     currentStreak: user.currentStreak,
-    balanceUsdc: user.balanceUsdc,
-    clan: user.clanMember
-      ? { id: user.clanMember.clan.id, name: user.clanMember.clan.name, tag: user.clanMember.clan.tag }
-      : null,
+    gamesPlayed: user.gamesPlayed,
     createdAt: user.createdAt,
   });
 });
@@ -105,15 +94,8 @@ router.put(
       return;
     }
 
-    try {
-      const user = await prisma.user.update({
-        where: { walletAddress: req.userAddress! },
-        data: { gamerTag },
-      });
-      res.json({ gamerTag: user.gamerTag });
-    } catch {
-      res.status(409).json({ error: "Gamer tag already taken" });
-    }
+    await updateUser(req.userAddress!, { gamerTag });
+    res.json({ gamerTag });
   }
 );
 

@@ -1,5 +1,3 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { config } from "../config";
 import { broadcastToMatch } from "../ws/rooms";
 
 export interface PriceData {

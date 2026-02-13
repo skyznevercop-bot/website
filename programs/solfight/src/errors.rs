@@ -24,8 +24,12 @@ pub enum SolFightError {
     GamerTagTooLong,
     #[msg("Gamer tag cannot be empty.")]
     GamerTagEmpty,
-    #[msg("Fee basis points must be between 0 and 1000 (10%).")]
+    #[msg("Fee basis points must be between 0 and 2500 (25%).")]
     InvalidFeeBps,
     #[msg("Arithmetic overflow.")]
     MathOverflow,
+    #[msg("Game must be Tied or Cancelled for refund.")]
+    NotRefundable,
+    #[msg("Game must be Settled or Forfeited for claim.")]
+    NotClaimable,
 }

@@ -1,41 +1,52 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
 import { AuthRequest, requireAuth } from "../middleware/auth";
+import {
+  getMatch,
+  getPositions,
+  createPosition,
+  matchesRef,
+  getUser,
+} from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** GET /api/match/:id — Get match details. */
 router.get("/:id", async (req, res) => {
-  const match = await prisma.match.findUnique({
-    where: { id: req.params.id },
-    include: {
-      player1: { select: { walletAddress: true, gamerTag: true, eloRating: true } },
-      player2: { select: { walletAddress: true, gamerTag: true, eloRating: true } },
-      positions: true,
-    },
-  });
+  const match = await getMatch(req.params.id);
 
   if (!match) {
     res.status(404).json({ error: "Match not found" });
     return;
   }
 
-  res.json(match);
+  const [p1, p2] = await Promise.all([
+    getUser(match.player1),
+    getUser(match.player2),
+  ]);
+
+  res.json({
+    id: req.params.id,
+    ...match,
+    player1Info: { address: match.player1, gamerTag: p1?.gamerTag },
+    player2Info: { address: match.player2, gamerTag: p2?.gamerTag },
+  });
 });
 
 /** GET /api/match/active/list — Get all active matches. */
 router.get("/active/list", async (_req, res) => {
-  const matches = await prisma.match.findMany({
-    where: { status: "ACTIVE" },
-    include: {
-      player1: { select: { gamerTag: true, eloRating: true } },
-      player2: { select: { gamerTag: true, eloRating: true } },
-    },
-    orderBy: { startTime: "desc" },
-    take: 20,
-  });
+  const snap = await matchesRef
+    .orderByChild("status")
+    .equalTo("active")
+    .limitToLast(20)
+    .once("value");
+
+  const matches: Array<Record<string, unknown>> = [];
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      matches.push({ id: child.key, ...child.val() });
+    });
+  }
 
   res.json({ matches });
 });
@@ -48,19 +59,16 @@ router.post(
     const { asset, isLong, size, leverage } = req.body;
     const matchId = req.params.id;
 
-    // Validate match.
-    const match = await prisma.match.findUnique({
-      where: { id: matchId },
-    });
+    const match = await getMatch(matchId);
 
-    if (!match || match.status !== "ACTIVE") {
+    if (!match || match.status !== "active") {
       res.status(400).json({ error: "Match not active" });
       return;
     }
 
     if (
-      req.userAddress !== match.player1Address &&
-      req.userAddress !== match.player2Address
+      req.userAddress !== match.player1 &&
+      req.userAddress !== match.player2
     ) {
       res.status(403).json({ error: "Not a player in this match" });
       return;
@@ -79,21 +87,18 @@ router.post(
       return;
     }
 
-    const position = await prisma.position.create({
-      data: {
-        matchId,
-        playerAddress: req.userAddress!,
-        assetSymbol: asset,
-        isLong,
-        entryPrice,
-        size,
-        leverage,
-        openedAt: new Date(),
-      },
+    const positionId = await createPosition(matchId, {
+      playerAddress: req.userAddress!,
+      assetSymbol: asset,
+      isLong,
+      entryPrice,
+      size,
+      leverage,
+      openedAt: Date.now(),
     });
 
     res.json({
-      id: position.id,
+      id: positionId,
       asset,
       isLong,
       entryPrice,
@@ -105,53 +110,46 @@ router.post(
 
 /** GET /api/match/:id/positions — Get positions for a match. */
 router.get("/:id/positions", requireAuth, async (req: AuthRequest, res) => {
-  const positions = await prisma.position.findMany({
-    where: {
-      matchId: req.params.id,
-      playerAddress: req.userAddress!,
-    },
-    orderBy: { openedAt: "desc" },
-  });
-
+  const positions = await getPositions(req.params.id, req.userAddress!);
   res.json({ positions });
 });
 
 /** GET /api/match/history/:address — Get match history for a user. */
 router.get("/history/:address", async (req, res) => {
   const { address } = req.params;
-  const page = parseInt(req.query.page as string) || 1;
-  const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
-  const skip = (page - 1) * limit;
 
-  const [matches, total] = await Promise.all([
-    prisma.match.findMany({
-      where: {
-        OR: [
-          { player1Address: address },
-          { player2Address: address },
-        ],
-        status: "COMPLETED",
-      },
-      include: {
-        player1: { select: { gamerTag: true, eloRating: true } },
-        player2: { select: { gamerTag: true, eloRating: true } },
-      },
-      orderBy: { settledAt: "desc" },
-      skip,
-      take: limit,
-    }),
-    prisma.match.count({
-      where: {
-        OR: [
-          { player1Address: address },
-          { player2Address: address },
-        ],
-        status: "COMPLETED",
-      },
-    }),
+  const [snap1, snap2] = await Promise.all([
+    matchesRef.orderByChild("player1").equalTo(address).once("value"),
+    matchesRef.orderByChild("player2").equalTo(address).once("value"),
   ]);
 
-  res.json({ matches, total, page, limit });
+  const matches: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+
+  for (const snap of [snap1, snap2]) {
+    if (snap.exists()) {
+      snap.forEach((child) => {
+        const m = child.val();
+        if (!seen.has(child.key!) && m.status === "completed") {
+          seen.add(child.key!);
+          matches.push({ id: child.key, ...m });
+        }
+      });
+    }
+  }
+
+  matches.sort((a, b) => ((b.settledAt as number) || 0) - ((a.settledAt as number) || 0));
+
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+  const start = (page - 1) * limit;
+
+  res.json({
+    matches: matches.slice(start, start + limit),
+    total: matches.length,
+    page,
+    limit,
+  });
 });
 
 export default router;

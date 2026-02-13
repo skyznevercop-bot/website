@@ -1,10 +1,8 @@
 import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
 import { joinQueue, leaveQueue, getQueueStats } from "../services/matchmaking";
-import { PrismaClient } from "@prisma/client";
 
 const router = Router();
-const prisma = new PrismaClient();
 
 /** POST /api/queue/join — Join a matchmaking queue. */
 router.post("/join", requireAuth, async (req: AuthRequest, res) => {
@@ -15,21 +13,7 @@ router.post("/join", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const user = await prisma.user.findUnique({
-    where: { walletAddress: req.userAddress! },
-  });
-
-  if (!user) {
-    res.status(404).json({ error: "User not found" });
-    return;
-  }
-
-  if (user.balanceUsdc < bet) {
-    res.status(400).json({ error: "Insufficient balance" });
-    return;
-  }
-
-  await joinQueue(req.userAddress!, timeframe, bet, user.eloRating);
+  await joinQueue(req.userAddress!, timeframe, bet);
   res.json({ status: "queued", timeframe, bet });
 });
 

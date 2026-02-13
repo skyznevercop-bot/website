@@ -1,31 +1,19 @@
-import Redis from "ioredis";
-import { PrismaClient } from "@prisma/client";
-import { config } from "../config";
+import { queuesRef, createMatch as createDbMatch, getUser, DbMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
 
-const prisma = new PrismaClient();
-const redis = new Redis(config.redisUrl);
-
-interface QueueEntry {
-  address: string;
-  elo: number;
-  joinedAt: number;
-}
-
 /**
- * Add a player to the matchmaking queue.
- * Queue key format: "queue:{timeframe}:{bet}"
+ * Add a player to the FIFO matchmaking queue.
+ * Queue key: "queues/{timeframe}_{bet}/{walletAddress}"
  */
 export async function joinQueue(
   address: string,
   timeframe: string,
-  bet: number,
-  elo: number
+  bet: number
 ): Promise<void> {
-  const key = `queue:${timeframe}:${bet}`;
-  const entry: QueueEntry = { address, elo, joinedAt: Date.now() };
-  // Use ELO as score for sorted set so we can match by proximity.
-  await redis.zadd(key, elo, JSON.stringify(entry));
+  const queueKey = `${timeframe}_${bet}`;
+  await queuesRef.child(queueKey).child(address).set({
+    joinedAt: Date.now(),
+  });
 }
 
 /**
@@ -36,15 +24,8 @@ export async function leaveQueue(
   timeframe: string,
   bet: number
 ): Promise<void> {
-  const key = `queue:${timeframe}:${bet}`;
-  const members = await redis.zrange(key, 0, -1);
-  for (const member of members) {
-    const entry: QueueEntry = JSON.parse(member);
-    if (entry.address === address) {
-      await redis.zrem(key, member);
-      break;
-    }
-  }
+  const queueKey = `${timeframe}_${bet}`;
+  await queuesRef.child(queueKey).child(address).remove();
 }
 
 /**
@@ -53,133 +34,113 @@ export async function leaveQueue(
 export async function getQueueStats(): Promise<
   Array<{ timeframe: string; bet: number; count: number }>
 > {
-  const keys = await redis.keys("queue:*");
+  const snap = await queuesRef.once("value");
   const stats: Array<{ timeframe: string; bet: number; count: number }> = [];
 
-  for (const key of keys) {
-    const parts = key.split(":");
-    const count = await redis.zcard(key);
-    if (count > 0) {
-      stats.push({
-        timeframe: parts[1],
-        bet: parseFloat(parts[2]),
-        count,
-      });
-    }
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      const key = child.key!;
+      const parts = key.split("_");
+      if (parts.length >= 2) {
+        const count = child.numChildren();
+        if (count > 0) {
+          stats.push({
+            timeframe: parts[0],
+            bet: parseFloat(parts[1]),
+            count,
+          });
+        }
+      }
+    });
   }
 
   return stats;
 }
 
 /**
- * Matchmaking loop — runs every 500ms.
- * Finds pairs of players in the same queue with ELO within range.
+ * FIFO Matchmaking loop — runs every 500ms.
+ * Pairs the two oldest players in each queue (first-come-first-served).
  */
 export function startMatchmakingLoop(): void {
-  const ELO_RANGE_INITIAL = 200;
-  const ELO_RANGE_EXPANSION_PER_SEC = 10;
-  const MAX_ELO_RANGE = 1000;
-
   setInterval(async () => {
     try {
-      const keys = await redis.keys("queue:*");
+      const snap = await queuesRef.once("value");
+      if (!snap.exists()) return;
 
-      for (const key of keys) {
-        const members = await redis.zrange(key, 0, -1, "WITHSCORES");
-        if (members.length < 4) continue; // Need at least 2 entries (value+score pairs)
+      snap.forEach((queueChild) => {
+        const queueKey = queueChild.key!;
+        const entries: Array<{ address: string; joinedAt: number }> = [];
 
-        const entries: Array<QueueEntry & { raw: string }> = [];
-        for (let i = 0; i < members.length; i += 2) {
-          const entry: QueueEntry = JSON.parse(members[i]);
-          entries.push({ ...entry, raw: members[i] });
-        }
+        queueChild.forEach((playerChild) => {
+          entries.push({
+            address: playerChild.key!,
+            joinedAt: playerChild.val().joinedAt || 0,
+          });
+        });
 
-        // Sort by join time (oldest first for fairness).
+        if (entries.length < 2) return;
+
+        // Sort by joinedAt (oldest first) for FIFO.
         entries.sort((a, b) => a.joinedAt - b.joinedAt);
 
-        const matched = new Set<string>();
-
-        for (let i = 0; i < entries.length; i++) {
-          if (matched.has(entries[i].address)) continue;
-
-          const waitSeconds = (Date.now() - entries[i].joinedAt) / 1000;
-          const eloRange = Math.min(
-            ELO_RANGE_INITIAL + waitSeconds * ELO_RANGE_EXPANSION_PER_SEC,
-            MAX_ELO_RANGE
-          );
-
-          for (let j = i + 1; j < entries.length; j++) {
-            if (matched.has(entries[j].address)) continue;
-
-            const eloDiff = Math.abs(entries[i].elo - entries[j].elo);
-            if (eloDiff <= eloRange) {
-              // Match found!
-              matched.add(entries[i].address);
-              matched.add(entries[j].address);
-
-              // Remove from queue.
-              await redis.zrem(key, entries[i].raw, entries[j].raw);
-
-              // Create match in database.
-              const parts = key.split(":");
-              const timeframe = parts[1];
-              const bet = parseFloat(parts[2]);
-
-              await createMatch(
-                entries[i].address,
-                entries[j].address,
-                timeframe,
-                bet
-              );
-              break;
-            }
-          }
-        }
-      }
+        void matchPair(queueKey, entries[0].address, entries[1].address);
+      });
     } catch (err) {
       console.error("[Matchmaking] Error:", err);
     }
   }, 500);
+
+  console.log("[Matchmaking] Started — FIFO matching every 500ms");
 }
 
 /**
- * Create a match record in the database and notify both players.
+ * Create a match between two players and remove them from the queue.
  */
-async function createMatch(
+async function matchPair(
+  queueKey: string,
   player1: string,
-  player2: string,
-  timeframe: string,
-  bet: number
+  player2: string
 ): Promise<void> {
-  const match = await prisma.match.create({
-    data: {
-      player1Address: player1,
-      player2Address: player2,
-      timeframe,
-      betAmount: bet,
-      status: "PENDING",
-    },
-  });
+  // Remove both from queue first.
+  await Promise.all([
+    queuesRef.child(queueKey).child(player1).remove(),
+    queuesRef.child(queueKey).child(player2).remove(),
+  ]);
+
+  const parts = queueKey.split("_");
+  const timeframe = parts[0];
+  const bet = parseFloat(parts[1]);
+
+  const durationMs = parseDuration(timeframe);
+  const now = Date.now();
+
+  const matchData: DbMatch = {
+    player1,
+    player2,
+    timeframe,
+    betAmount: bet,
+    status: "pending",
+    startTime: now,
+    endTime: now + durationMs,
+  };
+
+  const matchId = await createDbMatch(matchData);
 
   console.log(
-    `[Matchmaking] Match created: ${match.id} | ${player1} vs ${player2} | ${timeframe} | $${bet}`
+    `[Matchmaking] Match created: ${matchId} | ${player1} vs ${player2} | ${timeframe} | $${bet}`
   );
 
-  // Notify both players via WebSocket.
-  const p1User = await prisma.user.findUnique({
-    where: { walletAddress: player1 },
-  });
-  const p2User = await prisma.user.findUnique({
-    where: { walletAddress: player2 },
-  });
+  const [p1User, p2User] = await Promise.all([
+    getUser(player1),
+    getUser(player2),
+  ]);
 
   broadcastToUser(player1, {
     type: "match_found",
-    matchId: match.id,
+    matchId,
     opponent: {
       address: player2,
       gamerTag: p2User?.gamerTag || player2.slice(0, 8),
-      elo: p2User?.eloRating || 1200,
     },
     timeframe,
     bet,
@@ -187,13 +148,22 @@ async function createMatch(
 
   broadcastToUser(player2, {
     type: "match_found",
-    matchId: match.id,
+    matchId,
     opponent: {
       address: player1,
       gamerTag: p1User?.gamerTag || player1.slice(0, 8),
-      elo: p1User?.eloRating || 1200,
     },
     timeframe,
     bet,
   });
+}
+
+/** Parse timeframe string to duration in ms. */
+function parseDuration(tf: string): number {
+  const match = tf.match(/^(\d+)(m|h)$/);
+  if (!match) return 15 * 60 * 1000;
+  const value = parseInt(match[1]);
+  const unit = match[2];
+  if (unit === "h") return value * 60 * 60 * 1000;
+  return value * 60 * 1000;
 }

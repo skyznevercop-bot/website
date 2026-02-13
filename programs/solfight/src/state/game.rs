@@ -10,6 +10,10 @@ pub enum GameStatus {
     Settled,
     /// Match was cancelled before completion.
     Cancelled,
+    /// Both players had equal ROI — refund pending.
+    Tied,
+    /// A player disconnected — opponent wins by default.
+    Forfeited,
 }
 
 #[account]

@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -15,7 +17,8 @@ class WalletNotifier extends Notifier<WalletState> {
 
   final _api = ApiClient.instance;
 
-  /// Connect to a wallet provider via JS interop + authenticate with backend.
+  /// Connect to a wallet provider via JS interop.
+  /// Attempts backend auth (JWT) if available; falls back to wallet-only mode.
   Future<void> connect(WalletType type) async {
     state = state.copyWith(
       status: WalletConnectionStatus.connecting,
@@ -24,62 +27,77 @@ class WalletNotifier extends Notifier<WalletState> {
     );
 
     try {
-      final walletName = type.name; // 'phantom', 'solflare', 'backpack'
+      final walletName = type.name; // 'phantom', 'solflare', 'backpack', 'jupiter'
 
       // 1. Connect to the wallet extension.
       final result = await SolanaWalletAdapter.connect(walletName);
       final address = result.publicKey;
 
-      // 2. Get nonce from backend.
-      final nonceResponse =
-          await _api.get('/auth/nonce?address=$address');
-      final nonce = nonceResponse['nonce'] as String;
-      final message = nonceResponse['message'] as String;
+      // 2. Try backend auth — gracefully fall back if backend is unreachable.
+      String? gamerTag;
+      double balance = 0;
+      bool backendAvailable = false;
 
-      // 3. Sign the nonce with the wallet.
-      final messageBytes = Uint8List.fromList(utf8.encode(message));
-      final signatureBytes =
-          await SolanaWalletAdapter.signMessage(walletName, messageBytes);
+      try {
+        // Get nonce from backend.
+        final nonceResponse =
+            await _api.get('/auth/nonce?address=$address');
+        final nonce = nonceResponse['nonce'] as String;
+        final message = nonceResponse['message'] as String;
 
-      // 4. Base58 encode the signature for the backend.
-      final signatureBase58 = _base58Encode(signatureBytes);
+        // Sign the nonce with the wallet.
+        final messageBytes = Uint8List.fromList(utf8.encode(message));
+        final signatureBytes =
+            await SolanaWalletAdapter.signMessage(walletName, messageBytes);
 
-      // 5. Verify with backend and get JWT.
-      final authResponse = await _api.post('/auth/verify', {
-        'address': address,
-        'signature': signatureBase58,
-        'nonce': nonce,
-      });
+        // Base58 encode the signature for the backend.
+        final signatureBase58 = _base58Encode(signatureBytes);
 
-      final token = authResponse['token'] as String;
-      await _api.setToken(token);
+        // Verify with backend and get JWT.
+        final authResponse = await _api.post('/auth/verify', {
+          'address': address,
+          'signature': signatureBase58,
+          'nonce': nonce,
+        });
 
-      // 6. Connect WebSocket with the JWT.
-      _api.connectWebSocket();
+        final token = authResponse['token'] as String;
+        await _api.setToken(token);
 
-      // 7. Fetch user profile from backend.
-      final userResponse = await _api.get('/user/$address');
+        // Connect WebSocket with the JWT.
+        _api.connectWebSocket();
 
-      // 8. Fetch on-chain USDC balance.
-      final balanceResponse = await _api.get('/portfolio/balance');
-      final platformBalance =
-          (balanceResponse['platformBalance'] as num).toDouble();
+        // Fetch user profile from backend.
+        final userResponse = await _api.get('/user/$address');
+        gamerTag = userResponse['gamerTag'] as String?;
+
+        // Fetch balance.
+        final balanceResponse = await _api.get('/portfolio/balance');
+        balance =
+            (balanceResponse['platformBalance'] as num).toDouble();
+
+        backendAvailable = true;
+      } catch (_) {
+        // Backend unreachable — wallet-only mode.
+        backendAvailable = false;
+      }
+
+      _backendConnected = backendAvailable;
+
+      // Fetch on-chain USDC balance when backend is not available.
+      if (!backendAvailable) {
+        balance = await _fetchOnChainUsdcBalance(address);
+      }
 
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
         address: address,
-        usdcBalance: platformBalance,
-        gamerTag: userResponse['gamerTag'] as String?,
+        usdcBalance: balance,
+        gamerTag: gamerTag,
       );
     } on WalletException catch (e) {
       state = state.copyWith(
         status: WalletConnectionStatus.error,
         errorMessage: e.message,
-      );
-    } on ApiException catch (e) {
-      state = state.copyWith(
-        status: WalletConnectionStatus.error,
-        errorMessage: 'Auth failed: ${e.message}',
       );
     } catch (e) {
       state = state.copyWith(
@@ -88,6 +106,10 @@ class WalletNotifier extends Notifier<WalletState> {
       );
     }
   }
+
+  /// Whether the backend was reachable during the last connection.
+  bool _backendConnected = false;
+  bool get isBackendConnected => _backendConnected;
 
   /// Disconnect the current wallet.
   Future<void> disconnect() async {
@@ -100,8 +122,13 @@ class WalletNotifier extends Notifier<WalletState> {
     state = const WalletState();
   }
 
-  /// Set the user's gamer tag (persisted to backend).
+  /// Set the user's gamer tag (persisted to backend if available).
   Future<void> setGamerTag(String tag) async {
+    if (!_backendConnected) {
+      // Wallet-only mode: store locally only.
+      state = state.copyWith(gamerTag: tag);
+      return;
+    }
     try {
       await _api.put('/user/gamer-tag', {'gamerTag': tag});
       state = state.copyWith(gamerTag: tag);
@@ -124,16 +151,40 @@ class WalletNotifier extends Notifier<WalletState> {
     state = state.copyWith(usdcBalance: current + amount);
   }
 
-  /// Refresh USDC balance from the backend.
+  /// Refresh USDC balance from the backend or on-chain.
   Future<void> refreshBalance() async {
     if (!state.isConnected || state.address == null) return;
     try {
-      final response = await _api.get('/portfolio/balance');
-      final platformBalance =
-          (response['platformBalance'] as num).toDouble();
-      state = state.copyWith(usdcBalance: platformBalance);
+      if (_backendConnected) {
+        final response = await _api.get('/portfolio/balance');
+        final platformBalance =
+            (response['platformBalance'] as num).toDouble();
+        state = state.copyWith(usdcBalance: platformBalance);
+      } else {
+        final balance = await _fetchOnChainUsdcBalance(state.address!);
+        state = state.copyWith(usdcBalance: balance);
+      }
     } catch (_) {
       // Silently fail, keep existing balance.
+    }
+  }
+
+  /// Fetch USDC balance from Solana mainnet via JS interop (browser fetch).
+  static Future<double> _fetchOnChainUsdcBalance(String walletAddress) async {
+    try {
+      final fn = globalContext.getProperty('_getUsdcBalance'.toJS);
+      if (fn == null || !fn.isA<JSFunction>()) return 0;
+
+      final promise = globalContext.callMethod(
+          '_getUsdcBalance'.toJS, walletAddress.toJS) as JSPromise;
+      final result = await promise.toDart;
+
+      if (result.isA<JSNumber>()) {
+        return (result as JSNumber).toDartDouble;
+      }
+      return 0;
+    } catch (_) {
+      return 0;
     }
   }
 

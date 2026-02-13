@@ -167,6 +167,17 @@ class _ArenaToolbar extends StatelessWidget {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  String _fmtBalance(double value) {
+    if (value >= 1000000) return '\$${(value / 1000000).toStringAsFixed(2)}M';
+    if (value >= 1000) return '\$${(value / 1000).toStringAsFixed(1)}K';
+    return '\$${value.toStringAsFixed(2)}';
+  }
+
+  double get _roi =>
+      state.initialBalance > 0
+          ? (state.equity - state.initialBalance) / state.initialBalance * 100
+          : 0;
+
   @override
   Widget build(BuildContext context) {
     final pnl = state.totalUnrealizedPnl;
@@ -249,18 +260,18 @@ class _ArenaToolbar extends StatelessWidget {
             ),
             const SizedBox(width: 12),
           ],
-          // Balance
+          // Demo Balance
           if (!isMobile) ...[
             _ToolbarStat(
-                label: 'Balance',
-                value: '\$${state.balance.toStringAsFixed(2)}'),
+                label: 'Demo Balance',
+                value: _fmtBalance(state.balance)),
             const SizedBox(width: 12),
           ],
           _ToolbarStat(
               label: 'Equity',
-              value: '\$${state.equity.toStringAsFixed(2)}'),
+              value: _fmtBalance(state.equity)),
           const SizedBox(width: 12),
-          // P&L badge
+          // ROI badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
@@ -268,7 +279,7 @@ class _ArenaToolbar extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
-              '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
+              '${_roi >= 0 ? '+' : ''}${_roi.toStringAsFixed(2)}%',
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
@@ -421,7 +432,7 @@ class _OrderPanel extends ConsumerStatefulWidget {
 }
 
 class _OrderPanelState extends ConsumerState<_OrderPanel> {
-  final _sizeCtrl = TextEditingController(text: '100');
+  final _sizeCtrl = TextEditingController(text: '10000');
   final _slCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
   double _leverage = 5;

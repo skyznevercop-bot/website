@@ -24,7 +24,7 @@ pub struct InitializePlatform<'info> {
 }
 
 pub fn handler(ctx: Context<InitializePlatform>, fee_bps: u16) -> Result<()> {
-    require!(fee_bps <= 1000, SolFightError::InvalidFeeBps);
+    require!(fee_bps <= 2500, SolFightError::InvalidFeeBps);
 
     let platform = &mut ctx.accounts.platform;
     platform.authority = ctx.accounts.authority.key();

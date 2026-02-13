@@ -20,14 +20,16 @@ class TradingState {
   final String? opponentGamerTag;
   final double opponentPnl;
 
+  static const double demoBalance = 1000000;
+
   const TradingState({
     this.selectedAssetIndex = 0,
     this.currentPrices = const {},
     this.positions = const [],
-    this.balance = 1000,
+    this.balance = demoBalance,
     this.matchTimeRemainingSeconds = 0,
     this.matchActive = false,
-    this.initialBalance = 1000,
+    this.initialBalance = demoBalance,
     this.matchId,
     this.opponentAddress,
     this.opponentGamerTag,
@@ -127,8 +129,8 @@ class TradingNotifier extends Notifier<TradingState> {
 
     state = state.copyWith(
       positions: [],
-      balance: betAmount,
-      initialBalance: betAmount,
+      balance: TradingState.demoBalance,
+      initialBalance: TradingState.demoBalance,
       matchTimeRemainingSeconds: durationSeconds,
       matchActive: true,
       matchId: matchId,
@@ -304,8 +306,8 @@ class TradingNotifier extends Notifier<TradingState> {
         'isLong': isLong,
         'size': size,
         'leverage': leverage,
-        if (stopLoss != null) 'sl': stopLoss,
-        if (takeProfit != null) 'tp': takeProfit,
+        'sl': ?stopLoss,
+        'tp': ?takeProfit,
       });
     }
   }

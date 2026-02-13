@@ -5,11 +5,10 @@ export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
   corsOrigin: process.env.CORS_ORIGIN || "http://localhost:8080",
 
-  // Database
-  databaseUrl: process.env.DATABASE_URL!,
-
-  // Redis
-  redisUrl: process.env.REDIS_URL || "redis://localhost:6379",
+  // Firebase
+  firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT || null,
+  firebaseDatabaseUrl:
+    process.env.FIREBASE_DATABASE_URL || "https://solfight-default-rtdb.firebaseio.com",
 
   // Solana
   solanaRpcUrl:
@@ -27,14 +26,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
 
-  // Pyth price feed accounts (devnet)
-  pythBtcUsd:
-    process.env.PYTH_BTC_USD ||
-    "GVXRSBjFk6e6J3NbVPXPvjQd1gKWgdI1IjZVDBvRV4tH",
-  pythEthUsd:
-    process.env.PYTH_ETH_USD ||
-    "JBu1AL4obBcCMqKBBxhpWCNUt136ijcuMZLFvTP7iWdB",
-  pythSolUsd:
-    process.env.PYTH_SOL_USD ||
-    "H6ARHf6YXhGYeQfUzQNGk6rDNnLBQKrenN712K4AQJEG",
+  // Demo trading
+  demoInitialBalance: 1_000_000,
+  tieTolerance: 0.00001, // 0.001% ROI tolerance for tie detection
 } as const;

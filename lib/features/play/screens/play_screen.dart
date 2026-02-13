@@ -10,7 +10,6 @@ import '../../../core/utils/responsive.dart';
 import '../../../features/wallet/models/wallet_state.dart';
 import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
-import '../../../features/portfolio/widgets/deposit_modal.dart';
 import '../../../features/onboarding/providers/onboarding_provider.dart';
 import '../../../features/onboarding/widgets/onboarding_keys.dart';
 import '../providers/queue_provider.dart';
@@ -52,7 +51,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   int _selectedIndex = 0;
   int _betIndex = 3; // default $10
 
-  static const _betAmounts = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000];
+  static const _betAmounts = [1, 2, 5, 10, 25, 50, 100];
 
   // Onboarding target keys
   final _heroKey = GlobalKey(debugLabel: 'onboarding_hero');
@@ -924,7 +923,7 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: connected ? () => showDepositModal(context) : widget.onTap,
+        onTap: connected ? null : widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
@@ -949,6 +948,9 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
               children: connected
                   ? [
                       // Balance display
+                      Icon(Icons.check_circle_rounded,
+                          size: 16, color: AppTheme.solanaGreen),
+                      const SizedBox(width: 8),
                       Text(
                         '\$${balance.toStringAsFixed(2)}',
                         style: GoogleFonts.inter(
@@ -964,35 +966,6 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
                           color: Colors.white38,
-                        ),
-                      ),
-                      const Spacer(),
-                      // Deposit CTA
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: AppTheme.solanaGreen.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AppTheme.solanaGreen.withValues(alpha: 0.25),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.add_rounded,
-                                size: 14, color: AppTheme.solanaGreen),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Deposit',
-                              style: GoogleFonts.inter(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.solanaGreen,
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ]

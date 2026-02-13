@@ -1,7 +1,6 @@
 import { Server as HttpServer } from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
 import { config } from "../config";
 import {
   joinMatchRoom,
@@ -10,16 +9,29 @@ import {
   unregisterUserConnection,
   broadcastToUser,
   broadcastToMatch,
+  isUserConnected,
 } from "./rooms";
 import { joinQueue, leaveQueue } from "../services/matchmaking";
 import { getLatestPrices } from "../services/price-oracle";
+import {
+  createPosition,
+  getPositions,
+  updatePosition,
+  getMatch,
+  DbPosition,
+} from "../services/firebase";
+import { settleByForfeit } from "../services/settlement";
 
-const prisma = new PrismaClient();
+const DEMO_BALANCE = config.demoInitialBalance;
+const FORFEIT_GRACE_MS = 30_000; // 30 seconds
 
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
   currentMatchId?: string;
 }
+
+/** Active forfeit timers: matchId_playerAddress → timeout handle. */
+const forfeitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export { broadcastToUser };
 
@@ -42,6 +54,9 @@ export function setupWebSocket(server: HttpServer): void {
       };
       ws.userAddress = payload.address;
       registerUserConnection(payload.address, ws);
+
+      // Cancel any pending forfeit timer for this player.
+      cancelForfeitTimersForPlayer(payload.address);
     } catch {
       ws.close(4001, "Invalid authentication token");
       return;
@@ -54,15 +69,23 @@ export function setupWebSocket(server: HttpServer): void {
         const data = JSON.parse(raw.toString());
         await handleMessage(ws, data);
       } catch (err) {
-        ws.send(JSON.stringify({ type: "error", message: "Invalid message format" }));
+        ws.send(
+          JSON.stringify({ type: "error", message: "Invalid message format" })
+        );
       }
     });
 
     ws.on("close", () => {
       if (ws.userAddress) {
         unregisterUserConnection(ws.userAddress, ws);
+
         if (ws.currentMatchId) {
           leaveMatchRoom(ws.currentMatchId, ws);
+
+          // Start 30s forfeit timer if player has no other connections.
+          if (!isUserConnected(ws.userAddress)) {
+            startForfeitTimer(ws.currentMatchId, ws.userAddress);
+          }
         }
       }
       console.log(`[WS] Client disconnected: ${ws.userAddress}`);
@@ -70,6 +93,71 @@ export function setupWebSocket(server: HttpServer): void {
   });
 
   console.log("[WS] WebSocket server started on /ws");
+}
+
+/**
+ * Start a 30-second forfeit timer for a disconnected player.
+ * If they don't reconnect within the grace period, the match is forfeited.
+ */
+function startForfeitTimer(matchId: string, playerAddress: string): void {
+  const key = `${matchId}_${playerAddress}`;
+
+  // Don't start duplicate timers.
+  if (forfeitTimers.has(key)) return;
+
+  console.log(
+    `[WS] Disconnect detected: ${playerAddress} in match ${matchId} — 30s grace period started`
+  );
+
+  // Notify the opponent.
+  broadcastToMatch(matchId, {
+    type: "opponent_disconnected",
+    player: playerAddress,
+    graceSeconds: 30,
+  });
+
+  const timer = setTimeout(async () => {
+    forfeitTimers.delete(key);
+
+    // Check if player reconnected during the grace period.
+    if (isUserConnected(playerAddress)) {
+      console.log(
+        `[WS] Player ${playerAddress} reconnected — forfeit cancelled`
+      );
+      return;
+    }
+
+    console.log(
+      `[WS] Forfeit triggered: ${playerAddress} in match ${matchId}`
+    );
+
+    await settleByForfeit(matchId, playerAddress);
+  }, FORFEIT_GRACE_MS);
+
+  forfeitTimers.set(key, timer);
+}
+
+/**
+ * Cancel all forfeit timers for a player (e.g., on reconnect).
+ */
+function cancelForfeitTimersForPlayer(playerAddress: string): void {
+  for (const [key, timer] of forfeitTimers) {
+    if (key.endsWith(`_${playerAddress}`)) {
+      clearTimeout(timer);
+      forfeitTimers.delete(key);
+
+      const matchId = key.split("_").slice(0, -1).join("_");
+      console.log(
+        `[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`
+      );
+
+      // Notify the match that the player reconnected.
+      broadcastToMatch(matchId, {
+        type: "opponent_reconnected",
+        player: playerAddress,
+      });
+    }
+  }
 }
 
 async function handleMessage(
@@ -84,10 +172,7 @@ async function handleMessage(
         timeframe: string;
         bet: number;
       };
-      const user = await prisma.user.findUnique({
-        where: { walletAddress: ws.userAddress },
-      });
-      await joinQueue(ws.userAddress, timeframe, bet, user?.eloRating || 1200);
+      await joinQueue(ws.userAddress, timeframe, bet);
       ws.send(JSON.stringify({ type: "queue_joined", timeframe, bet }));
       break;
     }
@@ -110,6 +195,9 @@ async function handleMessage(
       ws.currentMatchId = matchId;
       joinMatchRoom(matchId, ws);
 
+      // Cancel any pending forfeit timer for this player/match.
+      cancelForfeitTimersForPlayer(ws.userAddress);
+
       // Send current prices immediately.
       ws.send(
         JSON.stringify({ type: "price_update", ...getLatestPrices() })
@@ -118,14 +206,12 @@ async function handleMessage(
     }
 
     case "open_position": {
-      const { matchId, asset, isLong, size, leverage, sl, tp } = data as {
+      const { matchId, asset, isLong, size, leverage } = data as {
         matchId: string;
         asset: string;
         isLong: boolean;
         size: number;
         leverage: number;
-        sl?: number;
-        tp?: number;
       };
 
       const prices = getLatestPrices();
@@ -142,24 +228,21 @@ async function handleMessage(
         return;
       }
 
-      const position = await prisma.position.create({
-        data: {
-          matchId,
-          playerAddress: ws.userAddress,
-          assetSymbol: asset,
-          isLong,
-          entryPrice,
-          size,
-          leverage,
-          openedAt: new Date(),
-        },
+      const positionId = await createPosition(matchId, {
+        playerAddress: ws.userAddress,
+        assetSymbol: asset,
+        isLong,
+        entryPrice,
+        size,
+        leverage,
+        openedAt: Date.now(),
       });
 
       ws.send(
         JSON.stringify({
           type: "position_opened",
           position: {
-            id: position.id,
+            id: positionId,
             asset,
             isLong,
             entryPrice,
@@ -180,10 +263,12 @@ async function handleMessage(
         positionId: string;
       };
 
-      const position = await prisma.position.findUnique({
-        where: { id: positionId },
-      });
-      if (!position || position.playerAddress !== ws.userAddress) {
+      const positions = await getPositions(matchId, ws.userAddress);
+      const position = positions.find(
+        (p) => p.id === positionId && !p.closedAt
+      );
+
+      if (!position) {
         ws.send(
           JSON.stringify({ type: "error", message: "Position not found" })
         );
@@ -196,16 +281,19 @@ async function handleMessage(
         ETH: prices.eth,
         SOL: prices.sol,
       };
-      const exitPrice = priceMap[position.assetSymbol] || position.entryPrice;
+      const exitPrice =
+        priceMap[position.assetSymbol] || position.entryPrice;
       const priceDiff = position.isLong
         ? exitPrice - position.entryPrice
         : position.entryPrice - exitPrice;
       const pnl =
         (priceDiff / position.entryPrice) * position.size * position.leverage;
 
-      await prisma.position.update({
-        where: { id: positionId },
-        data: { exitPrice, pnl, closedAt: new Date(), closeReason: "manual" },
+      await updatePosition(matchId, positionId, {
+        exitPrice,
+        pnl,
+        closedAt: Date.now(),
+        closeReason: "manual",
       });
 
       ws.send(
@@ -235,9 +323,7 @@ async function broadcastOpponentUpdate(
   matchId: string,
   playerAddress: string
 ): Promise<void> {
-  const positions = await prisma.position.findMany({
-    where: { matchId, playerAddress },
-  });
+  const positions = await getPositions(matchId, playerAddress);
 
   const prices = getLatestPrices();
   const priceMap: Record<string, number> = {
@@ -266,7 +352,7 @@ async function broadcastOpponentUpdate(
   broadcastToMatch(matchId, {
     type: "opponent_update",
     player: playerAddress,
-    equity: 1000 + totalPnl, // Starting balance + PnL
+    equity: DEMO_BALANCE + totalPnl,
     pnl: totalPnl,
     positionCount: openCount,
   });

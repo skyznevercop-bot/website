@@ -2,10 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
-import { PrismaClient } from "@prisma/client";
 import { config } from "../config";
-
-const prisma = new PrismaClient();
+import { noncesRef, getOrCreateUser } from "../services/firebase";
 
 export interface AuthRequest extends Request {
   userAddress?: string;
@@ -64,13 +62,10 @@ export function issueToken(address: string): string {
   });
 }
 
-/** Get or create user nonce. */
+/** Get or create user nonce (stored in Firebase). */
 export async function getOrCreateNonce(address: string): Promise<string> {
   const nonce = generateNonce();
-  await prisma.user.upsert({
-    where: { walletAddress: address },
-    update: { nonce },
-    create: { walletAddress: address, nonce },
-  });
+  await noncesRef.child(address).set(nonce);
+  await getOrCreateUser(address);
   return nonce;
 }
