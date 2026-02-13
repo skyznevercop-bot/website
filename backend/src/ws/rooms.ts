@@ -105,3 +105,10 @@ export function isUserConnected(address: string): boolean {
 export function getActiveRoomCount(): number {
   return matchRooms.size;
 }
+
+/**
+ * Get all active match room IDs.
+ */
+export function getActiveMatchIds(): string[] {
+  return Array.from(matchRooms.keys());
+}

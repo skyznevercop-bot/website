@@ -10,6 +10,7 @@ import {
   broadcastToUser,
   broadcastToMatch,
   isUserConnected,
+  getActiveMatchIds,
 } from "./rooms";
 import { joinQueue, leaveQueue } from "../services/matchmaking";
 import { getLatestPrices } from "../services/price-oracle";
@@ -91,6 +92,17 @@ export function setupWebSocket(server: HttpServer): void {
       console.log(`[WS] Client disconnected: ${ws.userAddress}`);
     });
   });
+
+  // Broadcast opponent updates for all active matches every 3 seconds.
+  setInterval(async () => {
+    const matchIds = getActiveMatchIds();
+    for (const matchId of matchIds) {
+      const match = await getMatch(matchId);
+      if (!match || match.status !== "active") continue;
+      broadcastOpponentUpdate(matchId, match.player1).catch(() => {});
+      broadcastOpponentUpdate(matchId, match.player2).catch(() => {});
+    }
+  }, 3000);
 
   console.log("[WS] WebSocket server started on /ws");
 }

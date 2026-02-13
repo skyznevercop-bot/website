@@ -20,6 +20,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
   final String? matchId;
   final String? opponentAddress;
   final String? opponentGamerTag;
+  final int? startTime; // epoch ms — used to calculate remaining time on refresh
 
   const ArenaScreen({
     super.key,
@@ -28,6 +29,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
     this.matchId,
     this.opponentAddress,
     this.opponentGamerTag,
+    this.startTime,
   });
 
   @override
@@ -39,8 +41,15 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Calculate remaining time from server start time (survives refresh).
+      int remaining = widget.durationSeconds;
+      if (widget.startTime != null) {
+        final elapsed =
+            (DateTime.now().millisecondsSinceEpoch - widget.startTime!) ~/ 1000;
+        remaining = (widget.durationSeconds - elapsed).clamp(0, widget.durationSeconds);
+      }
       ref.read(tradingProvider.notifier).startMatch(
-            durationSeconds: widget.durationSeconds,
+            durationSeconds: remaining,
             betAmount: widget.betAmount,
             matchId: widget.matchId,
             opponentAddress: widget.opponentAddress,
@@ -64,6 +73,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       body: Column(
         children: [
           _ArenaToolbar(state: state),
+          if (state.matchActive) _OpponentBar(state: state),
           Expanded(
             child:
                 isMobile ? _buildMobileLayout(state) : _buildDesktopLayout(state),
@@ -349,6 +359,97 @@ class _ToolbarStat extends StatelessWidget {
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textPrimary)),
       ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Opponent Bar — shows opponent name, equity, ROI, and open positions count
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _OpponentBar extends StatelessWidget {
+  final TradingState state;
+  const _OpponentBar({required this.state});
+
+  String _fmtBalance(double value) {
+    if (value >= 1000000) return '\$${(value / 1000000).toStringAsFixed(2)}M';
+    if (value >= 1000) return '\$${(value / 1000).toStringAsFixed(1)}K';
+    return '\$${value.toStringAsFixed(2)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final oppTag = state.opponentGamerTag ?? 'Opponent';
+    final oppRoi = state.opponentRoi;
+    final roiColor = oppRoi >= 0 ? AppTheme.success : AppTheme.error;
+    final isMobile = Responsive.isMobile(context);
+
+    return Container(
+      height: 36,
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24),
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        border: Border(bottom: BorderSide(color: AppTheme.border)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.person_outline_rounded,
+              size: 14, color: AppTheme.textTertiary),
+          const SizedBox(width: 6),
+          Text(
+            'VS $oppTag',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          const Spacer(),
+          // Opponent equity
+          Text(
+            'Equity: ${_fmtBalance(state.opponentEquity)}',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Opponent ROI badge
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: roiColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '${oppRoi >= 0 ? '+' : ''}${oppRoi.toStringAsFixed(2)}%',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: roiColor,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Opponent open positions count
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppTheme.solanaPurple.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '${state.opponentPositionCount} open',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.solanaPurple,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

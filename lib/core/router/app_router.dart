@@ -15,20 +15,21 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     initialLocation: AppConstants.playRoute,
     routes: [
-      // Arena is full-screen (no AppShell)
+      // Arena is full-screen (no AppShell). Match data in query params survives refresh.
       GoRoute(
         path: AppConstants.arenaRoute,
         pageBuilder: (context, state) {
-          final extra = state.extra as Map<String, dynamic>? ?? {};
-          final duration = extra['duration'] as int? ?? 300;
-          final bet = extra['bet'] as double? ?? 100;
+          final qp = state.uri.queryParameters;
+          final duration = int.tryParse(qp['d'] ?? '') ?? 300;
+          final bet = double.tryParse(qp['bet'] ?? '') ?? 100;
           return NoTransitionPage(
             child: ArenaScreen(
               durationSeconds: duration,
               betAmount: bet,
-              matchId: extra['matchId'] as String?,
-              opponentAddress: extra['opponentAddress'] as String?,
-              opponentGamerTag: extra['opponentGamerTag'] as String?,
+              matchId: qp['matchId'],
+              opponentAddress: qp['opp'],
+              opponentGamerTag: qp['oppTag'],
+              startTime: int.tryParse(qp['st'] ?? ''),
             ),
           );
         },

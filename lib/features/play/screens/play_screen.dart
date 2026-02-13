@@ -115,24 +115,177 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   int get _betAmount => _betAmounts[_betIndex];
   QueueTimeframe get _selected => AppConstants.timeframes[_selectedIndex];
 
+  void _showMatchFoundDialog(BuildContext context, MatchFoundData match) {
+    final durationSec = _selected.duration.inSeconds;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
+        ),
+        title: Row(
+          children: [
+            Icon(Icons.sports_esports_rounded,
+                size: 24, color: AppTheme.solanaPurple),
+            const SizedBox(width: 10),
+            Text(
+              'Opponent Found!',
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 18,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceAlt,
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    'VS',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.textTertiary,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    match.opponentGamerTag,
+                    style: GoogleFonts.inter(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${match.opponentAddress.substring(0, 4)}...${match.opponentAddress.substring(match.opponentAddress.length - 4)}',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _dialogInfoTile('Bet', '\$${match.bet.toStringAsFixed(0)} USDC'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _dialogInfoTile('Duration', _selected.label),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _dialogInfoTile('Win Prize', '\$${(match.bet * 1.5).toStringAsFixed(0)}'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Winner takes 1.5x bet. 25% rake to treasury.',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.textTertiary,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.solanaPurple,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                ),
+              ),
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                context.go(
+                  Uri(
+                    path: AppConstants.arenaRoute,
+                    queryParameters: {
+                      'matchId': match.matchId,
+                      'd': durationSec.toString(),
+                      'bet': match.bet.toString(),
+                      'opp': match.opponentAddress,
+                      'oppTag': match.opponentGamerTag,
+                      'st': now.toString(),
+                    },
+                  ).toString(),
+                );
+              },
+              child: Text(
+                'Enter Arena',
+                style: GoogleFonts.inter(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dialogInfoTile(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+      ),
+      child: Column(
+        children: [
+          Text(label,
+              style: GoogleFonts.inter(
+                  fontSize: 10, color: AppTheme.textTertiary)),
+          const SizedBox(height: 4),
+          Text(value,
+              style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final queue = ref.watch(queueProvider);
     final isMobile = Responsive.isMobile(context);
 
-    // Listen for match found → navigate to arena.
+    // Listen for match found → show confirmation then navigate to arena.
     ref.listen<QueueState>(queueProvider, (prev, next) {
       if (next.matchFound != null && prev?.matchFound == null) {
         final match = next.matchFound!;
         ref.read(queueProvider.notifier).clearMatchFound();
-        context.go(AppConstants.arenaRoute, extra: {
-          'duration': _selected.duration.inSeconds,
-          'bet': match.bet,
-          'matchId': match.matchId,
-          'opponentAddress': match.opponentAddress,
-          'opponentGamerTag': match.opponentGamerTag,
-        });
+        _showMatchFoundDialog(context, match);
       }
     });
 

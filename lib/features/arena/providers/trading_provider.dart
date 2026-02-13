@@ -19,6 +19,8 @@ class TradingState {
   final String? opponentAddress;
   final String? opponentGamerTag;
   final double opponentPnl;
+  final double opponentEquity;
+  final int opponentPositionCount;
 
   static const double demoBalance = 1000000;
 
@@ -34,6 +36,8 @@ class TradingState {
     this.opponentAddress,
     this.opponentGamerTag,
     this.opponentPnl = 0,
+    this.opponentEquity = demoBalance,
+    this.opponentPositionCount = 0,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -66,6 +70,11 @@ class TradingState {
     return total;
   }
 
+  double get opponentRoi =>
+      opponentEquity > 0 && initialBalance > 0
+          ? (opponentEquity - initialBalance) / initialBalance * 100
+          : 0;
+
   TradingState copyWith({
     int? selectedAssetIndex,
     Map<String, double>? currentPrices,
@@ -78,6 +87,8 @@ class TradingState {
     String? opponentAddress,
     String? opponentGamerTag,
     double? opponentPnl,
+    double? opponentEquity,
+    int? opponentPositionCount,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -92,6 +103,9 @@ class TradingState {
       opponentAddress: opponentAddress ?? this.opponentAddress,
       opponentGamerTag: opponentGamerTag ?? this.opponentGamerTag,
       opponentPnl: opponentPnl ?? this.opponentPnl,
+      opponentEquity: opponentEquity ?? this.opponentEquity,
+      opponentPositionCount:
+          opponentPositionCount ?? this.opponentPositionCount,
     );
   }
 }
@@ -179,7 +193,14 @@ class TradingNotifier extends Notifier<TradingState> {
 
       case 'opponent_update':
         final pnl = (data['pnl'] as num?)?.toDouble() ?? 0;
-        state = state.copyWith(opponentPnl: pnl);
+        final equity =
+            (data['equity'] as num?)?.toDouble() ?? TradingState.demoBalance;
+        final posCount = (data['positionCount'] as num?)?.toInt() ?? 0;
+        state = state.copyWith(
+          opponentPnl: pnl,
+          opponentEquity: equity,
+          opponentPositionCount: posCount,
+        );
         break;
 
       case 'match_end':
