@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #131722; overflow: hidden; }
+    .tradingview-widget-container { height: 100vh; width: 100vw; }
+    .tradingview-widget-container__widget { height: calc(100% - 32px); width: 100%; }
+    .tradingview-widget-copyright {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      font-size: 11px;
+      text-align: center;
+      padding: 6px 0;
+    }
+    .tradingview-widget-copyright a { color: #787B86; text-decoration: none; }
+    .tradingview-widget-copyright a:hover { color: #9945FF; }
+  </style>
+</head>
+<body>
+  <div class="tradingview-widget-container" id="tv-container">
+    <div class="tradingview-widget-container__widget" id="tv-widget"></div>
+    <div class="tradingview-widget-copyright">
+      <a href="https://www.tradingview.com/" rel="noopener nofollow" target="_blank">
+        <span class="blue-text">Track all markets on TradingView</span>
+      </a>
+    </div>
+  </div>
+
+  <script>
+    // Parse URL params for initial config
+    var params = new URLSearchParams(window.location.search);
+    var currentSymbol = params.get('symbol') || 'BINANCE:BTCUSDT';
+    var currentInterval = params.get('interval') || '5';
+    var currentTheme = params.get('theme') || 'dark';
+
+    function loadWidget(symbol) {
+      var container = document.getElementById('tv-widget');
+      container.innerHTML = '';
+
+      var script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+      script.async = true;
+      script.innerHTML = JSON.stringify({
+        autosize: true,
+        symbol: symbol,
+        interval: currentInterval,
+        timezone: "Etc/UTC",
+        theme: currentTheme,
+        style: "1",
+        locale: "en",
+        allow_symbol_change: true,
+        hide_top_toolbar: false,
+        hide_legend: false,
+        save_image: false,
+        calendar: false,
+        hide_volume: false,
+        support_host: "https://www.tradingview.com"
+      });
+      container.appendChild(script);
+      currentSymbol = symbol;
+    }
+
+    // Initial load
+    loadWidget(currentSymbol);
+
+    // Listen for symbol change from parent (Flutter)
+    window.addEventListener('message', function(event) {
+      if (event.data && event.data.type === 'changeSymbol' && event.data.symbol) {
+        if (event.data.symbol !== currentSymbol) {
+          loadWidget(event.data.symbol);
+        }
+      }
+      if (event.data && event.data.type === 'changeInterval' && event.data.interval) {
+        currentInterval = event.data.interval;
+        loadWidget(currentSymbol);
+      }
+    });
+  </script>
+</body>
+</html>

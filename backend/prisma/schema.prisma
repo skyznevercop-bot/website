@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  walletAddress   String   @id @map("wallet_address")
+  gamerTag        String?  @unique @map("gamer_tag")
+  eloRating       Int      @default(1200) @map("elo_rating")
+  wins            Int      @default(0)
+  losses          Int      @default(0)
+  totalPnl        Float    @default(0) @map("total_pnl")
+  currentStreak   Int      @default(0) @map("current_streak")
+  balanceUsdc     Float    @default(0) @map("balance_usdc")
+  referrerAddress String?  @map("referrer_address")
+  clanId          String?  @map("clan_id")
+  nonce           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  matchesAsP1  Match[]       @relation("Player1")
+  matchesAsP2  Match[]       @relation("Player2")
+  positions    Position[]
+  transactions Transaction[]
+  referrals    Referral[]    @relation("Referrer")
+  referredBy   Referral?     @relation("Referee")
+  clanMember   ClanMember?
+
+  @@map("users")
+}
+
+model Match {
+  id              String      @id @default(cuid())
+  player1Address  String      @map("player1_address")
+  player2Address  String      @map("player2_address")
+  timeframe       String
+  betAmount       Float       @map("bet_amount")
+  status          MatchStatus @default(PENDING)
+  winnerAddress   String?     @map("winner_address")
+  player1Pnl      Float?      @map("player1_pnl")
+  player2Pnl      Float?      @map("player2_pnl")
+  escrowSignature String?     @map("escrow_signature")
+  onChainGameId   BigInt?     @map("on_chain_game_id")
+  startTime       DateTime?   @map("start_time")
+  endTime         DateTime?   @map("end_time")
+  settledAt       DateTime?   @map("settled_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  player1   User       @relation("Player1", fields: [player1Address], references: [walletAddress])
+  player2   User       @relation("Player2", fields: [player2Address], references: [walletAddress])
+  positions Position[]
+
+  @@index([status])
+  @@index([player1Address])
+  @@index([player2Address])
+  @@map("matches")
+}
+
+enum MatchStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+model Position {
+  id            String    @id @default(cuid())
+  matchId       String    @map("match_id")
+  playerAddress String    @map("player_address")
+  assetSymbol   String    @map("asset_symbol")
+  isLong        Boolean   @map("is_long")
+  entryPrice    Float     @map("entry_price")
+  exitPrice     Float?    @map("exit_price")
+  size          Float
+  leverage      Float
+  pnl           Float?
+  openedAt      DateTime  @map("opened_at")
+  closedAt      DateTime? @map("closed_at")
+  closeReason   String?   @map("close_reason")
+
+  match  Match @relation(fields: [matchId], references: [id])
+  player User  @relation(fields: [playerAddress], references: [walletAddress])
+
+  @@index([matchId])
+  @@index([playerAddress])
+  @@map("positions")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  userAddress String   @map("user_address")
+  type        TxType
+  amount      Float
+  status      TxStatus @default(PENDING)
+  signature   String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userAddress], references: [walletAddress])
+
+  @@index([userAddress])
+  @@map("transactions")
+}
+
+enum TxType {
+  DEPOSIT
+  WITHDRAW
+}
+
+enum TxStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+model Referral {
+  id              String         @id @default(cuid())
+  referrerAddress String         @map("referrer_address")
+  refereeAddress  String         @unique @map("referee_address")
+  status          ReferralStatus @default(JOINED)
+  rewardPaid      Float          @default(0) @map("reward_paid")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  referrer User @relation("Referrer", fields: [referrerAddress], references: [walletAddress])
+  referee  User @relation("Referee", fields: [refereeAddress], references: [walletAddress])
+
+  @@index([referrerAddress])
+  @@map("referrals")
+}
+
+enum ReferralStatus {
+  JOINED
+  DEPOSITED
+  PLAYED
+}
+
+model Clan {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  tag           String   @unique
+  description   String?
+  leaderAddress String   @map("leader_address")
+  maxMembers    Int      @default(50) @map("max_members")
+  totalWins     Int      @default(0) @map("total_wins")
+  totalLosses   Int      @default(0) @map("total_losses")
+  trophies      Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  members ClanMember[]
+
+  @@map("clans")
+}
+
+model ClanMember {
+  id          String   @id @default(cuid())
+  clanId      String   @map("clan_id")
+  userAddress String   @unique @map("user_address")
+  role        ClanRole @default(MEMBER)
+  donations   Float    @default(0)
+  joinedAt    DateTime @default(now()) @map("joined_at")
+
+  clan Clan @relation(fields: [clanId], references: [id])
+  user User @relation(fields: [userAddress], references: [walletAddress])
+
+  @@index([clanId])
+  @@map("clan_members")
+}
+
+enum ClanRole {
+  LEADER
+  CO_LEADER
+  ELDER
+  MEMBER
+}

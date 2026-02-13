@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="SolFight - 1v1 Competitive Trading Game on Solana">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="SolFight">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>SolFight</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Loading indicator styles */
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #131722;
+      overflow: hidden;
+    }
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .loading h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #D1D4DC;
+      margin-bottom: 8px;
+    }
+    .loading h1 span {
+      color: #9945FF;
+    }
+    .loading p {
+      color: #787B86;
+      font-size: 0.9rem;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #2A2E39;
+      border-top: 3px solid #9945FF;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-top: 24px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">
+    <h1>Sol<span>Fight</span></h1>
+    <p>Loading the arena...</p>
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    // Remove loading indicator once Flutter app loads
+    window.addEventListener('flutter-first-frame', function() {
+      var loading = document.getElementById('loading');
+      if (loading) loading.remove();
+    });
+  </script>
+
+  <!-- Buffer polyfill (required by @solana/web3.js in browsers) -->
+  <script src="https://unpkg.com/buffer@6.0.3/index.js"></script>
+  <script>window.Buffer = buffer.Buffer;</script>
+
+  <!-- Solana Web3.js (required for wallet adapter JS interop) -->
+  <script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+  <script>
+    // Expose solanaWeb3 globally for Dart JS interop.
+    window.solanaWeb3 = solanaWeb3;
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
