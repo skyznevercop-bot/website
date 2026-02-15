@@ -85,13 +85,18 @@ export async function confirmDeposit(
     player: playerAddress,
   });
 
-  // Check if BOTH players have now deposited.
-  const otherVerified = isPlayer1
-    ? match.player2DepositVerified
-    : match.player1DepositVerified;
+  // Re-read match from DB to get latest state (avoids race condition
+  // when both players confirm deposits at nearly the same time).
+  const freshMatch = await getMatch(matchId);
+  if (!freshMatch) {
+    return { success: true, message: "Deposit verified.", matchNowActive: false };
+  }
 
-  if (otherVerified) {
-    return await activateMatch(matchId, match);
+  const bothVerified =
+    freshMatch.player1DepositVerified && freshMatch.player2DepositVerified;
+
+  if (bothVerified && freshMatch.status === "awaiting_deposits") {
+    return await activateMatch(matchId, freshMatch);
   }
 
   return {
