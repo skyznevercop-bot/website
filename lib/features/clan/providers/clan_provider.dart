@@ -7,8 +7,104 @@ import '../models/clan_models.dart';
 class ClanNotifier extends Notifier<ClanState> {
   final _api = ApiClient.instance;
 
+  /// Full unfiltered list for client-side search.
+  List<Clan> _allClans = [];
+
   @override
-  ClanState build() => const ClanState();
+  ClanState build() {
+    // Kick off initial loads (non-blocking).
+    Future.microtask(() {
+      loadMyClan();
+      loadClans();
+    });
+    return const ClanState();
+  }
+
+  // ── Helpers ──────────────────────────────────────────────
+
+  static int _calcWinRate(int wins, int losses) {
+    final total = wins + losses;
+    if (total == 0) return 0;
+    return ((wins / total) * 100).round();
+  }
+
+  static ClanRole _parseRole(String role) {
+    switch (role) {
+      case 'LEADER':
+        return ClanRole.leader;
+      case 'CO_LEADER':
+        return ClanRole.coLeader;
+      case 'ELDER':
+        return ClanRole.elder;
+      default:
+        return ClanRole.member;
+    }
+  }
+
+  /// Parse a clan JSON map into a Clan object.
+  Clan _parseClan(Map<String, dynamic> c, {List<ClanMember>? members}) {
+    return Clan(
+      id: c['id'] as String,
+      name: c['name'] as String,
+      tag: c['tag'] as String,
+      description: (c['description'] as String?) ?? '',
+      leaderAddress: (c['leaderAddress'] as String?) ?? '',
+      memberCount: (c['memberCount'] as int?) ?? members?.length ?? 1,
+      maxMembers: (c['maxMembers'] as int?) ?? 50,
+      winRate: _calcWinRate(
+        (c['totalWins'] as int?) ?? 0,
+        (c['totalLosses'] as int?) ?? 0,
+      ),
+      totalWins: (c['totalWins'] as int?) ?? 0,
+      totalLosses: (c['totalLosses'] as int?) ?? 0,
+      trophies: (c['trophies'] as int?) ?? 0,
+      members: members ?? const [],
+      createdAt: DateTime.tryParse(c['createdAt'] as String? ?? '') ??
+          DateTime.now(),
+    );
+  }
+
+  /// Parse a members JSON list into ClanMember objects.
+  List<ClanMember> _parseMembers(List<dynamic> membersJson) {
+    return membersJson.map((m) {
+      final member = m as Map<String, dynamic>;
+      return ClanMember(
+        address: member['address'] as String,
+        gamerTag: (member['gamerTag'] as String?) ?? 'Unknown',
+        role: _parseRole(member['role'] as String),
+        trophies: (member['wins'] as int?) ?? 0,
+        joinedAt: DateTime.tryParse(member['joinedAt'] as String? ?? '') ??
+            DateTime.now(),
+      );
+    }).toList();
+  }
+
+  // ── Data Loading ─────────────────────────────────────────
+
+  /// Fetch the current user's clan from the backend.
+  Future<void> loadMyClan() async {
+    if (!_api.hasToken) return;
+
+    try {
+      final response = await _api.get('/clan/my');
+      final clanJson = response['clan'];
+
+      if (clanJson == null) {
+        state = state.copyWith(clearUserClan: true);
+        return;
+      }
+
+      final c = clanJson as Map<String, dynamic>;
+      final members = c['members'] != null
+          ? _parseMembers(c['members'] as List<dynamic>)
+          : <ClanMember>[];
+
+      final clan = _parseClan(c, members: members);
+      state = state.copyWith(userClan: clan);
+    } catch (_) {
+      // Silently fail — user just won't see their clan.
+    }
+  }
 
   /// Fetch all clans from the backend.
   Future<void> loadClans() async {
@@ -17,26 +113,13 @@ class ClanNotifier extends Notifier<ClanState> {
     try {
       final response = await _api.get('/clan');
       final clansJson = response['clans'] as List<dynamic>;
-      final clans = clansJson.map((json) {
+      _allClans = clansJson.map((json) {
         final c = json as Map<String, dynamic>;
-        return Clan(
-          id: c['id'] as String,
-          name: c['name'] as String,
-          tag: c['tag'] as String,
-          description: (c['description'] as String?) ?? '',
-          memberCount: c['memberCount'] as int,
-          winRate: _calcWinRate(
-            c['totalWins'] as int,
-            c['totalLosses'] as int,
-          ),
-          totalWins: c['totalWins'] as int,
-          totalLosses: c['totalLosses'] as int,
-          createdAt: DateTime.parse(c['createdAt'] as String),
-        );
+        return _parseClan(c);
       }).toList();
 
       state = state.copyWith(
-        browseClansList: clans,
+        browseClansList: _filteredClans(),
         isLoading: false,
       );
     } catch (_) {
@@ -44,11 +127,18 @@ class ClanNotifier extends Notifier<ClanState> {
     }
   }
 
-  static int _calcWinRate(int wins, int losses) {
-    final total = wins + losses;
-    if (total == 0) return 0;
-    return ((wins / total) * 100).round();
+  /// Apply search filter to the cached clan list.
+  List<Clan> _filteredClans() {
+    final query = state.searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return _allClans;
+
+    return _allClans.where((clan) {
+      return clan.name.toLowerCase().contains(query) ||
+          clan.tag.toLowerCase().contains(query);
+    }).toList();
   }
+
+  // ── Mutations ────────────────────────────────────────────
 
   /// Create a new clan via backend API.
   Future<void> createClan(
@@ -81,10 +171,14 @@ class ClanNotifier extends Notifier<ClanState> {
             joinedAt: DateTime.now(),
           ),
         ],
-        createdAt: DateTime.now(),
+        createdAt: DateTime.tryParse(response['createdAt'] as String? ?? '') ??
+            DateTime.now(),
       );
 
       state = state.copyWith(userClan: clan, isCreating: false);
+
+      // Refresh browse list so new clan appears.
+      loadClans();
     } on ApiException catch (e) {
       state = state.copyWith(
         isCreating: false,
@@ -109,35 +203,16 @@ class ClanNotifier extends Notifier<ClanState> {
 
       // Fetch the full clan details.
       final clanResponse = await _api.get('/clan/$clanId');
+      final members = clanResponse['members'] != null
+          ? _parseMembers(clanResponse['members'] as List<dynamic>)
+          : <ClanMember>[];
 
-      final members = (clanResponse['members'] as List<dynamic>)
-          .map((m) {
-        final member = m as Map<String, dynamic>;
-        return ClanMember(
-          address: member['address'] as String,
-          gamerTag: member['gamerTag'] as String,
-          role: _parseRole(member['role'] as String),
-          joinedAt: DateTime.parse(member['joinedAt'] as String),
-        );
-      }).toList();
-
-      final clan = Clan(
-        id: clanResponse['id'] as String,
-        name: clanResponse['name'] as String,
-        tag: clanResponse['tag'] as String,
-        description: (clanResponse['description'] as String?) ?? '',
-        memberCount: clanResponse['memberCount'] as int,
-        winRate: _calcWinRate(
-          clanResponse['totalWins'] as int,
-          clanResponse['totalLosses'] as int,
-        ),
-        totalWins: clanResponse['totalWins'] as int,
-        totalLosses: clanResponse['totalLosses'] as int,
-        members: members,
-        createdAt: DateTime.parse(clanResponse['createdAt'] as String),
-      );
+      final clan = _parseClan(clanResponse, members: members);
 
       state = state.copyWith(userClan: clan, isLoading: false);
+
+      // Refresh browse list so member counts update.
+      loadClans();
     } on ApiException catch (e) {
       state = state.copyWith(
         isLoading: false,
@@ -158,6 +233,9 @@ class ClanNotifier extends Notifier<ClanState> {
     try {
       await _api.delete('/clan/${state.userClan!.id}/leave');
       state = state.copyWith(clearUserClan: true, clearError: true);
+
+      // Refresh browse list so member counts update.
+      loadClans();
     } catch (e) {
       state = state.copyWith(
         errorMessage: 'Failed to leave clan: ${e.toString()}',
@@ -167,21 +245,9 @@ class ClanNotifier extends Notifier<ClanState> {
 
   /// Filter clans by search query (client-side filter on loaded list).
   void searchClans(String query) {
+    // Update query first, then filter.
     state = state.copyWith(searchQuery: query);
-    loadClans();
-  }
-
-  static ClanRole _parseRole(String role) {
-    switch (role) {
-      case 'LEADER':
-        return ClanRole.leader;
-      case 'CO_LEADER':
-        return ClanRole.coLeader;
-      case 'ELDER':
-        return ClanRole.elder;
-      default:
-        return ClanRole.member;
-    }
+    state = state.copyWith(browseClansList: _filteredClans());
   }
 }
 

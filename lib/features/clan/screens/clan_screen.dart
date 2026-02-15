@@ -110,9 +110,23 @@ class ClanScreen extends ConsumerWidget {
           // ── Browse Clans ───────────────────────────────────────────
           Padding(
             padding: Responsive.horizontalPadding(context),
-            child: _SectionHeader(
-              title: 'Find a Clan',
-              trailing: '${state.browseClansList.length} clans',
+            child: Row(
+              children: [
+                Expanded(
+                  child: _SectionHeader(
+                    title: 'Find a Clan',
+                    trailing: '${state.browseClansList.length} clans',
+                  ),
+                ),
+                IconButton(
+                  onPressed: () =>
+                      ref.read(clanProvider.notifier).loadClans(),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  color: AppTheme.textTertiary,
+                  splashRadius: 18,
+                  tooltip: 'Refresh',
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 10),
@@ -125,19 +139,39 @@ class ClanScreen extends ConsumerWidget {
           const SizedBox(height: 14),
           Padding(
             padding: Responsive.horizontalPadding(context),
-            child: state.browseClansList.isEmpty
-                ? _EmptyState()
-                : Column(
-                    children: [
-                      for (int i = 0; i < state.browseClansList.length; i++)
-                        _ClanCard(
-                          rank: i + 1,
-                          clan: state.browseClansList[i],
-                          canJoin: isConnected && !state.hasClan,
-                          isMobile: isMobile,
+            child: state.isLoading
+                ? Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppTheme.solanaPurple,
                         ),
-                    ],
-                  ),
+                      ),
+                    ),
+                  )
+                : state.browseClansList.isEmpty
+                    ? _EmptyState()
+                    : Column(
+                        children: [
+                          for (int i = 0; i < state.browseClansList.length; i++)
+                            _ClanCard(
+                              rank: i + 1,
+                              clan: state.browseClansList[i],
+                              canJoin: isConnected && !state.hasClan,
+                              isMobile: isMobile,
+                            ),
+                        ],
+                      ),
           ),
         ],
       ),

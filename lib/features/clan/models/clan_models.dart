@@ -45,6 +45,7 @@ class Clan {
   final String name;
   final String tag; // 3-5 char abbreviation
   final String description;
+  final String leaderAddress;
   final int memberCount;
   final int maxMembers;
   final int winRate;
@@ -64,6 +65,7 @@ class Clan {
     required this.name,
     required this.tag,
     this.description = '',
+    this.leaderAddress = '',
     required this.memberCount,
     this.maxMembers = 50,
     required this.winRate,
@@ -84,6 +86,7 @@ class Clan {
     String? name,
     String? tag,
     String? description,
+    String? leaderAddress,
     int? memberCount,
     int? maxMembers,
     int? winRate,
@@ -103,6 +106,7 @@ class Clan {
       name: name ?? this.name,
       tag: tag ?? this.tag,
       description: description ?? this.description,
+      leaderAddress: leaderAddress ?? this.leaderAddress,
       memberCount: memberCount ?? this.memberCount,
       maxMembers: maxMembers ?? this.maxMembers,
       winRate: winRate ?? this.winRate,

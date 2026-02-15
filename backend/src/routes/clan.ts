@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
-import { clansRef, getUser } from "../services/firebase";
+import { clansRef, getUser, updateUser } from "../services/firebase";
 
 const router = Router();
 
@@ -23,14 +23,14 @@ router.get("/", async (req, res) => {
       id: child.key,
       name: c.name,
       tag: c.tag,
-      description: c.description,
+      description: c.description || "",
       leaderAddress: c.leaderAddress,
       memberCount: members.length,
       maxMembers: c.maxMembers || 50,
       totalWins: c.totalWins || 0,
       totalLosses: c.totalLosses || 0,
       trophies: c.trophies || 0,
-      createdAt: c.createdAt,
+      createdAt: new Date(c.createdAt).toISOString(),
     });
   });
 
@@ -44,6 +44,58 @@ router.get("/", async (req, res) => {
     total,
     page,
     limit,
+  });
+});
+
+/** GET /api/clan/my — Get the authenticated user's clan. */
+router.get("/my", requireAuth, async (req: AuthRequest, res) => {
+  const user = await getUser(req.userAddress!);
+  if (!user || !user.clanId) {
+    res.json({ clan: null });
+    return;
+  }
+
+  const snap = await clansRef.child(user.clanId).once("value");
+  if (!snap.exists()) {
+    // clanId is stale — clean it up.
+    await updateUser(req.userAddress!, { clanId: null });
+    res.json({ clan: null });
+    return;
+  }
+
+  const clan = snap.val();
+  const membersObj = clan.members || {};
+  const memberAddresses = Object.keys(membersObj);
+
+  const members = await Promise.all(
+    memberAddresses.map(async (addr) => {
+      const memberUser = await getUser(addr);
+      return {
+        address: addr,
+        gamerTag: memberUser?.gamerTag || addr.slice(0, 8),
+        role: membersObj[addr].role,
+        wins: memberUser?.wins || 0,
+        losses: memberUser?.losses || 0,
+        joinedAt: new Date(membersObj[addr].joinedAt).toISOString(),
+      };
+    })
+  );
+
+  res.json({
+    clan: {
+      id: user.clanId,
+      name: clan.name,
+      tag: clan.tag,
+      description: clan.description || "",
+      leaderAddress: clan.leaderAddress,
+      memberCount: members.length,
+      maxMembers: clan.maxMembers || 50,
+      totalWins: clan.totalWins || 0,
+      totalLosses: clan.totalLosses || 0,
+      trophies: clan.trophies || 0,
+      createdAt: new Date(clan.createdAt).toISOString(),
+      members,
+    },
   });
 });
 
@@ -69,7 +121,7 @@ router.get("/:id", async (req, res) => {
         role: membersObj[addr].role,
         wins: user?.wins || 0,
         losses: user?.losses || 0,
-        joinedAt: membersObj[addr].joinedAt,
+        joinedAt: new Date(membersObj[addr].joinedAt).toISOString(),
       };
     })
   );
@@ -78,14 +130,14 @@ router.get("/:id", async (req, res) => {
     id: req.params.id,
     name: clan.name,
     tag: clan.tag,
-    description: clan.description,
+    description: clan.description || "",
     leaderAddress: clan.leaderAddress,
     memberCount: members.length,
     maxMembers: clan.maxMembers || 50,
     totalWins: clan.totalWins || 0,
     totalLosses: clan.totalLosses || 0,
     trophies: clan.trophies || 0,
-    createdAt: clan.createdAt,
+    createdAt: new Date(clan.createdAt).toISOString(),
     members,
   });
 });
@@ -99,25 +151,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  // Check if user is already in a clan.
-  const allClans = await clansRef.once("value");
-  let alreadyInClan = false;
-
-  if (allClans.exists()) {
-    allClans.forEach((child) => {
-      const c = child.val();
-      if (c.members && c.members[req.userAddress!]) {
-        alreadyInClan = true;
-      }
-    });
-  }
-
-  if (alreadyInClan) {
+  // Check if user is already in a clan via their user record.
+  const user = await getUser(req.userAddress!);
+  if (user?.clanId) {
     res.status(409).json({ error: "Already in a clan" });
     return;
   }
 
   const ref = clansRef.push();
+  const now = Date.now();
   await ref.set({
     name,
     tag: tag.toUpperCase(),
@@ -127,34 +169,32 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     totalWins: 0,
     totalLosses: 0,
     trophies: 0,
-    createdAt: Date.now(),
+    createdAt: now,
     members: {
       [req.userAddress!]: {
         role: "LEADER",
-        joinedAt: Date.now(),
+        joinedAt: now,
       },
     },
   });
 
-  res.json({ id: ref.key, name, tag: tag.toUpperCase() });
+  // Track clan membership on user record.
+  await updateUser(req.userAddress!, { clanId: ref.key! });
+
+  res.json({
+    id: ref.key,
+    name,
+    tag: tag.toUpperCase(),
+    description: description || "",
+    createdAt: new Date(now).toISOString(),
+  });
 });
 
 /** POST /api/clan/:id/join — Join a clan. */
 router.post("/:id/join", requireAuth, async (req: AuthRequest, res) => {
-  // Check if already in a clan.
-  const allClans = await clansRef.once("value");
-  let alreadyInClan = false;
-
-  if (allClans.exists()) {
-    allClans.forEach((child) => {
-      const c = child.val();
-      if (c.members && c.members[req.userAddress!]) {
-        alreadyInClan = true;
-      }
-    });
-  }
-
-  if (alreadyInClan) {
+  // Check if already in a clan via user record.
+  const user = await getUser(req.userAddress!);
+  if (user?.clanId) {
     res.status(409).json({ error: "Already in a clan" });
     return;
   }
@@ -177,6 +217,9 @@ router.post("/:id/join", requireAuth, async (req: AuthRequest, res) => {
     role: "MEMBER",
     joinedAt: Date.now(),
   });
+
+  // Track clan membership on user record.
+  await updateUser(req.userAddress!, { clanId: req.params.id });
 
   res.json({ status: "joined", clanId: req.params.id });
 });
@@ -216,6 +259,7 @@ router.delete("/:id/leave", requireAuth, async (req: AuthRequest, res) => {
     } else {
       // Dissolve clan.
       await clansRef.child(req.params.id).remove();
+      await updateUser(req.userAddress!, { clanId: null });
       res.json({ status: "clan_dissolved" });
       return;
     }
@@ -227,6 +271,9 @@ router.delete("/:id/leave", requireAuth, async (req: AuthRequest, res) => {
     .child("members")
     .child(req.userAddress!)
     .remove();
+
+  // Clear clan membership on user record.
+  await updateUser(req.userAddress!, { clanId: null });
 
   res.json({ status: "left" });
 });

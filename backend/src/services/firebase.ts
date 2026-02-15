@@ -57,6 +57,7 @@ export interface DbUser {
   currentStreak: number;
   gamesPlayed: number;
   createdAt: number;
+  clanId?: string | null;
 }
 
 export async function getUser(address: string): Promise<DbUser | null> {
