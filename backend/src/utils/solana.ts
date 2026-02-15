@@ -168,13 +168,16 @@ function deserializeGame(data: Buffer): OnChainGame {
   const status: GameStatus = data[offset];
   offset += 1;
 
-  // Option<Pubkey>: 1 byte discriminant + 32 bytes if Some
+  // Borsh Option<Pubkey>: variable length
+  //   None = 0x00 (1 byte total)
+  //   Some = 0x01 + 32 bytes (33 bytes total)
   const hasWinner = data[offset] === 1;
   offset += 1;
-  const winner = hasWinner
-    ? new PublicKey(data.slice(offset, offset + 32))
-    : null;
-  offset += 32;
+  let winner: PublicKey | null = null;
+  if (hasWinner) {
+    winner = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+  }
 
   const playerOnePnl = data.readBigInt64LE(offset);
   offset += 8;
