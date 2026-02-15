@@ -79,11 +79,14 @@ export async function confirmDeposit(
 
   await updateMatch(matchId, update);
 
-  // Notify match room.
-  broadcastToMatch(matchId, {
+  // Notify BOTH players directly (they haven't joined the match room yet).
+  const depositNotification = {
     type: "deposit_confirmed",
+    matchId,
     player: playerAddress,
-  });
+  };
+  broadcastToUser(match.player1, depositNotification);
+  broadcastToUser(match.player2, depositNotification);
 
   // Re-read match from DB to get latest state (avoids race condition
   // when both players confirm deposits at nearly the same time).
@@ -131,12 +134,19 @@ async function activateMatch(
   }
 
   const snap = result.snapshot.val();
-  broadcastToMatch(matchId, {
+  const activationMsg = {
     type: "match_activated",
     matchId,
     startTime: snap.startTime,
     endTime: snap.endTime,
-  });
+  };
+
+  // Notify both players directly — they haven't joined the match room yet,
+  // so broadcastToMatch would send to an empty room.
+  broadcastToUser(match.player1, activationMsg);
+  broadcastToUser(match.player2, activationMsg);
+  // Also broadcast to match room for any observers already there.
+  broadcastToMatch(matchId, activationMsg);
 
   console.log(`[Escrow] Match ${matchId} activated: both deposits verified`);
 
@@ -246,7 +256,9 @@ export async function checkDepositTimeouts(): Promise<void> {
     if (!p1Deposited && !p2Deposited) {
       // Neither deposited — just cancel.
       await updateMatch(id, { status: "cancelled", escrowState: "refunded" });
-      broadcastToMatch(id, { type: "match_cancelled", reason: "no_deposits" });
+      const cancelMsg = { type: "match_cancelled", matchId: id, reason: "no_deposits" };
+      broadcastToUser(match.player1, cancelMsg);
+      broadcastToUser(match.player2, cancelMsg);
       console.log(`[Escrow] Match ${id} cancelled: no deposits received`);
     } else {
       // One deposited, other didn't — FULL REFUND (100%, no fee).
