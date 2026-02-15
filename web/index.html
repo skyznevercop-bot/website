@@ -275,7 +275,17 @@
         ASSOCIATED_TOKEN_PROGRAM_ID
       )[0];
 
+      var MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
+
       var tx = new Transaction();
+
+      // Add memo so wallets can identify the transaction purpose.
+      var memoText = 'SolFight Match Deposit: ' + amountUsdc + ' USDC';
+      tx.add(new TransactionInstruction({
+        programId: MEMO_PROGRAM_ID,
+        keys: [],
+        data: new TextEncoder().encode(memoText),
+      }));
 
       // Create escrow ATA idempotently (instruction index 1).
       // This creates the account if missing, or succeeds silently if it exists.
