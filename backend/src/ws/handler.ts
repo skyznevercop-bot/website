@@ -342,6 +342,34 @@ async function handleMessage(
       break;
     }
 
+    case "chat_message": {
+      const { matchId, content, senderTag } = data as {
+        matchId: string;
+        content: string;
+        senderTag: string;
+      };
+
+      if (
+        !matchId ||
+        !content ||
+        typeof content !== "string" ||
+        content.length > 200
+      ) {
+        break;
+      }
+
+      // Broadcast to the match room so the opponent receives it.
+      broadcastToMatch(matchId, {
+        type: "chat_message",
+        matchId,
+        senderTag: senderTag || ws.userAddress,
+        content,
+        sender: ws.userAddress,
+        timestamp: Date.now(),
+      });
+      break;
+    }
+
     default:
       ws.send(
         JSON.stringify({ type: "error", message: "Unknown event type" })

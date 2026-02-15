@@ -14,6 +14,7 @@ import '../providers/price_feed_provider.dart';
 import '../providers/trading_provider.dart';
 import '../widgets/match_chat_panel.dart';
 import '../widgets/tradingview_chart_widget.dart';
+import '../../wallet/providers/wallet_provider.dart';
 
 // =============================================================================
 // Shared helpers
@@ -114,9 +115,11 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           );
 
       // Initialize chat for this match.
+      final wallet = ref.read(walletProvider);
       ref.read(matchChatProvider.notifier).init(
             matchId: widget.matchId ?? '',
-            myTag: 'You',
+            myAddress: wallet.address ?? '',
+            myTag: wallet.gamerTag ?? 'You',
           );
     });
   }

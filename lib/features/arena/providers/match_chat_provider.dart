@@ -9,6 +9,7 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
   final _api = ApiClient.instance;
   StreamSubscription? _wsSub;
   String _matchId = '';
+  String _myAddress = '';
   String _myTag = '';
   int _msgCounter = 0;
 
@@ -21,8 +22,13 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
   }
 
   /// Initialize chat for a match. Call after startMatch().
-  void init({required String matchId, required String myTag}) {
+  void init({
+    required String matchId,
+    required String myAddress,
+    required String myTag,
+  }) {
     _matchId = matchId;
+    _myAddress = myAddress;
     _myTag = myTag;
     _msgCounter = 0;
 
@@ -72,9 +78,11 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
   }
 
   void _onReceive(Map<String, dynamic> data) {
-    final senderTag = data['senderTag'] as String? ?? 'Opponent';
+    final sender = data['sender'] as String? ?? '';
     // Skip own messages (already added optimistically).
-    if (senderTag == _myTag) return;
+    if (sender == _myAddress) return;
+
+    final senderTag = data['senderTag'] as String? ?? 'Opponent';
 
     _msgCounter++;
     final msg = ChatMessage(
