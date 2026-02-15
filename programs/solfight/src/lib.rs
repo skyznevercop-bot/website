@@ -7,7 +7,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("So1F1gHTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+declare_id!("268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8");
 
 #[program]
 pub mod solfight {
@@ -57,5 +57,10 @@ pub mod solfight {
     /// Refund escrow to both players (Tied or Cancelled games).
     pub fn refund_escrow(ctx: Context<RefundEscrow>) -> Result<()> {
         instructions::refund_escrow::handler(ctx)
+    }
+
+    /// Cancel a pending game (deposit timeout). Authority only.
+    pub fn cancel_pending_game(ctx: Context<CancelPendingGame>) -> Result<()> {
+        instructions::cancel_pending_game::handler(ctx)
     }
 }

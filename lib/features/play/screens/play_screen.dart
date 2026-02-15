@@ -337,10 +337,14 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             });
 
             try {
-              // Step 1: Send USDC on-chain.
+              // Step 1: Deposit to on-chain escrow via program instruction.
+              if (match.gamePda == null || match.escrowTokenAccount == null) {
+                throw Exception('Missing on-chain game data. Please try again.');
+              }
               final txSignature = await EscrowService.deposit(
                 walletName: walletName,
-                amountUsdc: match.bet,
+                gamePda: match.gamePda!,
+                escrowTokenAccount: match.escrowTokenAccount!,
               );
               ref.read(walletProvider.notifier).deductBalance(match.bet);
 

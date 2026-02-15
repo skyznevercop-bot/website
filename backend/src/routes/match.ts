@@ -9,6 +9,13 @@ import {
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
 import { confirmDeposit } from "../services/escrow";
+import {
+  getGamePdaAndEscrow,
+  getPlatformPDA,
+  fetchGameAccount,
+  GameStatus,
+} from "../utils/solana";
+import { config } from "../config";
 
 const router = Router();
 
@@ -186,6 +193,47 @@ router.get("/history/:address", async (req, res) => {
     total: matches.length,
     page,
     limit,
+  });
+});
+
+/** GET /api/match/:id/claim-info — Get on-chain addresses needed to build a claim_winnings tx. */
+router.get("/:id/claim-info", requireAuth, async (req: AuthRequest, res) => {
+  const match = await getMatch(req.params.id);
+  if (!match) {
+    res.status(404).json({ error: "Match not found" });
+    return;
+  }
+
+  if (!match.onChainGameId) {
+    res.status(400).json({ error: "No on-chain game for this match" });
+    return;
+  }
+
+  const game = await fetchGameAccount(BigInt(match.onChainGameId));
+  if (!game) {
+    res.status(400).json({ error: "On-chain game not found" });
+    return;
+  }
+
+  // Only allow claiming for Settled or Forfeited games.
+  if (game.status !== GameStatus.Settled && game.status !== GameStatus.Forfeited) {
+    res.status(400).json({ error: "Game is not in a claimable state" });
+    return;
+  }
+
+  const { gamePda, escrowTokenAccount } = await getGamePdaAndEscrow(
+    BigInt(match.onChainGameId)
+  );
+  const [platformPda] = getPlatformPDA();
+
+  res.json({
+    programId: config.programId,
+    gameId: match.onChainGameId,
+    gamePda: gamePda.toBase58(),
+    escrowTokenAccount: escrowTokenAccount.toBase58(),
+    platformPda: platformPda.toBase58(),
+    treasuryAddress: config.treasuryAddress,
+    winner: game.winner?.toBase58() || null,
   });
 });
 

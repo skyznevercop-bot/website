@@ -1,6 +1,7 @@
-import { queuesRef, createMatch as createDbMatch, getUser, DbMatch } from "./firebase";
+import { queuesRef, createMatch as createDbMatch, getUser, updateMatch, DbMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
 import { config } from "../config";
+import { startGameOnChain, getGamePdaAndEscrow } from "../utils/solana";
 
 /**
  * Add a player to the FIFO matchmaking queue.
@@ -96,6 +97,7 @@ export function startMatchmakingLoop(): void {
 
 /**
  * Create a match between two players and remove them from the queue.
+ * Also creates the game on-chain so each match gets its own PDA-owned escrow.
  */
 async function matchPair(
   queueKey: string,
@@ -114,6 +116,10 @@ async function matchPair(
 
   const now = Date.now();
 
+  // Parse duration string (e.g. "5m", "1h") to seconds for on-chain.
+  const durationSeconds = parseDurationToSeconds(duration);
+
+  // Create Firebase match record.
   const matchData: DbMatch = {
     player1,
     player2,
@@ -126,9 +132,43 @@ async function matchPair(
 
   const matchId = await createDbMatch(matchData);
 
-  console.log(
-    `[Matchmaking] Match created: ${matchId} | ${player1} vs ${player2} | ${duration} | $${bet}`
-  );
+  // Create the game on-chain (creates Game PDA + escrow token account).
+  let onChainGameId: number | undefined;
+  let gamePdaStr: string | undefined;
+  let escrowTokenAccountStr: string | undefined;
+
+  try {
+    onChainGameId = await startGameOnChain(player1, player2, bet, durationSeconds);
+
+    // Derive the addresses to send to frontend.
+    const { gamePda, escrowTokenAccount } = await getGamePdaAndEscrow(
+      BigInt(onChainGameId)
+    );
+    gamePdaStr = gamePda.toBase58();
+    escrowTokenAccountStr = escrowTokenAccount.toBase58();
+
+    // Store on-chain game ID in Firebase.
+    await updateMatch(matchId, { onChainGameId });
+
+    console.log(
+      `[Matchmaking] Match created: ${matchId} | onChainGame=${onChainGameId} | ${player1} vs ${player2} | ${duration} | $${bet}`
+    );
+  } catch (err) {
+    console.error(`[Matchmaking] Failed to create on-chain game for match ${matchId}:`, err);
+    // Cancel the Firebase match — can't proceed without on-chain game.
+    await updateMatch(matchId, { status: "cancelled" });
+    broadcastToUser(player1, {
+      type: "match_cancelled",
+      matchId,
+      reason: "system_error",
+    });
+    broadcastToUser(player2, {
+      type: "match_cancelled",
+      matchId,
+      reason: "system_error",
+    });
+    return;
+  }
 
   const [p1User, p2User] = await Promise.all([
     getUser(player1),
@@ -144,6 +184,9 @@ async function matchPair(
     },
     duration,
     bet,
+    onChainGameId,
+    gamePda: gamePdaStr,
+    escrowTokenAccount: escrowTokenAccountStr,
   });
 
   broadcastToUser(player2, {
@@ -155,5 +198,17 @@ async function matchPair(
     },
     duration,
     bet,
+    onChainGameId,
+    gamePda: gamePdaStr,
+    escrowTokenAccount: escrowTokenAccountStr,
   });
+}
+
+function parseDurationToSeconds(duration: string): number {
+  const m = duration.match(/^(\d+)(m|h)$/);
+  if (!m) return 15 * 60; // default 15 minutes
+  const value = parseInt(m[1]);
+  const unit = m[2];
+  if (unit === "h") return value * 60 * 60;
+  return value * 60;
 }

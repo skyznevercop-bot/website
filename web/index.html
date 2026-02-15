@@ -211,105 +211,165 @@
       }
       return 0;
     };
-    // ── Escrow: Send USDC to escrow wallet for a match ──────────────────────
-    window._sendUsdcToEscrow = async function(walletName, escrowAddress, amountUsdc, usdcMint, rpcUrl) {
-      var Connection = solanaWeb3.Connection;
-      var PublicKey = solanaWeb3.PublicKey;
-      var Transaction = solanaWeb3.Transaction;
-      var TransactionInstruction = solanaWeb3.TransactionInstruction;
-      var SystemProgram = solanaWeb3.SystemProgram;
+    // ── Helpers ───────────────────────────────────────────────────
+    var TOKEN_PROGRAM_ID_STR = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    var ASSOC_TOKEN_PROGRAM_ID_STR = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
-      var TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
-      var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+    // Compute Anchor instruction discriminator: sha256("global:<name>")[0..8]
+    window._anchorDisc = async function(name) {
+      var enc = new TextEncoder();
+      var hash = await crypto.subtle.digest('SHA-256', enc.encode('global:' + name));
+      return new Uint8Array(hash).slice(0, 8);
+    };
 
-      // Get wallet provider (legacy providers: Phantom, Solflare, Backpack)
-      var provider = null;
+    // Get connected wallet provider by name.
+    window._getWalletProvider = function(walletName) {
       var name = walletName.toLowerCase();
-      if (name === 'phantom' && window.phantom && window.phantom.solana) {
-        provider = window.phantom.solana;
-      } else if (name === 'solflare' && window.solflare) {
-        provider = window.solflare;
-      } else if (name === 'backpack') {
-        provider = window.backpack || (window.xnft && window.xnft.solana);
-      }
-      if (!provider || !provider.publicKey) {
-        throw new Error(walletName + ' wallet not connected. Please reconnect.');
-      }
+      if (name === 'phantom' && window.phantom && window.phantom.solana) return window.phantom.solana;
+      if (name === 'solflare' && window.solflare) return window.solflare;
+      if (name === 'backpack') return window.backpack || (window.xnft && window.xnft.solana);
+      return null;
+    };
 
-      // Try multiple RPCs: PublicNode (CORS-friendly), backend proxy, then official.
+    // Get a working RPC connection (with fallback).
+    window._getRpcConnection = async function(rpcUrl) {
+      var Connection = solanaWeb3.Connection;
       var rpcList = [
         'https://solana-rpc.publicnode.com',
         'https://solfight-backend.onrender.com/api/rpc-proxy',
         rpcUrl
       ];
-      var connection = null;
-      var bh = null;
       for (var r = 0; r < rpcList.length; r++) {
         try {
           var testConn = new Connection(rpcList[r], 'confirmed');
-          bh = await testConn.getLatestBlockhash('confirmed');
-          connection = testConn;
-          console.log('[SolFight] Using RPC: ' + rpcList[r]);
-          break;
+          var bh = await testConn.getLatestBlockhash('confirmed');
+          return { connection: testConn, blockhash: bh };
         } catch(e) {
           console.warn('[SolFight] RPC ' + rpcList[r] + ' failed, trying next...', e);
         }
       }
-      if (!connection || !bh) {
-        throw new Error('All Solana RPC endpoints returned errors. Please try again.');
+      throw new Error('All Solana RPC endpoints returned errors. Please try again.');
+    };
+
+    // Derive Associated Token Account (ATA) address.
+    window._deriveAta = function(owner, mint) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+      var assocProgramId = new PublicKey(ASSOC_TOKEN_PROGRAM_ID_STR);
+      return PublicKey.findProgramAddressSync(
+        [owner.toBuffer(), tokenProgramId.toBuffer(), mint.toBuffer()],
+        assocProgramId
+      )[0];
+    };
+
+    // ── Deposit to Escrow (on-chain program instruction) ──────────────────
+    // Player calls deposit_to_escrow on the SolFight program.
+    // The program transfers bet_amount from player's ATA to the game's escrow ATA.
+    window._depositToEscrow = async function(walletName, programId, gamePda, escrowTokenAccount, usdcMint, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
       }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
       var sender = provider.publicKey;
-      var escrow = new PublicKey(escrowAddress);
       var mint = new PublicKey(usdcMint);
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
 
-      // USDC has 6 decimals
-      var amountSmallest = BigInt(Math.round(amountUsdc * 1000000));
+      // Derive player's USDC ATA.
+      var playerAta = window._deriveAta(sender, mint);
 
-      // Derive Associated Token Accounts
-      var senderAta = PublicKey.findProgramAddressSync(
-        [sender.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )[0];
-      var escrowAta = PublicKey.findProgramAddressSync(
-        [escrow.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-        ASSOCIATED_TOKEN_PROGRAM_ID
-      )[0];
+      // Build deposit_to_escrow instruction.
+      var disc = await window._anchorDisc('deposit_to_escrow');
+
+      var ix = new TransactionInstruction({
+        programId: new PublicKey(programId),
+        keys: [
+          { pubkey: new PublicKey(gamePda), isSigner: false, isWritable: true },
+          { pubkey: playerAta, isSigner: false, isWritable: true },
+          { pubkey: new PublicKey(escrowTokenAccount), isSigner: false, isWritable: true },
+          { pubkey: sender, isSigner: true, isWritable: false },
+          { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        ],
+        data: disc,
+      });
 
       var tx = new Transaction();
-
-      // SPL Token transfer only — escrow ATA is pre-created on the server side.
-
-      // SPL Token transfer instruction (index 3)
-      var amountBytes = new Uint8Array(8);
-      var val = amountSmallest;
-      for (var i = 0; i < 8; i++) {
-        amountBytes[i] = Number(val & BigInt(0xFF));
-        val = val >> BigInt(8);
-      }
-      var transferData = new Uint8Array(9);
-      transferData[0] = 3; // Transfer instruction index
-      transferData.set(amountBytes, 1);
-
-      tx.add(new TransactionInstruction({
-        programId: TOKEN_PROGRAM_ID,
-        keys: [
-          { pubkey: senderAta, isSigner: false, isWritable: true },
-          { pubkey: escrowAta, isSigner: false, isWritable: true },
-          { pubkey: sender, isSigner: true, isWritable: false },
-        ],
-        data: transferData,
-      }));
-
-      // Set blockhash (already fetched during RPC probe) and fee payer
+      tx.add(ix);
       tx.recentBlockhash = bh.blockhash;
       tx.feePayer = sender;
 
-      // Sign & send via wallet
       var result = await provider.signAndSendTransaction(tx);
       var signature = typeof result === 'string' ? result
         : (result.signature ? result.signature : result.toString());
 
-      // Confirm transaction
+      await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
+    };
+
+    // ── Claim Winnings (on-chain program instruction) ────────────────────
+    // Winner calls claim_winnings to get their payout from the escrow.
+    window._claimWinnings = async function(walletName, programId, gamePda, escrowTokenAccount, platformPda, treasuryAddress, usdcMint, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
+      var winner = provider.publicKey;
+      var mint = new PublicKey(usdcMint);
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+      var treasury = new PublicKey(treasuryAddress);
+
+      // Derive ATAs.
+      var winnerAta = window._deriveAta(winner, mint);
+      var treasuryAta = window._deriveAta(treasury, mint);
+
+      // Build claim_winnings instruction.
+      var disc = await window._anchorDisc('claim_winnings');
+
+      var ix = new TransactionInstruction({
+        programId: new PublicKey(programId),
+        keys: [
+          { pubkey: new PublicKey(platformPda), isSigner: false, isWritable: false },
+          { pubkey: new PublicKey(gamePda), isSigner: false, isWritable: true },
+          { pubkey: new PublicKey(escrowTokenAccount), isSigner: false, isWritable: true },
+          { pubkey: winnerAta, isSigner: false, isWritable: true },
+          { pubkey: treasuryAta, isSigner: false, isWritable: true },
+          { pubkey: winner, isSigner: true, isWritable: false },
+          { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        ],
+        data: disc,
+      });
+
+      var tx = new Transaction();
+      tx.add(ix);
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = winner;
+
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
       await connection.confirmTransaction({
         signature: signature,
         blockhash: bh.blockhash,

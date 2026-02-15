@@ -24,17 +24,12 @@ class Environment {
       : '$apiBaseUrl/rpc-proxy';
 
   static const String programId =
-      'So1F1gHTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+      '268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8';
 
   /// USDC SPL token mint address.
   static const String usdcMint = useDevnet
       ? '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU' // devnet USDC
       : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // mainnet USDC
-
-  /// Treasury/escrow wallet for match bet deposits.
-  static const String escrowWallet = useDevnet
-      ? '6ofVTNgoHbJGBtQB3xCDYXNayc8vczXu2Vob4bDBZtVc'
-      : '6LkeXSeFQLjoVp5HVdtBTiTmUEsYQB5wFs2yw4BiL23D';
 
   // ── SharedPreferences Keys ──────────────────────────────
   static const String jwtTokenKey = 'solfight_jwt_token';

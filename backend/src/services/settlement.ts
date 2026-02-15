@@ -12,6 +12,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 import { processMatchPayout } from "./escrow";
+import { endGameOnChain } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -62,6 +63,16 @@ export async function settleByForfeit(
   const winner =
     disconnectedPlayer === match.player1 ? match.player2 : match.player1;
 
+  // Settle on-chain first.
+  if (match.onChainGameId) {
+    try {
+      await endGameOnChain(match.onChainGameId, winner, 0, 0, true);
+    } catch (err) {
+      console.error(`[Settlement] On-chain end_game failed for forfeit in match ${matchId}:`, err);
+      return;
+    }
+  }
+
   await updateMatch(matchId, {
     status: "forfeited",
     winner,
@@ -86,7 +97,7 @@ export async function settleByForfeit(
     `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer} disconnected | Winner: ${winner}`
   );
 
-  // Trigger payout to the winner.
+  // Trigger payout (winner claims from frontend).
   const updatedMatch = await getMatch(matchId);
   if (updatedMatch) {
     processMatchPayout(matchId, updatedMatch).catch((err) => {
@@ -96,7 +107,8 @@ export async function settleByForfeit(
 }
 
 /**
- * Settle a single match: calculate ROI, determine winner, update stats.
+ * Settle a single match: calculate ROI, determine winner, update stats,
+ * then call end_game on-chain.
  */
 async function settleMatch(
   matchId: string,
@@ -133,6 +145,7 @@ async function settleMatch(
   const player1 = match.player1 as string;
   const player2 = match.player2 as string;
   const betAmount = match.betAmount as number;
+  const onChainGameId = match.onChainGameId as number | undefined;
 
   const p1Pnl = allPositions
     .filter((p) => p.playerAddress === player1)
@@ -154,6 +167,24 @@ async function settleMatch(
   } else {
     status = "completed";
     winner = p1Roi > p2Roi ? player1 : player2;
+  }
+
+  // Settle on-chain. PnL values are sent as basis points of the bet.
+  if (onChainGameId) {
+    try {
+      const p1PnlBps = Math.round(p1Roi * 10000);
+      const p2PnlBps = Math.round(p2Roi * 10000);
+      await endGameOnChain(
+        onChainGameId,
+        winner || null,
+        p1PnlBps,
+        p2PnlBps,
+        false
+      );
+    } catch (err) {
+      console.error(`[Settlement] On-chain end_game failed for match ${matchId}:`, err);
+      return;
+    }
   }
 
   await updateMatch(matchId, {

@@ -18,7 +18,7 @@ export const config = {
   authorityKeypair: process.env.AUTHORITY_KEYPAIR
     ? JSON.parse(process.env.AUTHORITY_KEYPAIR)
     : null,
-  programId: process.env.PROGRAM_ID || "So1F1gHTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  programId: process.env.PROGRAM_ID || "268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8",
   usdcMint:
     process.env.USDC_MINT || "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 
@@ -30,13 +30,9 @@ export const config = {
   demoInitialBalance: 1_000_000,
   tieTolerance: 0.00001, // 0.001% ROI tolerance for tie detection
 
-  // Escrow / Payout
-  escrowWalletAddress:
-    process.env.ESCROW_WALLET_ADDRESS ||
-    "6ofVTNgoHbJGBtQB3xCDYXNayc8vczXu2Vob4bDBZtVc",
-  rakePercent: 0.10, // 10% rake on winner's payout
-  tieFeePercent: 0.02, // 2% total fee on ties (1% per player)
+  // On-chain escrow
+  treasuryAddress:
+    process.env.TREASURY_ADDRESS || "",
+  rakePercent: 0.10, // 10% rake (informational; enforced on-chain via fee_bps=1000)
   depositTimeoutMs: 60_000, // 60 seconds for both players to deposit
-  payoutRetryAttempts: 3,
-  payoutRetryDelayMs: 2_000,
 } as const;

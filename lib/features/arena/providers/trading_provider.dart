@@ -22,6 +22,9 @@ class TradingState {
   final double opponentEquity;
   final int opponentPositionCount;
   final String? arenaRoute;
+  final String? matchWinner;
+  final bool matchIsTie;
+  final bool matchIsForfeit;
 
   static const double demoBalance = 1000000;
 
@@ -40,6 +43,9 @@ class TradingState {
     this.opponentEquity = demoBalance,
     this.opponentPositionCount = 0,
     this.arenaRoute,
+    this.matchWinner,
+    this.matchIsTie = false,
+    this.matchIsForfeit = false,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -92,6 +98,9 @@ class TradingState {
     double? opponentEquity,
     int? opponentPositionCount,
     String? arenaRoute,
+    String? matchWinner,
+    bool? matchIsTie,
+    bool? matchIsForfeit,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -110,6 +119,9 @@ class TradingState {
       opponentPositionCount:
           opponentPositionCount ?? this.opponentPositionCount,
       arenaRoute: arenaRoute ?? this.arenaRoute,
+      matchWinner: matchWinner ?? this.matchWinner,
+      matchIsTie: matchIsTie ?? this.matchIsTie,
+      matchIsForfeit: matchIsForfeit ?? this.matchIsForfeit,
     );
   }
 }
@@ -219,7 +231,19 @@ class TradingNotifier extends Notifier<TradingState> {
         break;
 
       case 'match_end':
-        endMatch();
+        endMatch(
+          winner: data['winner'] as String?,
+          isTie: data['isTie'] as bool? ?? false,
+          isForfeit: data['isForfeit'] as bool? ?? false,
+        );
+        break;
+
+      case 'claim_available':
+        // Winner can now claim — update state if not already set.
+        final winner = data['winner'] as String?;
+        if (winner != null && state.matchWinner == null) {
+          state = state.copyWith(matchWinner: winner);
+        }
         break;
 
       case 'chat_message':
@@ -384,7 +408,11 @@ class TradingNotifier extends Notifier<TradingState> {
     }
   }
 
-  void endMatch() {
+  void endMatch({
+    String? winner,
+    bool isTie = false,
+    bool isForfeit = false,
+  }) {
     _matchTimer?.cancel();
     _checkTimer?.cancel();
     _wsSubscription?.cancel();
@@ -409,6 +437,9 @@ class TradingNotifier extends Notifier<TradingState> {
       balance: state.balance + balanceReturn,
       matchActive: false,
       matchTimeRemainingSeconds: 0,
+      matchWinner: winner,
+      matchIsTie: isTie,
+      matchIsForfeit: isForfeit,
     );
   }
 }

@@ -1,4 +1,3 @@
-import { config } from "../config";
 import {
   getMatch,
   updateMatch,
@@ -7,14 +6,17 @@ import {
   DbMatch,
 } from "./firebase";
 import {
-  verifyUsdcDeposit,
-  sendUsdcPayoutWithRetry,
+  fetchGameAccount,
+  GameStatus,
+  cancelPendingGameOnChain,
+  refundEscrowOnChain,
 } from "../utils/solana";
 import { broadcastToMatch, broadcastToUser } from "../ws/rooms";
 
 /**
  * Confirm a player's deposit for a match.
- * Called from POST /api/match/:id/confirm-deposit.
+ * Instead of parsing the on-chain tx, we read the Game PDA to check deposit flags.
+ * The program's deposit_to_escrow instruction validates & records deposits atomically.
  */
 export async function confirmDeposit(
   matchId: string,
@@ -40,33 +42,33 @@ export async function confirmDeposit(
     return { success: false, message: "You are not a player in this match", matchNowActive: false };
   }
 
-  const alreadyVerified = isPlayer1
-    ? match.player1DepositVerified
-    : match.player2DepositVerified;
-  if (alreadyVerified) {
-    return { success: false, message: "Deposit already confirmed", matchNowActive: false };
-  }
-
   if (match.depositDeadline && Date.now() > match.depositDeadline) {
     return { success: false, message: "Deposit deadline has passed", matchNowActive: false };
   }
 
-  // Verify on-chain.
-  const verification = await verifyUsdcDeposit(
-    txSignature,
-    playerAddress,
-    match.betAmount
-  );
-  if (!verification.verified) {
+  if (!match.onChainGameId) {
+    return { success: false, message: "No on-chain game ID for this match", matchNowActive: false };
+  }
+
+  // Read Game PDA to check deposit status (the program recorded it atomically).
+  const game = await fetchGameAccount(BigInt(match.onChainGameId));
+  if (!game) {
+    return { success: false, message: "On-chain game not found", matchNowActive: false };
+  }
+
+  const playerDeposited = isPlayer1
+    ? game.playerOneDeposited
+    : game.playerTwoDeposited;
+
+  if (!playerDeposited) {
     return {
       success: false,
-      message: verification.error || "Deposit verification failed",
+      message: "Deposit not yet confirmed on-chain. Please wait a moment and retry.",
       matchNowActive: false,
     };
   }
 
-  // Record the verified deposit.
-  const now = Date.now();
+  // Record the verified deposit in Firebase.
   const update: Partial<DbMatch> = isPlayer1
     ? {
         player1DepositSignature: txSignature,
@@ -79,7 +81,7 @@ export async function confirmDeposit(
 
   await updateMatch(matchId, update);
 
-  // Notify BOTH players directly (they haven't joined the match room yet).
+  // Notify both players.
   const depositNotification = {
     type: "deposit_confirmed",
     matchId,
@@ -88,18 +90,9 @@ export async function confirmDeposit(
   broadcastToUser(match.player1, depositNotification);
   broadcastToUser(match.player2, depositNotification);
 
-  // Re-read match from DB to get latest state (avoids race condition
-  // when both players confirm deposits at nearly the same time).
-  const freshMatch = await getMatch(matchId);
-  if (!freshMatch) {
-    return { success: true, message: "Deposit verified.", matchNowActive: false };
-  }
-
-  const bothVerified =
-    freshMatch.player1DepositVerified && freshMatch.player2DepositVerified;
-
-  if (bothVerified && freshMatch.status === "awaiting_deposits") {
-    return await activateMatch(matchId, freshMatch);
+  // Check if the program auto-activated the match (both deposited → Active).
+  if (game.playerOneDeposited && game.playerTwoDeposited && game.status === GameStatus.Active) {
+    return await activateMatch(matchId, match, game);
   }
 
   return {
@@ -111,21 +104,22 @@ export async function confirmDeposit(
 
 /**
  * Activate a match using a Firebase transaction for atomicity.
+ * The on-chain program already set the game to Active; this syncs Firebase.
  */
 async function activateMatch(
   matchId: string,
-  match: DbMatch
+  match: DbMatch,
+  game: { startTime: bigint; endTime: bigint }
 ): Promise<{ success: boolean; message: string; matchNowActive: boolean }> {
-  const durationMs = parseDuration(match.duration);
   const matchRef = matchesRef.child(matchId);
 
   const result = await matchRef.transaction((current: DbMatch | null) => {
     if (!current || current.status !== "awaiting_deposits") return; // abort
-    const now = Date.now();
     current.status = "active";
     current.escrowState = "deposits_received";
-    current.startTime = now;
-    current.endTime = now + durationMs;
+    // On-chain timestamps are in unix seconds; Firebase uses ms.
+    current.startTime = Number(game.startTime) * 1000;
+    current.endTime = Number(game.endTime) * 1000;
     return current;
   });
 
@@ -141,14 +135,11 @@ async function activateMatch(
     endTime: snap.endTime,
   };
 
-  // Notify both players directly — they haven't joined the match room yet,
-  // so broadcastToMatch would send to an empty room.
   broadcastToUser(match.player1, activationMsg);
   broadcastToUser(match.player2, activationMsg);
-  // Also broadcast to match room for any observers already there.
   broadcastToMatch(matchId, activationMsg);
 
-  console.log(`[Escrow] Match ${matchId} activated: both deposits verified`);
+  console.log(`[Escrow] Match ${matchId} activated: both deposits verified on-chain`);
 
   return {
     success: true,
@@ -158,90 +149,80 @@ async function activateMatch(
 }
 
 /**
- * Process payout after a match is settled.
- * Called from settlement.ts after winner/tie is determined.
+ * Process payout after a match is settled on-chain.
+ *   - Wins/forfeits: Winner claims via frontend (permissionless claim_winnings).
+ *   - Ties: Backend calls refund_escrow to return funds immediately.
  */
 export async function processMatchPayout(
   matchId: string,
   match: DbMatch
 ): Promise<void> {
-  const totalPot = match.betAmount * 2;
+  if (!match.onChainGameId) {
+    console.error(`[Escrow] Match ${matchId} has no onChainGameId — skipping payout`);
+    return;
+  }
+
+  const gameId = match.onChainGameId;
 
   if (match.status === "completed" && match.winner) {
-    // Winner takes (1 - rake) of total pot.
-    const payoutAmount = totalPot * (1 - config.rakePercent);
-    const rakeAmount = totalPot * config.rakePercent;
+    // Winner: end_game on-chain sets status to Settled.
+    // Winner claims their payout from the frontend via claim_winnings.
+    await updateMatch(matchId, {
+      escrowState: "payout_sent",
+    });
 
+    broadcastToMatch(matchId, {
+      type: "claim_available",
+      matchId,
+      winner: match.winner,
+      gameId,
+    });
+
+    console.log(
+      `[Escrow] Match ${matchId} settled on-chain | Winner ${match.winner} can claim`
+    );
+  } else if (match.status === "tied") {
+    // Tie: call refund_escrow to return funds to both players immediately.
     try {
-      const payoutSig = await sendUsdcPayoutWithRetry(match.winner, payoutAmount);
+      const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
       await updateMatch(matchId, {
-        payoutSignature: payoutSig,
-        payoutAmount,
-        rakeAmount,
-        escrowState: "payout_sent",
+        escrowState: "refunded",
+        refundSignatures: { refund: refundSig },
       });
 
       broadcastToMatch(matchId, {
-        type: "payout_sent",
-        winner: match.winner,
-        amount: payoutAmount,
-        signature: payoutSig,
+        type: "escrow_refunded",
+        matchId,
+        signature: refundSig,
       });
 
-      console.log(
-        `[Escrow] Payout: ${payoutAmount} USDC to ${match.winner} | rake: ${rakeAmount} | sig: ${payoutSig}`
-      );
+      console.log(`[Escrow] Tie refund for match ${matchId} | sig: ${refundSig}`);
     } catch (err) {
-      console.error(`[Escrow] PAYOUT FAILED for match ${matchId}:`, err);
-      await updateMatch(matchId, { payoutAmount, rakeAmount });
+      console.error(`[Escrow] Tie refund failed for match ${matchId}:`, err);
     }
-  } else if (match.status === "tied") {
-    // Tie: refund both minus small fee.
-    const feePerPlayer = match.betAmount * (config.tieFeePercent / 2);
-    const refundAmount = match.betAmount - feePerPlayer;
-    const refundSignatures: Record<string, string> = {};
-
-    for (const player of [match.player1, match.player2]) {
-      try {
-        const sig = await sendUsdcPayoutWithRetry(player, refundAmount);
-        refundSignatures[player] = sig;
-        console.log(`[Escrow] Tie refund: ${refundAmount} USDC to ${player} | sig: ${sig}`);
-      } catch (err) {
-        console.error(`[Escrow] TIE REFUND FAILED for ${player} in match ${matchId}:`, err);
-      }
-    }
-
-    await updateMatch(matchId, {
-      refundSignatures,
-      rakeAmount: feePerPlayer * 2,
-      escrowState: "refunded",
-    });
   } else if (match.status === "forfeited" && match.winner) {
-    // Forfeit: same payout as a win.
-    const payoutAmount = totalPot * (1 - config.rakePercent);
-    const rakeAmount = totalPot * config.rakePercent;
+    // Forfeit: same as win — winner claims from frontend.
+    await updateMatch(matchId, {
+      escrowState: "payout_sent",
+    });
 
-    try {
-      const payoutSig = await sendUsdcPayoutWithRetry(match.winner, payoutAmount);
-      await updateMatch(matchId, {
-        payoutSignature: payoutSig,
-        payoutAmount,
-        rakeAmount,
-        escrowState: "payout_sent",
-      });
-      console.log(
-        `[Escrow] Forfeit payout: ${payoutAmount} USDC to ${match.winner} | sig: ${payoutSig}`
-      );
-    } catch (err) {
-      console.error(`[Escrow] FORFEIT PAYOUT FAILED for match ${matchId}:`, err);
-    }
+    broadcastToMatch(matchId, {
+      type: "claim_available",
+      matchId,
+      winner: match.winner,
+      gameId,
+    });
+
+    console.log(
+      `[Escrow] Match ${matchId} forfeited on-chain | Winner ${match.winner} can claim`
+    );
   }
 }
 
 /**
  * Check for deposit timeouts. Runs every 5s.
- * - Neither deposited → cancel.
- * - One deposited → FULL REFUND to the depositor, cancel match.
+ * - Neither deposited → cancel on-chain.
+ * - One deposited → cancel on-chain, then refund via refund_escrow.
  */
 export async function checkDepositTimeouts(): Promise<void> {
   const awaitingMatches = await getMatchesByStatus("awaiting_deposits");
@@ -249,24 +230,41 @@ export async function checkDepositTimeouts(): Promise<void> {
 
   for (const { id, data: match } of awaitingMatches) {
     if (!match.depositDeadline || now < match.depositDeadline) continue;
+    if (!match.onChainGameId) continue;
 
-    const p1Deposited = match.player1DepositVerified === true;
-    const p2Deposited = match.player2DepositVerified === true;
+    const gameId = match.onChainGameId;
 
-    if (!p1Deposited && !p2Deposited) {
-      // Neither deposited — just cancel.
-      await updateMatch(id, { status: "cancelled", escrowState: "refunded" });
-      const cancelMsg = { type: "match_cancelled", matchId: id, reason: "no_deposits" };
-      broadcastToUser(match.player1, cancelMsg);
-      broadcastToUser(match.player2, cancelMsg);
-      console.log(`[Escrow] Match ${id} cancelled: no deposits received`);
-    } else {
-      // One deposited, other didn't — FULL REFUND (100%, no fee).
-      const depositor = p1Deposited ? match.player1 : match.player2;
-      const noShow = p1Deposited ? match.player2 : match.player1;
+    // Read on-chain state to check who deposited.
+    let game;
+    try {
+      game = await fetchGameAccount(BigInt(gameId));
+    } catch {
+      console.error(`[Escrow] Failed to read game ${gameId} for timeout check`);
+      continue;
+    }
 
-      try {
-        const refundSig = await sendUsdcPayoutWithRetry(depositor, match.betAmount);
+    if (!game || game.status !== GameStatus.Pending) continue;
+
+    const p1Deposited = game.playerOneDeposited;
+    const p2Deposited = game.playerTwoDeposited;
+
+    try {
+      // Cancel the game on-chain first.
+      await cancelPendingGameOnChain(gameId);
+
+      if (!p1Deposited && !p2Deposited) {
+        // Neither deposited — just cancel.
+        await updateMatch(id, { status: "cancelled", escrowState: "refunded" });
+        const cancelMsg = { type: "match_cancelled", matchId: id, reason: "no_deposits" };
+        broadcastToUser(match.player1, cancelMsg);
+        broadcastToUser(match.player2, cancelMsg);
+        console.log(`[Escrow] Match ${id} cancelled: no deposits`);
+      } else {
+        // One deposited — refund on-chain.
+        const depositor = p1Deposited ? match.player1 : match.player2;
+        const noShow = p1Deposited ? match.player2 : match.player1;
+
+        const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
         await updateMatch(id, {
           status: "cancelled",
           escrowState: "partial_refund",
@@ -288,28 +286,29 @@ export async function checkDepositTimeouts(): Promise<void> {
         });
 
         console.log(
-          `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Full refund to ${depositor} | sig: ${refundSig}`
+          `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Refunded ${depositor} on-chain | sig: ${refundSig}`
         );
-      } catch (err) {
-        console.error(`[Escrow] REFUND FAILED for ${depositor} in match ${id}:`, err);
-        // Mark match as needing manual refund so it stops retrying every 5s
-        // but still notify the user so they know.
-        await updateMatch(id, {
-          status: "cancelled",
-          escrowState: "refund_failed",
-        });
-        broadcastToUser(depositor, {
-          type: "match_cancelled",
-          matchId: id,
-          reason: "opponent_no_deposit",
-          refundFailed: true,
-        });
-        broadcastToUser(noShow, {
-          type: "match_cancelled",
-          matchId: id,
-          reason: "deposit_timeout",
-        });
       }
+    } catch (err) {
+      console.error(`[Escrow] Timeout handling failed for match ${id}:`, err);
+      await updateMatch(id, {
+        status: "cancelled",
+        escrowState: "refund_failed",
+      });
+
+      const depositor = p1Deposited ? match.player1 : match.player2;
+      const noShow = p1Deposited ? match.player2 : match.player1;
+      broadcastToUser(depositor, {
+        type: "match_cancelled",
+        matchId: id,
+        reason: "opponent_no_deposit",
+        refundFailed: true,
+      });
+      broadcastToUser(noShow, {
+        type: "match_cancelled",
+        matchId: id,
+        reason: "deposit_timeout",
+      });
     }
   }
 }
@@ -327,13 +326,4 @@ export function startDepositTimeoutLoop(): void {
   }, 5000);
 
   console.log("[Escrow] Deposit timeout monitor started (5s interval)");
-}
-
-function parseDuration(tf: string): number {
-  const m = tf.match(/^(\d+)(m|h)$/);
-  if (!m) return 15 * 60 * 1000;
-  const value = parseInt(m[1]);
-  const unit = m[2];
-  if (unit === "h") return value * 60 * 60 * 1000;
-  return value * 60 * 1000;
 }

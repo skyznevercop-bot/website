@@ -30,9 +30,9 @@ pub fn handler(ctx: Context<CreateProfile>, gamer_tag: String) -> Result<()> {
 
     profile.authority = ctx.accounts.player.key();
     profile.gamer_tag = gamer_tag.clone();
-    profile.elo_rating = 1200;
     profile.wins = 0;
     profile.losses = 0;
+    profile.ties = 0;
     profile.total_pnl = 0;
     profile.current_streak = 0;
     profile.games_played = 0;

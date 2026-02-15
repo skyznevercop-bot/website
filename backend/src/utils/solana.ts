@@ -3,14 +3,19 @@ import {
   Keypair,
   PublicKey,
   Transaction,
+  TransactionInstruction,
   sendAndConfirmTransaction,
+  SystemProgram,
 } from "@solana/web3.js";
 import {
-  createTransferInstruction,
   getAssociatedTokenAddress,
-  createAssociatedTokenAccountIdempotentInstruction,
+  TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
+import { createHash } from "crypto";
 import { config } from "../config";
+
+// ── Connection & Keys ───────────────────────────────────────────
 
 let connectionInstance: Connection | null = null;
 
@@ -43,185 +48,425 @@ export function getUsdcMint(): PublicKey {
   return new PublicKey(config.usdcMint);
 }
 
-/** Derive a PDA given seeds and the program ID. */
+// ── PDA Derivation ──────────────────────────────────────────────
+
 export function findPDA(seeds: Buffer[]): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(seeds, getProgramId());
 }
 
-/** Derive the Platform PDA. */
 export function getPlatformPDA(): [PublicKey, number] {
   return findPDA([Buffer.from("platform")]);
 }
 
-/** Derive a PlayerProfile PDA. */
 export function getPlayerProfilePDA(player: PublicKey): [PublicKey, number] {
   return findPDA([Buffer.from("player"), player.toBuffer()]);
 }
 
-/** Derive a Game PDA from the game ID. */
 export function getGamePDA(gameId: bigint): [PublicKey, number] {
   const buf = Buffer.alloc(8);
   buf.writeBigUInt64LE(gameId);
   return findPDA([Buffer.from("game"), buf]);
 }
 
-// ── Deposit Verification ─────────────────────────────────────────
-
-export interface DepositVerification {
-  verified: boolean;
-  amount: number;
-  sender: string;
-  error?: string;
+/** Derive the Game PDA and its escrow token account (ATA of the game PDA for USDC). */
+export async function getGamePdaAndEscrow(
+  gameId: bigint
+): Promise<{ gamePda: PublicKey; escrowTokenAccount: PublicKey }> {
+  const [gamePda] = getGamePDA(gameId);
+  const escrowTokenAccount = await getAssociatedTokenAddress(
+    getUsdcMint(),
+    gamePda,
+    true // allowOwnerOffCurve — PDA is not on the ed25519 curve
+  );
+  return { gamePda, escrowTokenAccount };
 }
 
-/**
- * Verify a USDC deposit on-chain by parsing the transaction.
- * Checks that the tx exists, succeeded, and contains an SPL token transfer
- * from the expected sender to the escrow wallet's ATA of the expected amount.
- */
-export async function verifyUsdcDeposit(
-  txSignature: string,
-  expectedSender: string,
-  expectedAmount: number
-): Promise<DepositVerification> {
-  const connection = getConnection();
+// ── Anchor Instruction Discriminator ────────────────────────────
 
-  // Derive the escrow wallet's USDC ATA to verify recipient.
-  // Use the authority keypair (= the escrow wallet) as source of truth,
-  // falling back to the config address if keypair isn't available.
-  const escrowPubkey = config.authorityKeypair
-    ? getAuthorityKeypair().publicKey
-    : new PublicKey(config.escrowWalletAddress);
-  const escrowAta = await getAssociatedTokenAddress(getUsdcMint(), escrowPubkey);
-  const escrowAtaStr = escrowAta.toBase58();
+function anchorDiscriminator(methodName: string): Buffer {
+  return createHash("sha256")
+    .update(`global:${methodName}`)
+    .digest()
+    .slice(0, 8);
+}
 
-  const parsedTx = await connection.getParsedTransaction(txSignature, {
-    maxSupportedTransactionVersion: 0,
-    commitment: "confirmed",
-  });
+// ── On-chain Game Account Types ─────────────────────────────────
 
-  if (!parsedTx) {
-    return { verified: false, amount: 0, sender: "", error: "Transaction not found on-chain" };
-  }
+/** GameStatus enum values matching the Rust enum order. */
+export enum GameStatus {
+  Pending = 0,
+  Active = 1,
+  Settled = 2,
+  Cancelled = 3,
+  Tied = 4,
+  Forfeited = 5,
+}
 
-  if (parsedTx.meta?.err) {
-    return { verified: false, amount: 0, sender: "", error: "Transaction failed on-chain" };
-  }
+export interface OnChainGame {
+  gameId: bigint;
+  playerOne: PublicKey;
+  playerTwo: PublicKey;
+  betAmount: bigint;
+  timeframeSeconds: number;
+  escrowTokenAccount: PublicKey;
+  status: GameStatus;
+  winner: PublicKey | null;
+  playerOnePnl: bigint;
+  playerTwoPnl: bigint;
+  playerOneDeposited: boolean;
+  playerTwoDeposited: boolean;
+  startTime: bigint;
+  endTime: bigint;
+  settledAt: bigint;
+  bump: number;
+}
 
-  // Search all instructions (including inner) for SPL token transfers.
-  const allInstructions = [
-    ...parsedTx.transaction.message.instructions,
-    ...(parsedTx.meta?.innerInstructions?.flatMap((ii) => ii.instructions) || []),
-  ];
+export interface OnChainPlatform {
+  authority: PublicKey;
+  feeBps: number;
+  treasury: PublicKey;
+  totalGames: bigint;
+  totalVolume: bigint;
+  bump: number;
+}
 
-  for (const ix of allInstructions) {
-    if (!("parsed" in ix)) continue;
-    if (ix.program !== "spl-token") continue;
-    if (ix.parsed.type !== "transfer" && ix.parsed.type !== "transferChecked") continue;
+// ── Account Deserialization ─────────────────────────────────────
 
-    const info = ix.parsed.info;
-    const amountRaw =
-      ix.parsed.type === "transferChecked"
-        ? parseInt(info.tokenAmount?.amount || "0")
-        : parseInt(info.amount || "0");
-    const amountUsdc = amountRaw / 1_000_000;
+function deserializePlatform(data: Buffer): OnChainPlatform {
+  let offset = 8; // skip 8-byte Anchor discriminator
 
-    // Verify sender, recipient (escrow ATA), and amount all match.
-    if (
-      info.authority === expectedSender &&
-      info.destination === escrowAtaStr &&
-      Math.abs(amountUsdc - expectedAmount) < 0.01
-    ) {
-      return { verified: true, amount: amountUsdc, sender: info.authority };
-    }
-  }
+  const authority = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  const feeBps = data.readUInt16LE(offset);
+  offset += 2;
+  const treasury = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  const totalGames = data.readBigUInt64LE(offset);
+  offset += 8;
+  const totalVolume = data.readBigUInt64LE(offset);
+  offset += 8;
+  const bump = data[offset];
+
+  return { authority, feeBps, treasury, totalGames, totalVolume, bump };
+}
+
+function deserializeGame(data: Buffer): OnChainGame {
+  let offset = 8; // skip 8-byte Anchor discriminator
+
+  const gameId = data.readBigUInt64LE(offset);
+  offset += 8;
+  const playerOne = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  const playerTwo = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  const betAmount = data.readBigUInt64LE(offset);
+  offset += 8;
+  const timeframeSeconds = data.readUInt32LE(offset);
+  offset += 4;
+  const escrowTokenAccount = new PublicKey(data.slice(offset, offset + 32));
+  offset += 32;
+  const status: GameStatus = data[offset];
+  offset += 1;
+
+  // Option<Pubkey>: 1 byte discriminant + 32 bytes if Some
+  const hasWinner = data[offset] === 1;
+  offset += 1;
+  const winner = hasWinner
+    ? new PublicKey(data.slice(offset, offset + 32))
+    : null;
+  offset += 32;
+
+  const playerOnePnl = data.readBigInt64LE(offset);
+  offset += 8;
+  const playerTwoPnl = data.readBigInt64LE(offset);
+  offset += 8;
+  const playerOneDeposited = data[offset] === 1;
+  offset += 1;
+  const playerTwoDeposited = data[offset] === 1;
+  offset += 1;
+  const startTime = data.readBigInt64LE(offset);
+  offset += 8;
+  const endTime = data.readBigInt64LE(offset);
+  offset += 8;
+  const settledAt = data.readBigInt64LE(offset);
+  offset += 8;
+  const bump = data[offset];
 
   return {
-    verified: false,
-    amount: 0,
-    sender: "",
-    error: "No matching USDC transfer to escrow found in transaction",
+    gameId,
+    playerOne,
+    playerTwo,
+    betAmount,
+    timeframeSeconds,
+    escrowTokenAccount,
+    status,
+    winner,
+    playerOnePnl,
+    playerTwoPnl,
+    playerOneDeposited,
+    playerTwoDeposited,
+    startTime,
+    endTime,
+    settledAt,
+    bump,
   };
 }
 
-// ── USDC Payout ──────────────────────────────────────────────────
+// ── Account Reads ───────────────────────────────────────────────
+
+export async function fetchPlatformAccount(): Promise<OnChainPlatform | null> {
+  const connection = getConnection();
+  const [platformPda] = getPlatformPDA();
+  const info = await connection.getAccountInfo(platformPda);
+  if (!info) return null;
+  return deserializePlatform(info.data as Buffer);
+}
+
+export async function fetchGameAccount(
+  gameId: bigint
+): Promise<OnChainGame | null> {
+  const connection = getConnection();
+  const [gamePda] = getGamePDA(gameId);
+  const info = await connection.getAccountInfo(gamePda);
+  if (!info) return null;
+  return deserializeGame(info.data as Buffer);
+}
+
+// ── On-Chain Instructions ───────────────────────────────────────
 
 /**
- * Send USDC from the escrow wallet to a recipient.
- * Creates the recipient's ATA idempotently if it doesn't exist.
+ * Create a new game on-chain. Called by the backend after matchmaking.
+ * Returns the on-chain game ID.
  */
-export async function sendUsdcPayout(
-  recipientAddress: string,
-  amountUsdc: number
-): Promise<string> {
+export async function startGameOnChain(
+  player1: string,
+  player2: string,
+  betAmountUsdc: number,
+  timeframeSeconds: number
+): Promise<number> {
   const connection = getConnection();
   const authority = getAuthorityKeypair();
+  const programId = getProgramId();
   const usdcMint = getUsdcMint();
 
-  const escrowAta = await getAssociatedTokenAddress(usdcMint, authority.publicKey);
-  const recipientPubkey = new PublicKey(recipientAddress);
-  const recipientAta = await getAssociatedTokenAddress(usdcMint, recipientPubkey);
+  // Read Platform to determine the next game_id.
+  const platform = await fetchPlatformAccount();
+  if (!platform) {
+    throw new Error("Platform account not found — has initialize_platform been called?");
+  }
 
-  const amountSmallest = BigInt(Math.round(amountUsdc * 1_000_000));
-
-  const tx = new Transaction();
-
-  // Create recipient ATA idempotently (payer = escrow wallet).
-  tx.add(
-    createAssociatedTokenAccountIdempotentInstruction(
-      authority.publicKey,
-      recipientAta,
-      recipientPubkey,
-      usdcMint
-    )
+  const nextGameId = platform.totalGames + 1n;
+  const [platformPda] = getPlatformPDA();
+  const [gamePda] = getGamePDA(nextGameId);
+  const escrowTokenAccount = await getAssociatedTokenAddress(
+    usdcMint,
+    gamePda,
+    true
   );
 
-  // Transfer USDC from escrow to recipient.
-  tx.add(
-    createTransferInstruction(
-      escrowAta,
-      recipientAta,
-      authority.publicKey,
-      amountSmallest
-    )
-  );
+  const player1Pubkey = new PublicKey(player1);
+  const player2Pubkey = new PublicKey(player2);
 
-  const signature = await sendAndConfirmTransaction(connection, tx, [authority], {
+  // Serialize arguments: bet_amount (u64) + timeframe_seconds (u32)
+  const betAmountLamports = BigInt(Math.round(betAmountUsdc * 1_000_000));
+  const argsBuf = Buffer.alloc(12);
+  argsBuf.writeBigUInt64LE(betAmountLamports, 0);
+  argsBuf.writeUInt32LE(timeframeSeconds, 8);
+
+  const data = Buffer.concat([anchorDiscriminator("start_game"), argsBuf]);
+
+  const ix = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: platformPda, isSigner: false, isWritable: true },
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: usdcMint, isSigner: false, isWritable: false },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+      { pubkey: player1Pubkey, isSigner: false, isWritable: false },
+      { pubkey: player2Pubkey, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
 
-  return signature;
+  console.log(
+    `[Solana] start_game: gameId=${nextGameId} | ${player1} vs ${player2} | ${betAmountUsdc} USDC | sig: ${sig}`
+  );
+
+  return Number(nextGameId);
 }
 
 /**
- * Send USDC payout with retry logic for transient failures.
+ * Settle a game on-chain. Called by the backend after determining the winner.
  */
-export async function sendUsdcPayoutWithRetry(
-  recipientAddress: string,
-  amountUsdc: number,
-  maxRetries: number = config.payoutRetryAttempts,
-  delayMs: number = config.payoutRetryDelayMs
+export async function endGameOnChain(
+  gameId: number,
+  winner: string | null,
+  p1PnlBps: number,
+  p2PnlBps: number,
+  isForfeit: boolean
 ): Promise<string> {
-  let lastError: Error | null = null;
+  const connection = getConnection();
+  const authority = getAuthorityKeypair();
+  const programId = getProgramId();
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const sig = await sendUsdcPayout(recipientAddress, amountUsdc);
-      console.log(
-        `[Escrow] Payout sent: ${amountUsdc} USDC to ${recipientAddress} | sig: ${sig} | attempt ${attempt}`
-      );
-      return sig;
-    } catch (err) {
-      lastError = err as Error;
-      console.error(
-        `[Escrow] Payout attempt ${attempt}/${maxRetries} failed for ${recipientAddress}:`,
-        err
-      );
-      if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
+  const bigGameId = BigInt(gameId);
+  const [platformPda] = getPlatformPDA();
+  const [gamePda] = getGamePDA(bigGameId);
+
+  // Read the game to get player addresses for profile PDAs.
+  const game = await fetchGameAccount(bigGameId);
+  if (!game) throw new Error(`Game ${gameId} not found on-chain`);
+
+  const [p1ProfilePda] = getPlayerProfilePDA(game.playerOne);
+  const [p2ProfilePda] = getPlayerProfilePDA(game.playerTwo);
+
+  // Serialize arguments:
+  //   winner: Option<Pubkey> (1 byte + 32 bytes if Some)
+  //   player_one_pnl: i64 (8 bytes)
+  //   player_two_pnl: i64 (8 bytes)
+  //   is_forfeit: bool (1 byte)
+  const argParts: Buffer[] = [];
+
+  // Option<Pubkey>
+  if (winner) {
+    const optBuf = Buffer.alloc(33);
+    optBuf[0] = 1;
+    new PublicKey(winner).toBuffer().copy(optBuf, 1);
+    argParts.push(optBuf);
+  } else {
+    argParts.push(Buffer.from([0]));
   }
 
-  throw new Error(`Payout failed after ${maxRetries} attempts: ${lastError?.message}`);
+  // i64 player_one_pnl
+  const p1PnlBuf = Buffer.alloc(8);
+  p1PnlBuf.writeBigInt64LE(BigInt(p1PnlBps));
+  argParts.push(p1PnlBuf);
+
+  // i64 player_two_pnl
+  const p2PnlBuf = Buffer.alloc(8);
+  p2PnlBuf.writeBigInt64LE(BigInt(p2PnlBps));
+  argParts.push(p2PnlBuf);
+
+  // bool is_forfeit
+  argParts.push(Buffer.from([isForfeit ? 1 : 0]));
+
+  const data = Buffer.concat([anchorDiscriminator("end_game"), ...argParts]);
+
+  const ix = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: platformPda, isSigner: false, isWritable: false },
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: p1ProfilePda, isSigner: false, isWritable: true },
+      { pubkey: p2ProfilePda, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+    commitment: "confirmed",
+  });
+
+  console.log(
+    `[Solana] end_game: gameId=${gameId} | winner=${winner || "tie"} | forfeit=${isForfeit} | sig: ${sig}`
+  );
+
+  return sig;
+}
+
+/**
+ * Cancel a pending game on-chain (deposit timeout).
+ */
+export async function cancelPendingGameOnChain(
+  gameId: number
+): Promise<string> {
+  const connection = getConnection();
+  const authority = getAuthorityKeypair();
+  const programId = getProgramId();
+
+  const bigGameId = BigInt(gameId);
+  const [platformPda] = getPlatformPDA();
+  const [gamePda] = getGamePDA(bigGameId);
+
+  const data = anchorDiscriminator("cancel_pending_game");
+
+  const ix = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: platformPda, isSigner: false, isWritable: false },
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+    commitment: "confirmed",
+  });
+
+  console.log(`[Solana] cancel_pending_game: gameId=${gameId} | sig: ${sig}`);
+  return sig;
+}
+
+/**
+ * Refund escrow to both players on-chain (for Tied or Cancelled games).
+ * Permissionless — backend signs as caller.
+ */
+export async function refundEscrowOnChain(
+  gameId: number,
+  player1: string,
+  player2: string
+): Promise<string> {
+  const connection = getConnection();
+  const authority = getAuthorityKeypair();
+  const programId = getProgramId();
+  const usdcMint = getUsdcMint();
+
+  const bigGameId = BigInt(gameId);
+  const [gamePda] = getGamePDA(bigGameId);
+  const escrowTokenAccount = await getAssociatedTokenAddress(
+    usdcMint,
+    gamePda,
+    true
+  );
+
+  const player1Pubkey = new PublicKey(player1);
+  const player2Pubkey = new PublicKey(player2);
+  const p1TokenAccount = await getAssociatedTokenAddress(usdcMint, player1Pubkey);
+  const p2TokenAccount = await getAssociatedTokenAddress(usdcMint, player2Pubkey);
+
+  const data = anchorDiscriminator("refund_escrow");
+
+  const ix = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: p1TokenAccount, isSigner: false, isWritable: true },
+      { pubkey: p2TokenAccount, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+    commitment: "confirmed",
+  });
+
+  console.log(`[Solana] refund_escrow: gameId=${gameId} | sig: ${sig}`);
+  return sig;
 }

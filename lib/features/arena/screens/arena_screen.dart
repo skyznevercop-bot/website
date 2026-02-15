@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/escrow_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../models/trading_models.dart';
@@ -1429,16 +1431,19 @@ class _PercentButtonState extends State<_PercentButton> {
 // Match End Banner
 // =============================================================================
 
-class _MatchEndBanner extends StatefulWidget {
+class _MatchEndBanner extends ConsumerStatefulWidget {
   final TradingState state;
   const _MatchEndBanner({required this.state});
 
   @override
-  State<_MatchEndBanner> createState() => _MatchEndBannerState();
+  ConsumerState<_MatchEndBanner> createState() => _MatchEndBannerState();
 }
 
-class _MatchEndBannerState extends State<_MatchEndBanner> {
+class _MatchEndBannerState extends ConsumerState<_MatchEndBanner> {
   bool _visible = false;
+  bool _claiming = false;
+  String? _claimTx;
+  String? _claimError;
 
   @override
   void initState() {
@@ -1446,6 +1451,44 @@ class _MatchEndBannerState extends State<_MatchEndBanner> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _visible = true);
     });
+  }
+
+  bool get _isWinner {
+    final wallet = ref.read(walletProvider);
+    return widget.state.matchWinner != null &&
+        widget.state.matchWinner == wallet.address;
+  }
+
+  Future<void> _claimWinnings() async {
+    final matchId = widget.state.matchId;
+    if (matchId == null) return;
+
+    setState(() {
+      _claiming = true;
+      _claimError = null;
+    });
+
+    try {
+      final claimInfo =
+          await ApiClient.instance.get('/match/$matchId/claim-info');
+
+      final wallet = ref.read(walletProvider);
+      final walletName = wallet.walletType?.name ?? 'phantom';
+
+      final txSig = await EscrowService.claimWinnings(
+        walletName: walletName,
+        gamePda: claimInfo['gamePda'] as String,
+        escrowTokenAccount: claimInfo['escrowTokenAccount'] as String,
+        platformPda: claimInfo['platformPda'] as String,
+        treasuryAddress: claimInfo['treasuryAddress'] as String,
+      );
+
+      if (mounted) setState(() => _claimTx = txSig);
+    } catch (e) {
+      if (mounted) setState(() => _claimError = e.toString());
+    } finally {
+      if (mounted) setState(() => _claiming = false);
+    }
   }
 
   @override
@@ -1457,6 +1500,20 @@ class _MatchEndBannerState extends State<_MatchEndBanner> {
             widget.state.initialBalance *
             100
         : 0.0;
+
+    final isTie = widget.state.matchIsTie;
+    final isWinner = _isWinner;
+
+    String resultText;
+    if (isTie) {
+      resultText = 'Draw!';
+    } else if (isWinner) {
+      resultText = 'You Win!';
+    } else if (widget.state.matchWinner != null) {
+      resultText = 'You Lose';
+    } else {
+      resultText = 'Match Over!';
+    }
 
     return AnimatedSlide(
       offset: _visible ? Offset.zero : const Offset(0, 0.3),
@@ -1481,7 +1538,7 @@ class _MatchEndBannerState extends State<_MatchEndBanner> {
           ),
           child: Column(
             children: [
-              Text('Match Over!',
+              Text(resultText,
                   style: GoogleFonts.inter(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
@@ -1500,6 +1557,125 @@ class _MatchEndBannerState extends State<_MatchEndBanner> {
                     fontWeight: FontWeight.w600,
                     color: AppTheme.textSecondary),
               ),
+
+              // Claim Winnings button (winner only, not yet claimed).
+              if (isWinner && _claimTx == null) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 44,
+                  child: GestureDetector(
+                    onTap: _claiming ? null : _claimWinnings,
+                    child: MouseRegion(
+                      cursor: _claiming
+                          ? SystemMouseCursors.basic
+                          : SystemMouseCursors.click,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: _claiming ? null : AppTheme.longGradient,
+                          color: _claiming ? AppTheme.surfaceAlt : null,
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                          boxShadow: _claiming
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: AppTheme.success
+                                        .withValues(alpha: 0.25),
+                                    blurRadius: 12,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
+                        ),
+                        child: Center(
+                          child: _claiming
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                )
+                              : Text(
+                                  'Claim Winnings',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+
+              // Claim success.
+              if (_claimTx != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.success.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: AppTheme.success.withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.check_circle_rounded,
+                          size: 16, color: AppTheme.success),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Winnings claimed!',
+                          style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.success),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+
+              // Claim error.
+              if (_claimError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _claimError!,
+                  style: GoogleFonts.inter(
+                      fontSize: 11, color: AppTheme.error),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+
+              // Tie refund note.
+              if (isTie) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.textTertiary.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Draw — your deposit has been refunded on-chain.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.inter(
+                        fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 12),
               SizedBox(
                 width: double.infinity,

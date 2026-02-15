@@ -106,6 +106,9 @@ class MatchFoundData {
   final String opponentAddress;
   final String duration;
   final double bet;
+  final int? onChainGameId;
+  final String? gamePda;
+  final String? escrowTokenAccount;
 
   const MatchFoundData({
     required this.matchId,
@@ -113,6 +116,9 @@ class MatchFoundData {
     required this.opponentAddress,
     required this.duration,
     required this.bet,
+    this.onChainGameId,
+    this.gamePda,
+    this.escrowTokenAccount,
   });
 }
 
@@ -249,6 +255,9 @@ class QueueNotifier extends Notifier<QueueState> {
                 '',
         duration: data['duration'] as String? ?? '',
         bet: (data['bet'] as num?)?.toDouble() ?? 0,
+        onChainGameId: data['onChainGameId'] as int?,
+        gamePda: data['gamePda'] as String?,
+        escrowTokenAccount: data['escrowTokenAccount'] as String?,
       ),
     );
   }
