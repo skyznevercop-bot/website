@@ -1,6 +1,7 @@
 import { config } from "../config";
 import {
   matchesRef,
+  getMatch,
   getPositions,
   updatePosition,
   updateMatch,
@@ -10,6 +11,7 @@ import {
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
+import { processMatchPayout } from "./escrow";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -83,6 +85,14 @@ export async function settleByForfeit(
   console.log(
     `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer} disconnected | Winner: ${winner}`
   );
+
+  // Trigger payout to the winner.
+  const updatedMatch = await getMatch(matchId);
+  if (updatedMatch) {
+    processMatchPayout(matchId, updatedMatch).catch((err) => {
+      console.error(`[Settlement] Forfeit payout failed for match ${matchId}:`, err);
+    });
+  }
 }
 
 /**
@@ -169,6 +179,14 @@ async function settleMatch(
   console.log(
     `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner}`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
   );
+
+  // Trigger payout (async — don't block settlement of other matches).
+  const updatedMatch = await getMatch(matchId);
+  if (updatedMatch) {
+    processMatchPayout(matchId, updatedMatch).catch((err) => {
+      console.error(`[Settlement] Payout failed for match ${matchId}:`, err);
+    });
+  }
 }
 
 function calculatePnl(pos: DbPosition, currentPrice: number): number {
@@ -211,7 +229,9 @@ async function updatePlayerStats(
       updateUser(winner, {
         wins: (winnerStats.wins || 0) + 1,
         gamesPlayed: (winnerStats.gamesPlayed || 0) + 1,
-        totalPnl: (winnerStats.totalPnl || 0) + betAmount * 0.5,
+        totalPnl:
+          (winnerStats.totalPnl || 0) +
+          betAmount * (2 * (1 - config.rakePercent) - 1),
         currentStreak: (winnerStats.currentStreak || 0) + 1,
       }),
       updateUser(loser, {

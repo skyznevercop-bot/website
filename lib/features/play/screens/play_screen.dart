@@ -4,9 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/config/environment.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/api_client.dart';
+import '../../../core/services/escrow_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../features/arena/providers/trading_provider.dart';
 import '../../../features/wallet/models/wallet_state.dart';
 import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
@@ -20,16 +24,139 @@ class PlayScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isMobile = Responsive.isMobile(context);
+    final trading = ref.watch(tradingProvider);
 
     return Padding(
       padding: Responsive.horizontalPadding(context).copyWith(
         top: 24,
         bottom: 24,
       ),
-      child: isMobile
-          ? const SingleChildScrollView(child: _ArenaCard())
-          : const _ArenaCard(),
+      child: Responsive.isDesktop(context)
+          ? Column(
+              children: [
+                if (trading.matchActive) _ActiveMatchBanner(state: trading),
+                const Expanded(child: _ArenaCard()),
+              ],
+            )
+          : SingleChildScrollView(
+              child: Column(
+                children: [
+                  if (trading.matchActive) _ActiveMatchBanner(state: trading),
+                  const _ArenaCard(),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Active Match Banner — shown when user has a match in progress
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _ActiveMatchBanner extends StatelessWidget {
+  final TradingState state;
+  const _ActiveMatchBanner({required this.state});
+
+  String _formatTime(int totalSeconds) {
+    final m = totalSeconds ~/ 60;
+    final s = totalSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final oppTag = state.opponentGamerTag ?? 'Opponent';
+    final route = state.arenaRoute;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: MouseRegion(
+        cursor: route != null ? SystemMouseCursors.click : MouseCursor.defer,
+        child: GestureDetector(
+          onTap: route != null ? () => GoRouter.of(context).go(route) : null,
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.solanaPurple.withValues(alpha: 0.2),
+                  AppTheme.solanaPurple.withValues(alpha: 0.08),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              border: Border.all(
+                color: AppTheme.solanaPurple.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              children: [
+                // Pulsing dot
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaGreen,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.solanaGreen.withValues(alpha: 0.5),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Match info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Match in Progress',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'VS $oppTag  •  ${_formatTime(state.matchTimeRemainingSeconds)} remaining',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: Colors.white60,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                    ],
+                  ),
+                ),
+                // Return button
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    'Return to Arena',
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -118,135 +245,420 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   void _showMatchFoundDialog(BuildContext context, MatchFoundData match) {
     final durationSec = _selected.duration.inSeconds;
     final now = DateTime.now().millisecondsSinceEpoch;
+    final wallet = ref.read(walletProvider);
+    final walletName = wallet.walletType?.name ?? 'phantom';
+
+    // Dialog state: ready → depositing → confirmed → navigating
+    //                   ↘ error (retry goes back to ready)
+    String depositState = 'ready';
+    String? errorMsg;
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppTheme.radiusXl),
-        ),
-        title: Row(
-          children: [
-            Icon(Icons.sports_esports_rounded,
-                size: 24, color: AppTheme.solanaPurple),
-            const SizedBox(width: 10),
-            Text(
-              'Opponent Found!',
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceAlt,
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              ),
-              child: Column(
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void navigateToArena() {
+            Navigator.of(ctx).pop();
+            context.go(
+              Uri(
+                path: AppConstants.arenaRoute,
+                queryParameters: {
+                  'matchId': match.matchId,
+                  'd': durationSec.toString(),
+                  'bet': match.bet.toString(),
+                  'opp': match.opponentAddress,
+                  'oppTag': match.opponentGamerTag,
+                  'st': now.toString(),
+                },
+              ).toString(),
+            );
+          }
+
+          Future<void> onDeposit() async {
+            setDialogState(() {
+              depositState = 'depositing';
+              errorMsg = null;
+            });
+            try {
+              // Step 1: Send USDC on-chain.
+              final txSignature = await EscrowService.deposit(
+                walletName: walletName,
+                amountUsdc: match.bet,
+              );
+              ref.read(walletProvider.notifier).deductBalance(match.bet);
+
+              // Step 2: Report tx signature to backend for verification.
+              setDialogState(() => depositState = 'verifying');
+              final api = ApiClient.instance;
+              final result = await api.post(
+                '/match/${match.matchId}/confirm-deposit',
+                {'txSignature': txSignature},
+              );
+
+              final matchActive = result['matchActive'] == true;
+              if (matchActive) {
+                // Both players deposited — go to arena.
+                setDialogState(() => depositState = 'confirmed');
+                Future.delayed(const Duration(milliseconds: 800), () {
+                  if (ctx.mounted) navigateToArena();
+                });
+              } else {
+                // Waiting for opponent to deposit — listen for WS events.
+                setDialogState(() => depositState = 'waiting_opponent');
+                final sub = ApiClient.instance.wsStream.listen((data) {
+                  if (!ctx.mounted) return;
+                  final type = data['type'] as String?;
+                  if (type == 'match_activated' &&
+                      data['matchId'] == match.matchId) {
+                    setDialogState(() => depositState = 'confirmed');
+                    Future.delayed(const Duration(milliseconds: 800), () {
+                      if (ctx.mounted) navigateToArena();
+                    });
+                  } else if (type == 'match_cancelled' &&
+                      data['matchId'] == match.matchId) {
+                    setDialogState(() {
+                      depositState = 'error';
+                      errorMsg = data['reason'] == 'opponent_no_deposit'
+                          ? 'Opponent did not deposit. You have been fully refunded.'
+                          : 'Match cancelled.';
+                    });
+                  }
+                });
+                // Cancel subscription when dialog is popped.
+                Future.doWhile(() async {
+                  await Future.delayed(const Duration(milliseconds: 500));
+                  if (!ctx.mounted) {
+                    sub.cancel();
+                    return false;
+                  }
+                  return true;
+                });
+              }
+            } catch (e) {
+              setDialogState(() {
+                depositState = 'error';
+                errorMsg = e
+                    .toString()
+                    .replaceAll('Exception: ', '')
+                    .replaceAll('Error: ', '');
+              });
+            }
+          }
+
+          // Build action button based on deposit state
+          Widget actionButton;
+          switch (depositState) {
+            case 'depositing':
+              actionButton = SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Approve in Wallet...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            case 'verifying':
+              actionButton = SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Verifying on-chain...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            case 'waiting_opponent':
+              actionButton = SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Waiting for opponent to deposit...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            case 'confirmed':
+              actionButton = SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.success.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppTheme.success.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.check_circle_rounded,
+                          size: 18, color: AppTheme.success),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Deposit Confirmed! Entering Arena...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.success,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            default: // 'ready' or 'error'
+              actionButton = Column(
                 children: [
-                  Text(
-                    'VS',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textTertiary,
-                      letterSpacing: 1,
+                  if (depositState == 'error' && errorMsg != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(10),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: 0.1),
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusSm),
+                        border: Border.all(
+                          color: AppTheme.error.withValues(alpha: 0.3),
+                        ),
+                      ),
+                      child: Text(
+                        errorMsg!,
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: AppTheme.error,
+                        ),
+                        textAlign: TextAlign.center,
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    match.opponentGamerTag,
-                    style: GoogleFonts.inter(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${match.opponentAddress.substring(0, 4)}...${match.opponentAddress.substring(match.opponentAddress.length - 4)}',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: AppTheme.textTertiary,
+                  ],
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.solanaPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(AppTheme.radiusMd),
+                        ),
+                      ),
+                      onPressed: () => onDeposit(),
+                      child: Text(
+                        depositState == 'error'
+                            ? 'Try Again'
+                            : 'Deposit \$${match.bet.toStringAsFixed(0)} & Enter Arena',
+                        style: GoogleFonts.inter(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ),
                 ],
-              ),
+              );
+          }
+
+          return AlertDialog(
+            backgroundColor: AppTheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppTheme.radiusXl),
             ),
-            const SizedBox(height: 16),
-            Row(
+            title: Row(
               children: [
-                Expanded(
-                  child: _dialogInfoTile('Bet', '\$${match.bet.toStringAsFixed(0)} USDC'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _dialogInfoTile('Duration', _selected.label),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _dialogInfoTile('Win Prize', '\$${(match.bet * 1.5).toStringAsFixed(0)}'),
+                Icon(Icons.sports_esports_rounded,
+                    size: 24, color: AppTheme.solanaPurple),
+                const SizedBox(width: 10),
+                Text(
+                  'Opponent Found!',
+                  style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 18,
+                    color: AppTheme.textPrimary,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Winner takes 1.5x bet. 25% rake to treasury.',
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                color: AppTheme.textTertiary,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.solanaPurple,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius:
+                        BorderRadius.circular(AppTheme.radiusMd),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'VS',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textTertiary,
+                          letterSpacing: 1,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        match.opponentGamerTag,
+                        style: GoogleFonts.inter(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${match.opponentAddress.substring(0, 4)}...${match.opponentAddress.substring(match.opponentAddress.length - 4)}',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                context.go(
-                  Uri(
-                    path: AppConstants.arenaRoute,
-                    queryParameters: {
-                      'matchId': match.matchId,
-                      'd': durationSec.toString(),
-                      'bet': match.bet.toString(),
-                      'opp': match.opponentAddress,
-                      'oppTag': match.opponentGamerTag,
-                      'st': now.toString(),
-                    },
-                  ).toString(),
-                );
-              },
-              child: Text(
-                'Enter Arena',
-                style: GoogleFonts.inter(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _dialogInfoTile(
+                          'Bet',
+                          '\$${match.bet.toStringAsFixed(0)} USDC'),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child:
+                          _dialogInfoTile('Duration', _selected.label),
+                    ),
+                  ],
                 ),
-              ),
+                const SizedBox(height: 12),
+                // Escrow info
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                    border: Border.all(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.2),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.lock_rounded,
+                          size: 14,
+                          color:
+                              AppTheme.solanaPurple.withValues(alpha: 0.8)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Your bet is sent to a secure on-chain escrow. '
+                          'Winner takes 1.9x. 10% rake to treasury.',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            color: AppTheme.textSecondary,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
+            actions: [actionButton],
+          );
+        },
       ),
     );
   }
@@ -278,7 +690,6 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final queue = ref.watch(queueProvider);
-    final isMobile = Responsive.isMobile(context);
 
     // Listen for match found → show confirmation then navigate to arena.
     ref.listen<QueueState>(queueProvider, (prev, next) {
@@ -308,7 +719,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           ),
         ],
       ),
-      child: isMobile ? _buildMobileLayout(wallet, queue) : _buildDesktopLayout(wallet, queue),
+      child: Responsive.isDesktop(context) ? _buildDesktopLayout(wallet, queue) : _buildMobileLayout(wallet, queue),
     );
   }
 
@@ -403,7 +814,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               ),
               const SizedBox(width: 8),
               Text(
-                'LIVE ON DEVNET',
+                Environment.useDevnet ? 'LIVE ON DEVNET' : 'LIVE ON MAINNET',
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -444,27 +855,31 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
         const SizedBox(height: 24),
 
         // Quick stats (live from backend)
-        Row(
-          children: [
-            _HeroStat(
-              value: queue.totalPlayers > 0
-                  ? _formatNumber(queue.totalPlayers)
-                  : '--',
-              label: 'Players',
-            ),
-            const SizedBox(width: 32),
-            _HeroStat(
-              value: queue.totalMatches > 0
-                  ? _formatNumber(queue.totalMatches)
-                  : '--',
-              label: 'Matches',
-            ),
-            const SizedBox(width: 32),
-            _HeroStat(
-              value: queue.totalVolume > 0 ? volumeStr : '--',
-              label: 'Volume',
-            ),
-          ],
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              _HeroStat(
+                value: queue.totalPlayers > 0
+                    ? _formatNumber(queue.totalPlayers)
+                    : '--',
+                label: 'Players',
+              ),
+              const SizedBox(width: 32),
+              _HeroStat(
+                value: queue.totalMatches > 0
+                    ? _formatNumber(queue.totalMatches)
+                    : '--',
+                label: 'Matches',
+              ),
+              const SizedBox(width: 32),
+              _HeroStat(
+                value: queue.totalVolume > 0 ? volumeStr : '--',
+                label: 'Volume',
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -1288,12 +1703,16 @@ class _LeaveQueueButtonState extends State<_LeaveQueueButton>
                   ),
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  'Searching for opponent... $waitStr',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                Flexible(
+                  child: Text(
+                    'Searching for opponent... $waitStr',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
                 const SizedBox(width: 16),
@@ -1471,6 +1890,8 @@ class _JoinQueueButtonState extends State<_JoinQueueButton> {
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
               ),
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
             ),
           ),
         ),

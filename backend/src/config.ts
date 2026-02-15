@@ -29,4 +29,14 @@ export const config = {
   // Demo trading
   demoInitialBalance: 1_000_000,
   tieTolerance: 0.00001, // 0.001% ROI tolerance for tie detection
+
+  // Escrow / Payout
+  escrowWalletAddress:
+    process.env.ESCROW_WALLET_ADDRESS ||
+    "6ofVTNgoHbJGBtQB3xCDYXNayc8vczXu2Vob4bDBZtVc",
+  rakePercent: 0.10, // 10% rake on winner's payout
+  tieFeePercent: 0.02, // 2% total fee on ties (1% per player)
+  depositTimeoutMs: 60_000, // 60 seconds for both players to deposit
+  payoutRetryAttempts: 3,
+  payoutRetryDelayMs: 2_000,
 } as const;

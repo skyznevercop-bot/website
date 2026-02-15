@@ -7,6 +7,7 @@ import { setupWebSocket } from "./ws/handler";
 import { startMatchmakingLoop } from "./services/matchmaking";
 import { startPriceOracle } from "./services/price-oracle";
 import { startSettlementLoop } from "./services/settlement";
+import { startDepositTimeoutLoop } from "./services/escrow";
 
 // Routes
 import userRoutes from "./routes/user";
@@ -48,6 +49,7 @@ setupWebSocket(server);
 startMatchmakingLoop();
 startPriceOracle();
 startSettlementLoop();
+startDepositTimeoutLoop();
 
 // Start server
 server.listen(config.port, () => {
@@ -62,9 +64,16 @@ server.listen(config.port, () => {
   │    ✓ Matchmaking (500ms FIFO)           │
   │    ✓ Price Oracle (3s fetch, 1s push)   │
   │    ✓ Settlement (5s check)              │
+  │    ✓ Escrow Deposit Monitor (5s)        │
   │    ✓ Firebase Realtime Database         │
   └─────────────────────────────────────────┘
   `);
+
+  if (!config.authorityKeypair) {
+    console.warn(
+      `\n  ⚠️  WARNING: AUTHORITY_KEYPAIR not set — escrow payouts will fail!\n`
+    );
+  }
 });
 
 export { app, server };

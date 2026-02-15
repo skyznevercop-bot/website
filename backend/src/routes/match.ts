@@ -8,6 +8,7 @@ import {
   getUser,
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
+import { confirmDeposit } from "../services/escrow";
 
 const router = Router();
 
@@ -50,6 +51,42 @@ router.get("/active/list", async (_req, res) => {
 
   res.json({ matches });
 });
+
+/** POST /api/match/:id/confirm-deposit — Confirm a USDC deposit for a match. */
+router.post(
+  "/:id/confirm-deposit",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    const { txSignature } = req.body;
+    const matchId = req.params.id;
+
+    if (!txSignature || typeof txSignature !== "string") {
+      res.status(400).json({ error: "Missing txSignature" });
+      return;
+    }
+
+    if (!req.userAddress) {
+      res.status(401).json({ error: "Not authenticated" });
+      return;
+    }
+
+    try {
+      const result = await confirmDeposit(matchId, req.userAddress, txSignature);
+      if (result.success) {
+        res.json({
+          success: true,
+          message: result.message,
+          matchActive: result.matchNowActive,
+        });
+      } else {
+        res.status(400).json({ error: result.message });
+      }
+    } catch (err) {
+      console.error(`[Match] Deposit confirmation error for ${matchId}:`, err);
+      res.status(500).json({ error: "Internal error verifying deposit" });
+    }
+  }
+);
 
 /** POST /api/match/:id/trade — Submit a trade (open position). */
 router.post(

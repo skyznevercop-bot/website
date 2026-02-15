@@ -95,10 +95,37 @@ export interface DbMatch {
   player2: string;
   timeframe: string;
   betAmount: number;
-  status: "pending" | "active" | "completed" | "cancelled" | "forfeited" | "tied";
+  status:
+    | "pending"
+    | "awaiting_deposits"
+    | "active"
+    | "completed"
+    | "cancelled"
+    | "forfeited"
+    | "tied";
   winner?: string;
   player1Roi?: number;
   player2Roi?: number;
+
+  // Deposit tracking
+  player1DepositSignature?: string;
+  player2DepositSignature?: string;
+  player1DepositVerified?: boolean;
+  player2DepositVerified?: boolean;
+  depositDeadline?: number;
+
+  // Payout tracking
+  payoutSignature?: string;
+  payoutAmount?: number;
+  rakeAmount?: number;
+  refundSignatures?: Record<string, string>;
+  escrowState?:
+    | "awaiting_deposits"
+    | "deposits_received"
+    | "payout_sent"
+    | "refunded"
+    | "partial_refund";
+
   escrowSignature?: string;
   startTime?: number;
   endTime?: number;
@@ -122,6 +149,22 @@ export async function updateMatch(
   data: Partial<DbMatch>
 ): Promise<void> {
   await matchesRef.child(matchId).update(data);
+}
+
+export async function getMatchesByStatus(
+  status: string
+): Promise<Array<{ id: string; data: DbMatch }>> {
+  const snap = await matchesRef
+    .orderByChild("status")
+    .equalTo(status)
+    .once("value");
+  const results: Array<{ id: string; data: DbMatch }> = [];
+  if (snap.exists()) {
+    snap.forEach((child) => {
+      results.push({ id: child.key!, data: child.val() as DbMatch });
+    });
+  }
+  return results;
 }
 
 // ── Position helpers ──────────────────────────────────────────────

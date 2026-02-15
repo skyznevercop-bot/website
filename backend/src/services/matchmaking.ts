@@ -1,5 +1,6 @@
 import { queuesRef, createMatch as createDbMatch, getUser, DbMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
+import { config } from "../config";
 
 /**
  * Add a player to the FIFO matchmaking queue.
@@ -111,7 +112,6 @@ async function matchPair(
   const timeframe = parts[0];
   const bet = parseFloat(parts[1]);
 
-  const durationMs = parseDuration(timeframe);
   const now = Date.now();
 
   const matchData: DbMatch = {
@@ -119,9 +119,9 @@ async function matchPair(
     player2,
     timeframe,
     betAmount: bet,
-    status: "pending",
-    startTime: now,
-    endTime: now + durationMs,
+    status: "awaiting_deposits",
+    escrowState: "awaiting_deposits",
+    depositDeadline: now + config.depositTimeoutMs,
   };
 
   const matchId = await createDbMatch(matchData);
@@ -158,12 +158,3 @@ async function matchPair(
   });
 }
 
-/** Parse timeframe string to duration in ms. */
-function parseDuration(tf: string): number {
-  const match = tf.match(/^(\d+)(m|h)$/);
-  if (!match) return 15 * 60 * 1000;
-  const value = parseInt(match[1]);
-  const unit = match[2];
-  if (unit === "h") return value * 60 * 60 * 1000;
-  return value * 60 * 1000;
-}
