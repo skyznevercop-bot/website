@@ -310,11 +310,16 @@
       var signature = typeof result === 'string' ? result
         : (result.signature ? result.signature : result.toString());
 
-      await connection.confirmTransaction({
+      var confirmation = await connection.confirmTransaction({
         signature: signature,
         blockhash: bh.blockhash,
         lastValidBlockHeight: bh.lastValidBlockHeight,
       }, 'confirmed');
+
+      // Check if the transaction actually succeeded (not just included in a block).
+      if (confirmation && confirmation.value && confirmation.value.err) {
+        throw new Error('Deposit transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+      }
 
       return signature;
     };

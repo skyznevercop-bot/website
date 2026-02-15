@@ -7,11 +7,16 @@ import {
 } from "./firebase";
 import {
   fetchGameAccount,
+  getConnection,
   GameStatus,
   cancelPendingGameOnChain,
   refundEscrowOnChain,
 } from "../utils/solana";
 import { broadcastToMatch, broadcastToUser } from "../ws/rooms";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Confirm a player's deposit for a match.
@@ -50,20 +55,53 @@ export async function confirmDeposit(
     return { success: false, message: "No on-chain game ID for this match", matchNowActive: false };
   }
 
-  // Read Game PDA to check deposit status (the program recorded it atomically).
-  const game = await fetchGameAccount(BigInt(match.onChainGameId));
+  // First, confirm the deposit tx itself on the backend's RPC node.
+  try {
+    const connection = getConnection();
+    const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+    await connection.confirmTransaction(
+      {
+        signature: txSignature,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+      },
+      "confirmed"
+    );
+  } catch (err) {
+    console.warn(`[Escrow] Tx ${txSignature} not yet confirmed on backend RPC, proceeding to PDA check`);
+  }
+
+  // Read Game PDA to check deposit status, with retries for RPC propagation delay.
+  let game = await fetchGameAccount(BigInt(match.onChainGameId));
   if (!game) {
     return { success: false, message: "On-chain game not found", matchNowActive: false };
   }
 
-  const playerDeposited = isPlayer1
+  let playerDeposited = isPlayer1
     ? game.playerOneDeposited
     : game.playerTwoDeposited;
+
+  // Retry up to 5 times (1s apart) if the deposit flag hasn't propagated yet.
+  if (!playerDeposited) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await sleep(1500);
+      game = await fetchGameAccount(BigInt(match.onChainGameId));
+      if (!game) break;
+      playerDeposited = isPlayer1
+        ? game.playerOneDeposited
+        : game.playerTwoDeposited;
+      if (playerDeposited) break;
+    }
+  }
+
+  if (!game) {
+    return { success: false, message: "On-chain game not found", matchNowActive: false };
+  }
 
   if (!playerDeposited) {
     return {
       success: false,
-      message: "Deposit not yet confirmed on-chain. Please wait a moment and retry.",
+      message: "Deposit transaction may have failed on-chain. Check your wallet and try again.",
       matchNowActive: false,
     };
   }
