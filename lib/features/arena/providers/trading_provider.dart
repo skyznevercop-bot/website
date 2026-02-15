@@ -149,8 +149,8 @@ class TradingNotifier extends Notifier<TradingState> {
   }
 
   /// Start the trading match.
-  /// If a match with the same [matchId] is already active, this is a
-  /// no-op (idempotent) — the user is just returning to the arena.
+  /// When resuming an already-known match (same matchId), positions and
+  /// balance are preserved but timers & WebSocket are (re)started.
   void startMatch({
     required int durationSeconds,
     required double betAmount,
@@ -159,27 +159,31 @@ class TradingNotifier extends Notifier<TradingState> {
     String? opponentGamerTag,
     String? arenaRoute,
   }) {
-    // Idempotent: if returning to an already-running match, just ensure
-    // the price feed is active and skip resetting state.
-    if (state.matchActive && matchId != null && state.matchId == matchId) {
-      _priceFeed.start();
-      return;
-    }
+    // Resuming: keep positions/balance, just update remaining time.
+    final isResume =
+        state.matchActive && matchId != null && state.matchId == matchId;
 
     _priceFeed.start();
 
-    state = state.copyWith(
-      positions: [],
-      balance: TradingState.demoBalance,
-      initialBalance: TradingState.demoBalance,
-      matchTimeRemainingSeconds: durationSeconds,
-      matchActive: true,
-      matchId: matchId,
-      opponentAddress: opponentAddress,
-      opponentGamerTag: opponentGamerTag,
-      opponentPnl: 0,
-      arenaRoute: arenaRoute,
-    );
+    if (isResume) {
+      state = state.copyWith(
+        matchTimeRemainingSeconds: durationSeconds,
+        arenaRoute: arenaRoute,
+      );
+    } else {
+      state = state.copyWith(
+        positions: [],
+        balance: TradingState.demoBalance,
+        initialBalance: TradingState.demoBalance,
+        matchTimeRemainingSeconds: durationSeconds,
+        matchActive: true,
+        matchId: matchId,
+        opponentAddress: opponentAddress,
+        opponentGamerTag: opponentGamerTag,
+        opponentPnl: 0,
+        arenaRoute: arenaRoute,
+      );
+    }
 
     // Join the match room via WebSocket.
     if (matchId != null) {
@@ -477,12 +481,14 @@ class TradingNotifier extends Notifier<TradingState> {
 
   void endMatch({
     String? winner,
-    bool isTie = false,
-    bool isForfeit = false,
+    bool? isTie,
+    bool? isForfeit,
   }) {
     _matchTimer?.cancel();
     _checkTimer?.cancel();
-    _wsSubscription?.cancel();
+    // Keep _wsSubscription alive — the backend's match_end / claim_available
+    // events may arrive after the client timer fires. The subscription is
+    // cleaned up in build()'s onDispose.
     _priceFeed.stop();
 
     final now = DateTime.now();

@@ -337,10 +337,31 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             });
 
             try {
+              // Step 0: Ensure player has an on-chain profile (needed for settlement).
+              try {
+                final api = ApiClient.instance;
+                final address = wallet.address!;
+                final profileCheck = await api.get('/match/profile/$address');
+                if (profileCheck['exists'] != true) {
+                  setDialogState(() => depositState = 'creating_profile');
+                  final gamerTag = wallet.gamerTag ?? address.substring(0, 8);
+                  await EscrowService.createProfile(
+                    walletName: walletName,
+                    profilePda: profileCheck['profilePda'] as String,
+                    gamerTag: gamerTag,
+                  );
+                }
+              } catch (e) {
+                // Non-fatal: profile creation failure shouldn't block deposit.
+                // Backend settlement will fall back to Firebase-only.
+                debugPrint('[PlayScreen] Profile creation skipped: $e');
+              }
+
               // Step 1: Deposit to on-chain escrow via program instruction.
               if (match.gamePda == null || match.escrowTokenAccount == null) {
                 throw Exception('Missing on-chain game data. Please try again.');
               }
+              setDialogState(() => depositState = 'depositing');
               final txSignature = await EscrowService.deposit(
                 walletName: walletName,
                 gamePda: match.gamePda!,
@@ -403,6 +424,42 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           // Build action button based on deposit state
           Widget actionButton;
           switch (depositState) {
+            case 'creating_profile':
+              actionButton = SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    border: Border.all(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.5),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Creating profile...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
             case 'depositing':
               actionButton = SizedBox(
                 width: double.infinity,

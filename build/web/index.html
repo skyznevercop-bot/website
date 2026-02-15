@@ -383,6 +383,65 @@
 
       return signature;
     };
+
+    // ── Create Player Profile (on-chain program instruction) ────────────
+    // Player calls create_profile on the SolFight program.
+    // This is required before a game can be settled on-chain.
+    window._createProfile = async function(walletName, programId, profilePda, gamerTag, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+      var SystemProgram = solanaWeb3.SystemProgram;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
+      var player = provider.publicKey;
+
+      // Build create_profile instruction.
+      // Arguments: gamer_tag (Borsh string = u32 length prefix + utf8 bytes)
+      var disc = await window._anchorDisc('create_profile');
+      var tagBytes = new TextEncoder().encode(gamerTag);
+      var lenBuf = new Uint8Array(4);
+      new DataView(lenBuf.buffer).setUint32(0, tagBytes.length, true);
+      var data = new Uint8Array(disc.length + 4 + tagBytes.length);
+      data.set(disc, 0);
+      data.set(lenBuf, disc.length);
+      data.set(tagBytes, disc.length + 4);
+
+      var ix = new TransactionInstruction({
+        programId: new PublicKey(programId),
+        keys: [
+          { pubkey: new PublicKey(profilePda), isSigner: false, isWritable: true },
+          { pubkey: player, isSigner: true, isWritable: true },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+        ],
+        data: data,
+      });
+
+      var tx = new Transaction();
+      tx.add(ix);
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = player;
+
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
+      await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
+    };
   </script>
 
   <!-- Wallet Standard discovery bridge (for Jupiter and other modern wallets) -->

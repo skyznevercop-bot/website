@@ -14,7 +14,10 @@ import {
   getPlatformPDA,
   fetchGameAccount,
   GameStatus,
+  playerProfileExists,
+  getPlayerProfilePDA,
 } from "../utils/solana";
+import { PublicKey } from "@solana/web3.js";
 import { config } from "../config";
 
 const router = Router();
@@ -287,6 +290,25 @@ router.get("/:id/claim-info", requireAuth, async (req: AuthRequest, res) => {
     treasuryAddress: config.treasuryAddress,
     winner: game.winner?.toBase58() || null,
   });
+});
+
+/** GET /api/match/profile/:address — Check if player has an on-chain profile. */
+router.get("/profile/:address", async (req, res) => {
+  const { address } = req.params;
+
+  try {
+    const exists = await playerProfileExists(address);
+    const [profilePda] = getPlayerProfilePDA(new PublicKey(address));
+
+    res.json({
+      exists,
+      profilePda: profilePda.toBase58(),
+      programId: config.programId,
+    });
+  } catch (err) {
+    console.error(`[Match] Profile check error for ${address}:`, err);
+    res.status(500).json({ error: "Failed to check profile" });
+  }
 });
 
 export default router;

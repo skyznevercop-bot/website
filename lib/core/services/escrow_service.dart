@@ -24,6 +24,15 @@ external JSPromise _jsClaimWinnings(
   JSString rpcUrl,
 );
 
+@JS('_createProfile')
+external JSPromise _jsCreateProfile(
+  JSString walletName,
+  JSString programId,
+  JSString profilePda,
+  JSString gamerTag,
+  JSString rpcUrl,
+);
+
 /// Service for interacting with the on-chain SolFight escrow program.
 class EscrowService {
   EscrowService._();
@@ -69,6 +78,26 @@ class EscrowService {
       platformPda.toJS,
       treasuryAddress.toJS,
       Environment.usdcMint.toJS,
+      Environment.solanaRpcUrl.toJS,
+    );
+
+    final result = await promise.toDart;
+    return (result as JSString).toDart;
+  }
+
+  /// Create an on-chain player profile.
+  /// Required before a game can be settled on-chain (end_game needs profiles).
+  /// Returns the transaction signature on success.
+  static Future<String> createProfile({
+    required String walletName,
+    required String profilePda,
+    required String gamerTag,
+  }) async {
+    final promise = _jsCreateProfile(
+      walletName.toJS,
+      Environment.programId.toJS,
+      profilePda.toJS,
+      gamerTag.toJS,
       Environment.solanaRpcUrl.toJS,
     );
 

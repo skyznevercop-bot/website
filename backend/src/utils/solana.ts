@@ -235,6 +235,15 @@ export async function fetchGameAccount(
   return deserializeGame(info.data as Buffer);
 }
 
+/** Check if a player profile PDA exists on-chain. */
+export async function playerProfileExists(player: string): Promise<boolean> {
+  const connection = getConnection();
+  const playerPubkey = new PublicKey(player);
+  const [profilePda] = getPlayerProfilePDA(playerPubkey);
+  const info = await connection.getAccountInfo(profilePda);
+  return info !== null;
+}
+
 // ── On-Chain Instructions ───────────────────────────────────────
 
 /**

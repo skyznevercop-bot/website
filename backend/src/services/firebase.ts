@@ -126,13 +126,15 @@ export interface DbMatch {
     | "payout_sent"
     | "refunded"
     | "partial_refund"
-    | "refund_failed";
+    | "refund_failed"
+    | "settlement_pending";
 
   escrowSignature?: string;
   startTime?: number;
   endTime?: number;
   settledAt?: number;
   onChainGameId?: number;
+  onChainSettled?: boolean;
 }
 
 export async function createMatch(data: DbMatch): Promise<string> {

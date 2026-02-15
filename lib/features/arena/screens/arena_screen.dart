@@ -135,20 +135,30 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       ref.read(tradingProvider.notifier).updatePrices(prices);
     });
 
+    final showOverlay = !state.matchActive && state.matchId != null;
+
     return Scaffold(
       backgroundColor: AppTheme.background,
-      body: Column(
+      body: Stack(
         children: [
-          _ArenaToolbar(
-            state: state,
-            chatOpen: _chatOpen,
-            onChatToggle: () => setState(() => _chatOpen = !_chatOpen),
+          Column(
+            children: [
+              _ArenaToolbar(
+                state: state,
+                chatOpen: _chatOpen,
+                onChatToggle: () => setState(() => _chatOpen = !_chatOpen),
+              ),
+              Expanded(
+                child: isMobile
+                    ? _buildMobileLayout(state)
+                    : _buildDesktopLayout(state),
+              ),
+            ],
           ),
-          Expanded(
-            child: isMobile
-                ? _buildMobileLayout(state)
-                : _buildDesktopLayout(state),
-          ),
+          if (showOverlay)
+            Positioned.fill(
+              child: _MatchResultOverlay(state: state),
+            ),
         ],
       ),
     );
@@ -1184,7 +1194,7 @@ class _OrderPanelState extends ConsumerState<_OrderPanel>
 
                   if (!matchActive) ...[
                     const SizedBox(height: 16),
-                    _MatchEndBanner(state: widget.state),
+                    // Match result overlay handles end-of-match UI now.
                   ],
                 ],
               ),
@@ -1428,18 +1438,19 @@ class _PercentButtonState extends State<_PercentButton> {
 }
 
 // =============================================================================
-// Match End Banner
+// Match Result Overlay — full-screen overlay shown when a match ends
 // =============================================================================
 
-class _MatchEndBanner extends ConsumerStatefulWidget {
+class _MatchResultOverlay extends ConsumerStatefulWidget {
   final TradingState state;
-  const _MatchEndBanner({required this.state});
+  const _MatchResultOverlay({required this.state});
 
   @override
-  ConsumerState<_MatchEndBanner> createState() => _MatchEndBannerState();
+  ConsumerState<_MatchResultOverlay> createState() =>
+      _MatchResultOverlayState();
 }
 
-class _MatchEndBannerState extends ConsumerState<_MatchEndBanner> {
+class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
   bool _visible = false;
   bool _claiming = false;
   String? _claimTx;
@@ -1453,13 +1464,28 @@ class _MatchEndBannerState extends ConsumerState<_MatchEndBanner> {
     });
   }
 
+  bool get _hasResult =>
+      widget.state.matchWinner != null || widget.state.matchIsTie;
+
   bool get _isWinner {
     final wallet = ref.read(walletProvider);
     return widget.state.matchWinner != null &&
         widget.state.matchWinner == wallet.address;
   }
 
-  Future<void> _claimWinnings() async {
+  bool get _isLoser {
+    final wallet = ref.read(walletProvider);
+    return widget.state.matchWinner != null &&
+        widget.state.matchWinner != wallet.address;
+  }
+
+  double get _myRoi => widget.state.initialBalance > 0
+      ? (widget.state.equity - widget.state.initialBalance) /
+          widget.state.initialBalance *
+          100
+      : 0;
+
+  Future<void> _claimPrize() async {
     final matchId = widget.state.matchId;
     if (matchId == null) return;
 
@@ -1493,228 +1519,435 @@ class _MatchEndBannerState extends ConsumerState<_MatchEndBanner> {
 
   @override
   Widget build(BuildContext context) {
-    final isProfit = widget.state.equity >= widget.state.initialBalance;
-    final c = isProfit ? AppTheme.success : AppTheme.error;
-    final roi = widget.state.initialBalance > 0
-        ? (widget.state.equity - widget.state.initialBalance) /
-            widget.state.initialBalance *
-            100
-        : 0.0;
+    final isMobile = Responsive.isMobile(context);
 
-    final isTie = widget.state.matchIsTie;
-    final isWinner = _isWinner;
-
-    String resultText;
-    if (isTie) {
-      resultText = 'Draw!';
-    } else if (isWinner) {
-      resultText = 'You Win!';
-    } else if (widget.state.matchWinner != null) {
-      resultText = 'You Lose';
-    } else {
-      resultText = 'Match Over!';
-    }
-
-    return AnimatedSlide(
-      offset: _visible ? Offset.zero : const Offset(0, 0.3),
+    return AnimatedOpacity(
+      opacity: _visible ? 1.0 : 0.0,
       duration: const Duration(milliseconds: 400),
-      curve: Curves.easeOut,
-      child: AnimatedOpacity(
-        opacity: _visible ? 1.0 : 0.0,
-        duration: const Duration(milliseconds: 400),
+      child: PointerInterceptor(
         child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            gradient: RadialGradient(
-              colors: [
-                c.withValues(alpha: 0.15),
-                c.withValues(alpha: 0.05),
-              ],
-              radius: 1.5,
+          color: Colors.black.withValues(alpha: 0.8),
+          child: Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(isMobile ? 20 : 32),
+              child:
+                  _hasResult ? _buildResultCard(context) : _buildPendingCard(),
             ),
-            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(color: c.withValues(alpha: 0.3)),
           ),
-          child: Column(
-            children: [
-              Text(resultText,
-                  style: GoogleFonts.inter(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.textPrimary)),
-              const SizedBox(height: 6),
-              Text(
-                'Final ROI: ${roi >= 0 ? '+' : ''}${roi.toStringAsFixed(2)}%',
-                style: GoogleFonts.inter(
-                    fontSize: 20, fontWeight: FontWeight.w800, color: c),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Equity: \$${widget.state.equity.toStringAsFixed(2)}',
-                style: GoogleFonts.inter(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.textSecondary),
-              ),
+        ),
+      ),
+    );
+  }
 
-              // Claim Winnings button (winner only, not yet claimed).
-              if (isWinner && _claimTx == null) ...[
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 44,
-                  child: GestureDetector(
-                    onTap: _claiming ? null : _claimWinnings,
-                    child: MouseRegion(
-                      cursor: _claiming
-                          ? SystemMouseCursors.basic
-                          : SystemMouseCursors.click,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: _claiming ? null : AppTheme.longGradient,
-                          color: _claiming ? AppTheme.surfaceAlt : null,
-                          borderRadius:
-                              BorderRadius.circular(AppTheme.radiusMd),
-                          boxShadow: _claiming
-                              ? null
-                              : [
-                                  BoxShadow(
-                                    color: AppTheme.success
-                                        .withValues(alpha: 0.25),
-                                    blurRadius: 12,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
+  Widget _buildPendingCard() {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 400),
+      padding: const EdgeInsets.all(40),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 40,
+            height: 40,
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: AppTheme.solanaPurple,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Determining Winner...',
+            style: GoogleFonts.inter(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Settling match on-chain',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: AppTheme.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildResultCard(BuildContext context) {
+    final isWinner = _isWinner;
+    final isTie = widget.state.matchIsTie;
+    final isLoser = _isLoser;
+    final isForfeit = widget.state.matchIsForfeit;
+
+    const gold = Color(0xFFFFD700);
+    final resultColor = isTie
+        ? AppTheme.textSecondary
+        : isWinner
+            ? gold
+            : AppTheme.error;
+
+    final resultText = isTie
+        ? 'DRAW!'
+        : isWinner
+            ? 'YOU WON!'
+            : 'YOU LOST';
+
+    final subtitleText = isForfeit
+        ? (isWinner ? 'Opponent forfeited' : 'You forfeited')
+        : null;
+
+    final myTag = ref.read(walletProvider).gamerTag ?? 'You';
+    final oppTag = widget.state.opponentGamerTag ?? 'Opponent';
+    final myRoi = _myRoi;
+    final oppRoi = widget.state.opponentRoi;
+    final myRoiColor = myRoi >= 0 ? AppTheme.success : AppTheme.error;
+    final oppRoiColor = oppRoi >= 0 ? AppTheme.success : AppTheme.error;
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 420),
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: resultColor.withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: resultColor.withValues(alpha: 0.12),
+            blurRadius: 60,
+            spreadRadius: 10,
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Result icon
+          Icon(
+            isTie
+                ? Icons.handshake_rounded
+                : isWinner
+                    ? Icons.emoji_events_rounded
+                    : Icons.sentiment_dissatisfied_rounded,
+            size: 56,
+            color: resultColor,
+          ),
+          const SizedBox(height: 12),
+
+          // Result headline
+          Text(
+            resultText,
+            style: GoogleFonts.inter(
+              fontSize: 32,
+              fontWeight: FontWeight.w900,
+              color: resultColor,
+              letterSpacing: 2,
+            ),
+          ),
+          if (subtitleText != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              subtitleText,
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                color: AppTheme.textTertiary,
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 28),
+
+          // ROI comparison
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: IntrinsicHeight(
+              child: Row(
+                children: [
+                  // My stats
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          'YOU',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textTertiary,
+                            letterSpacing: 1.5,
+                          ),
                         ),
-                        child: Center(
-                          child: _claiming
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppTheme.textSecondary,
-                                  ),
-                                )
-                              : Text(
-                                  'Claim Winnings',
+                        const SizedBox(height: 4),
+                        Text(
+                          myTag,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${myRoi >= 0 ? '+' : ''}${myRoi.toStringAsFixed(2)}%',
+                          style: GoogleFonts.inter(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: myRoiColor,
+                          ),
+                        ),
+                        if (isWinner) ...[
+                          const SizedBox(height: 4),
+                          const Icon(Icons.emoji_events_rounded,
+                              size: 16, color: gold),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Container(width: 1, color: AppTheme.border),
+                  // Opponent stats
+                  Expanded(
+                    child: Column(
+                      children: [
+                        Text(
+                          'OPP',
+                          style: GoogleFonts.inter(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textTertiary,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          oppTag,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${oppRoi >= 0 ? '+' : ''}${oppRoi.toStringAsFixed(2)}%',
+                          style: GoogleFonts.inter(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: oppRoiColor,
+                          ),
+                        ),
+                        if (isLoser) ...[
+                          const SizedBox(height: 4),
+                          const Icon(Icons.emoji_events_rounded,
+                              size: 16, color: gold),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Claim button (winner only, not yet claimed)
+          if (isWinner && _claimTx == null) ...[
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: MouseRegion(
+                cursor: _claiming
+                    ? SystemMouseCursors.basic
+                    : SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _claiming ? null : _claimPrize,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: _claiming ? null : AppTheme.longGradient,
+                      color: _claiming ? AppTheme.surfaceAlt : null,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: _claiming
+                          ? null
+                          : [
+                              BoxShadow(
+                                color:
+                                    AppTheme.success.withValues(alpha: 0.3),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                    ),
+                    child: Center(
+                      child: _claiming
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppTheme.textSecondary,
+                              ),
+                            )
+                          : Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                    Icons.account_balance_wallet_rounded,
+                                    size: 18,
+                                    color: Colors.white),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Claim Prize',
                                   style: GoogleFonts.inter(
-                                    fontSize: 14,
+                                    fontSize: 15,
                                     fontWeight: FontWeight.w700,
                                     color: Colors.white,
                                   ),
                                 ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-
-              // Claim success.
-              if (_claimTx != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.success.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                        color: AppTheme.success.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.check_circle_rounded,
-                          size: 16, color: AppTheme.success),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Winnings claimed!',
-                          style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.success),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-
-              // Claim error.
-              if (_claimError != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  _claimError!,
-                  style: GoogleFonts.inter(
-                      fontSize: 11, color: AppTheme.error),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-
-              // Tie refund note.
-              if (isTie) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.textTertiary.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'Draw — your deposit has been refunded on-chain.',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.inter(
-                        fontSize: 12, color: AppTheme.textSecondary),
-                  ),
-                ),
-              ],
-
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: GestureDetector(
-                  onTap: () => context.go(AppConstants.playRoute),
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: AppTheme.purpleGradient,
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.radiusMd),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.solanaPurple
-                                .withValues(alpha: 0.25),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: Text(
-                          'Back to Lobby',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
+                              ],
+                            ),
                     ),
                   ),
                 ),
               ),
-            ],
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Claim success
+          if (_claimTx != null) ...[
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.success.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                    color: AppTheme.success.withValues(alpha: 0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle_rounded,
+                      size: 18, color: AppTheme.success),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Prize Claimed Successfully!',
+                    style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.success,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Claim error
+          if (_claimError != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                _claimError!,
+                style: GoogleFonts.inter(fontSize: 12, color: AppTheme.error),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+
+          // Tie refund
+          if (isTie) ...[
+            Container(
+              width: double.infinity,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.textTertiary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'Draw — deposits have been refunded on-chain.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: AppTheme.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Main action button
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => context.go(AppConstants.playRoute),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.purpleGradient,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            AppTheme.solanaPurple.withValues(alpha: 0.3),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          isLoser
+                              ? Icons.sports_esports_rounded
+                              : Icons.home_rounded,
+                          size: 18,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          isLoser ? 'Find New Match' : 'Back to Lobby',
+                          style: GoogleFonts.inter(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

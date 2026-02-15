@@ -64,12 +64,14 @@ export async function settleByForfeit(
     disconnectedPlayer === match.player1 ? match.player2 : match.player1;
 
   // Settle on-chain first.
+  let onChainSettled = false;
   if (match.onChainGameId) {
     try {
       await endGameOnChain(match.onChainGameId, winner, 0, 0, true);
+      onChainSettled = true;
     } catch (err) {
       console.error(`[Settlement] On-chain end_game failed for forfeit in match ${matchId}:`, err);
-      return;
+      console.warn(`[Settlement] Proceeding with Firebase-only settlement for forfeit in match ${matchId}`);
     }
   }
 
@@ -79,6 +81,7 @@ export async function settleByForfeit(
     player1Roi: 0,
     player2Roi: 0,
     settledAt: Date.now(),
+    onChainSettled,
   });
 
   await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
@@ -170,6 +173,7 @@ async function settleMatch(
   }
 
   // Settle on-chain. PnL values are sent as basis points of the bet.
+  let onChainSettled = false;
   if (onChainGameId) {
     try {
       const p1PnlBps = Math.round(p1Roi * 10000);
@@ -181,9 +185,10 @@ async function settleMatch(
         p2PnlBps,
         false
       );
+      onChainSettled = true;
     } catch (err) {
       console.error(`[Settlement] On-chain end_game failed for match ${matchId}:`, err);
-      return;
+      console.warn(`[Settlement] Proceeding with Firebase-only settlement for match ${matchId}`);
     }
   }
 
@@ -193,6 +198,7 @@ async function settleMatch(
     player1Roi: p1Roi,
     player2Roi: p2Roi,
     settledAt: Date.now(),
+    onChainSettled,
   });
 
   await updatePlayerStats(player1, player2, winner, betAmount, isTie);
