@@ -292,6 +292,23 @@ export async function checkDepositTimeouts(): Promise<void> {
         );
       } catch (err) {
         console.error(`[Escrow] REFUND FAILED for ${depositor} in match ${id}:`, err);
+        // Mark match as needing manual refund so it stops retrying every 5s
+        // but still notify the user so they know.
+        await updateMatch(id, {
+          status: "cancelled",
+          escrowState: "refund_failed",
+        });
+        broadcastToUser(depositor, {
+          type: "match_cancelled",
+          matchId: id,
+          reason: "opponent_no_deposit",
+          refundFailed: true,
+        });
+        broadcastToUser(noShow, {
+          type: "match_cancelled",
+          matchId: id,
+          reason: "deposit_timeout",
+        });
       }
     }
   }

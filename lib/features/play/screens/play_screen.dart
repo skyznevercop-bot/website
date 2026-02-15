@@ -302,15 +302,23 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               });
             }
 
-            void onMatchCancelled(String? reason) {
+            void onMatchCancelled(Map<String, dynamic> data) {
               if (resolved) return;
               resolved = true;
               cleanup();
+              final reason = data['reason'] as String?;
+              final refundFailed = data['refundFailed'] == true;
               setDialogState(() {
                 depositState = 'error';
-                errorMsg = reason == 'opponent_no_deposit'
-                    ? 'Opponent did not deposit. You have been fully refunded.'
-                    : 'Match cancelled.';
+                if (reason == 'opponent_no_deposit' && refundFailed) {
+                  errorMsg =
+                      'Opponent did not deposit. Refund failed — please contact support.';
+                } else if (reason == 'opponent_no_deposit') {
+                  errorMsg =
+                      'Opponent did not deposit. You have been fully refunded.';
+                } else {
+                  errorMsg = 'Match cancelled.';
+                }
               });
             }
 
@@ -324,7 +332,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                 onMatchActivated();
               } else if (type == 'match_cancelled' &&
                   data['matchId'] == match.matchId) {
-                onMatchCancelled(data['reason'] as String?);
+                onMatchCancelled(data);
               }
             });
 

@@ -125,7 +125,8 @@ export interface DbMatch {
     | "deposits_received"
     | "payout_sent"
     | "refunded"
-    | "partial_refund";
+    | "partial_refund"
+    | "refund_failed";
 
   escrowSignature?: string;
   startTime?: number;

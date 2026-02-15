@@ -77,7 +77,7 @@ export interface DepositVerification {
 /**
  * Verify a USDC deposit on-chain by parsing the transaction.
  * Checks that the tx exists, succeeded, and contains an SPL token transfer
- * from the expected sender of the expected amount.
+ * from the expected sender to the escrow wallet's ATA of the expected amount.
  */
 export async function verifyUsdcDeposit(
   txSignature: string,
@@ -85,6 +85,15 @@ export async function verifyUsdcDeposit(
   expectedAmount: number
 ): Promise<DepositVerification> {
   const connection = getConnection();
+
+  // Derive the escrow wallet's USDC ATA to verify recipient.
+  // Use the authority keypair (= the escrow wallet) as source of truth,
+  // falling back to the config address if keypair isn't available.
+  const escrowPubkey = config.authorityKeypair
+    ? getAuthorityKeypair().publicKey
+    : new PublicKey(config.escrowWalletAddress);
+  const escrowAta = await getAssociatedTokenAddress(getUsdcMint(), escrowPubkey);
+  const escrowAtaStr = escrowAta.toBase58();
 
   const parsedTx = await connection.getParsedTransaction(txSignature, {
     maxSupportedTransactionVersion: 0,
@@ -117,9 +126,10 @@ export async function verifyUsdcDeposit(
         : parseInt(info.amount || "0");
     const amountUsdc = amountRaw / 1_000_000;
 
-    // Verify sender (authority) and amount match.
+    // Verify sender, recipient (escrow ATA), and amount all match.
     if (
       info.authority === expectedSender &&
+      info.destination === escrowAtaStr &&
       Math.abs(amountUsdc - expectedAmount) < 0.01
     ) {
       return { verified: true, amount: amountUsdc, sender: info.authority };
@@ -130,7 +140,7 @@ export async function verifyUsdcDeposit(
     verified: false,
     amount: 0,
     sender: "",
-    error: "No matching USDC transfer found in transaction",
+    error: "No matching USDC transfer to escrow found in transaction",
   };
 }
 
