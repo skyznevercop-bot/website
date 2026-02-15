@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -280,6 +282,52 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               depositState = 'depositing';
               errorMsg = null;
             });
+
+            StreamSubscription<Map<String, dynamic>>? wsSub;
+            Timer? pollTimer;
+            bool resolved = false;
+
+            void cleanup() {
+              wsSub?.cancel();
+              pollTimer?.cancel();
+            }
+
+            void onMatchActivated() {
+              if (resolved) return;
+              resolved = true;
+              cleanup();
+              setDialogState(() => depositState = 'confirmed');
+              Future.delayed(const Duration(milliseconds: 800), () {
+                if (ctx.mounted) navigateToArena();
+              });
+            }
+
+            void onMatchCancelled(String? reason) {
+              if (resolved) return;
+              resolved = true;
+              cleanup();
+              setDialogState(() {
+                depositState = 'error';
+                errorMsg = reason == 'opponent_no_deposit'
+                    ? 'Opponent did not deposit. You have been fully refunded.'
+                    : 'Match cancelled.';
+              });
+            }
+
+            // Subscribe to WS BEFORE the HTTP call so we never miss
+            // a match_activated broadcast from the opponent's deposit.
+            wsSub = ApiClient.instance.wsStream.listen((data) {
+              if (!ctx.mounted) { cleanup(); return; }
+              final type = data['type'] as String?;
+              if (type == 'match_activated' &&
+                  data['matchId'] == match.matchId) {
+                onMatchActivated();
+              } else if (type == 'match_cancelled' &&
+                  data['matchId'] == match.matchId) {
+                onMatchCancelled(data['reason'] as String?);
+              }
+            });
+
             try {
               // Step 1: Send USDC on-chain.
               final txSignature = await EscrowService.deposit(
@@ -298,44 +346,38 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
 
               final matchActive = result['matchActive'] == true;
               if (matchActive) {
-                // Both players deposited — go to arena.
-                setDialogState(() => depositState = 'confirmed');
-                Future.delayed(const Duration(milliseconds: 800), () {
-                  if (ctx.mounted) navigateToArena();
-                });
+                onMatchActivated();
               } else {
-                // Waiting for opponent to deposit — listen for WS events.
+                // Show waiting state. WS listener is already active.
                 setDialogState(() => depositState = 'waiting_opponent');
-                final sub = ApiClient.instance.wsStream.listen((data) {
-                  if (!ctx.mounted) return;
-                  final type = data['type'] as String?;
-                  if (type == 'match_activated' &&
-                      data['matchId'] == match.matchId) {
-                    setDialogState(() => depositState = 'confirmed');
-                    Future.delayed(const Duration(milliseconds: 800), () {
-                      if (ctx.mounted) navigateToArena();
-                    });
-                  } else if (type == 'match_cancelled' &&
-                      data['matchId'] == match.matchId) {
-                    setDialogState(() {
-                      depositState = 'error';
-                      errorMsg = data['reason'] == 'opponent_no_deposit'
-                          ? 'Opponent did not deposit. You have been fully refunded.'
-                          : 'Match cancelled.';
-                    });
-                  }
-                });
-                // Cancel subscription when dialog is popped.
+
+                // Polling fallback: check match status every 3s in case
+                // the WS broadcast was missed (e.g. reconnection gap).
+                pollTimer = Timer.periodic(
+                  const Duration(seconds: 3),
+                  (_) async {
+                    if (resolved || !ctx.mounted) { cleanup(); return; }
+                    try {
+                      final m = await api.get('/match/${match.matchId}');
+                      if (m['status'] == 'active') {
+                        onMatchActivated();
+                      }
+                    } catch (_) {}
+                  },
+                );
+
+                // Cleanup when dialog unmounts.
                 Future.doWhile(() async {
                   await Future.delayed(const Duration(milliseconds: 500));
                   if (!ctx.mounted) {
-                    sub.cancel();
+                    cleanup();
                     return false;
                   }
                   return true;
                 });
               }
             } catch (e) {
+              cleanup();
               setDialogState(() {
                 depositState = 'error';
                 errorMsg = e
