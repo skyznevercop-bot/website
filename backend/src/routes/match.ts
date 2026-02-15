@@ -59,6 +59,58 @@ router.get("/active/list", async (_req, res) => {
   res.json({ matches });
 });
 
+/** GET /api/match/active/:address — Get a player's active (or awaiting_deposits) match. */
+router.get("/active/:address", async (req, res) => {
+  const { address } = req.params;
+
+  // Firebase doesn't support OR queries, so query player1 and player2 separately.
+  const [snap1, snap2] = await Promise.all([
+    matchesRef.orderByChild("player1").equalTo(address).once("value"),
+    matchesRef.orderByChild("player2").equalTo(address).once("value"),
+  ]);
+
+  const activeStatuses = new Set(["active", "awaiting_deposits"]);
+  let foundId: string | null = null;
+  let foundData: Record<string, unknown> | null = null;
+
+  for (const snap of [snap1, snap2]) {
+    if (snap.exists()) {
+      snap.forEach((child) => {
+        const m = child.val();
+        if (activeStatuses.has(m.status) && !foundId) {
+          foundId = child.key!;
+          foundData = m;
+        }
+      });
+    }
+    if (foundId) break;
+  }
+
+  if (!foundId || !foundData) {
+    res.json({ match: null });
+    return;
+  }
+
+  const m = foundData as Record<string, unknown>;
+  const isPlayer1 = m.player1 === address;
+  const oppAddress = isPlayer1 ? m.player2 as string : m.player1 as string;
+  const oppUser = await getUser(oppAddress);
+
+  res.json({
+    match: {
+      matchId: foundId,
+      status: m.status,
+      duration: m.duration,
+      betAmount: m.betAmount,
+      startTime: m.startTime,
+      endTime: m.endTime,
+      opponentAddress: oppAddress,
+      opponentGamerTag: oppUser?.gamerTag || oppAddress.slice(0, 8),
+      onChainGameId: m.onChainGameId,
+    },
+  });
+});
+
 /** POST /api/match/:id/confirm-deposit — Confirm a USDC deposit for a match. */
 router.post(
   "/:id/confirm-deposit",

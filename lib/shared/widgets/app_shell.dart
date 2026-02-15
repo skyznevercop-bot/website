@@ -5,8 +5,10 @@ import 'package:go_router/go_router.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/responsive.dart';
+import '../../features/arena/providers/trading_provider.dart';
 import '../../features/onboarding/providers/onboarding_provider.dart';
 import '../../features/onboarding/widgets/onboarding_overlay.dart';
+import '../../features/wallet/providers/wallet_provider.dart';
 import 'top_bar.dart';
 
 /// Root shell widget containing the persistent top bar and bottom nav (mobile).
@@ -23,16 +25,30 @@ class _AppShellState extends ConsumerState<AppShell> {
   @override
   void initState() {
     super.initState();
-    // Trigger onboarding on first visit (deferred to avoid modifying provider during build)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        ref.read(onboardingProvider.notifier).maybeStartOnboarding();
-      }
+      if (!mounted) return;
+      // Trigger onboarding on first visit.
+      ref.read(onboardingProvider.notifier).maybeStartOnboarding();
+      // Check for active match if wallet is already connected.
+      _checkForActiveMatch();
     });
+  }
+
+  void _checkForActiveMatch() {
+    final wallet = ref.read(walletProvider);
+    if (wallet.isConnected && wallet.address != null) {
+      ref.read(tradingProvider.notifier).checkActiveMatch(wallet.address!);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // When wallet connects, check for an ongoing match.
+    ref.listen(walletProvider, (prev, next) {
+      if (next.isConnected && !(prev?.isConnected ?? false) && next.address != null) {
+        ref.read(tradingProvider.notifier).checkActiveMatch(next.address!);
+      }
+    });
     final isMobile = Responsive.isMobile(context);
 
     return Scaffold(

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
 import '../models/trading_models.dart';
 import 'price_feed_provider.dart';
@@ -405,6 +406,76 @@ class TradingNotifier extends Notifier<TradingState> {
         'matchId': state.matchId,
         'positionId': positionId,
       });
+    }
+  }
+
+  /// Check if the player has an active match on the backend.
+  /// If found, populate state so the _ActiveMatchBanner appears on PlayScreen.
+  Future<void> checkActiveMatch(String walletAddress) async {
+    // Don't overwrite if we already have an active match loaded.
+    if (state.matchActive) return;
+
+    try {
+      final result = await _api.get('/match/active/$walletAddress');
+      final match = result['match'];
+      if (match == null) return;
+
+      final matchId = match['matchId'] as String;
+      final status = match['status'] as String?;
+      final betAmount = (match['betAmount'] as num?)?.toDouble() ?? 1.0;
+      final oppAddress = match['opponentAddress'] as String?;
+      final oppTag = match['opponentGamerTag'] as String?;
+      final startTime = match['startTime'] as int?;
+      final endTime = match['endTime'] as int?;
+      final duration = match['duration'] as String? ?? '15m';
+
+      // Parse duration string to seconds.
+      int durationSeconds = 900;
+      final m = RegExp(r'^(\d+)(m|h)$').firstMatch(duration);
+      if (m != null) {
+        final value = int.parse(m.group(1)!);
+        durationSeconds = m.group(2) == 'h' ? value * 3600 : value * 60;
+      }
+
+      // Calculate remaining time.
+      int remaining = durationSeconds;
+      int? startTimeMs = startTime;
+      if (endTime != null) {
+        remaining = ((endTime - DateTime.now().millisecondsSinceEpoch) / 1000)
+            .round()
+            .clamp(0, durationSeconds);
+      } else if (startTime != null) {
+        final elapsed =
+            (DateTime.now().millisecondsSinceEpoch - startTime) ~/ 1000;
+        remaining = (durationSeconds - elapsed).clamp(0, durationSeconds);
+      }
+
+      // If the match already ended, don't show banner.
+      if (status == 'active' && remaining <= 0) return;
+
+      // Build the arena route for navigation.
+      final arenaUri = Uri(
+        path: AppConstants.arenaRoute,
+        queryParameters: {
+          'd': durationSeconds.toString(),
+          'bet': betAmount.toString(),
+          'matchId': matchId,
+          if (oppAddress != null) 'opp': oppAddress,
+          if (oppTag != null) 'oppTag': oppTag,
+          if (startTimeMs != null) 'st': startTimeMs.toString(),
+        },
+      ).toString();
+
+      state = state.copyWith(
+        matchId: matchId,
+        matchActive: true,
+        opponentAddress: oppAddress,
+        opponentGamerTag: oppTag,
+        matchTimeRemainingSeconds: remaining,
+        arenaRoute: arenaUri,
+      );
+    } catch (_) {
+      // Silently fail — this is a best-effort reconnection check.
     }
   }
 
