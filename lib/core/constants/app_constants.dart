@@ -6,12 +6,6 @@ class AppConstants {
   static const String appName = 'SolFight';
   static const String appTagline = '1v1 Trading Battles on Solana';
 
-  // ── Solana Config ─────────────────────────────────────────────────────────
-  static const String solanaCluster = 'devnet'; // Switch to 'mainnet-beta' for production
-  static const String rpcUrl = 'https://api.devnet.solana.com';
-  static const String usdcMintDevnet = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU';
-  static const String usdcMintMainnet = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-
   // ── Queue Timeframes ──────────────────────────────────────────────────────
   static const List<QueueTimeframe> timeframes = [
     QueueTimeframe(label: '15m', duration: Duration(minutes: 15)),

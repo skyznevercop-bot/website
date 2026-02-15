@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/config/environment.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/responsive.dart';
 import '../../wallet/providers/wallet_provider.dart';
 import '../providers/portfolio_provider.dart';
 
@@ -99,7 +101,7 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
   void _openExplorer() {
     if (_txSignature != null) {
       launchUrl(Uri.parse(
-          'https://explorer.solana.com/tx/$_txSignature?cluster=devnet'));
+          'https://explorer.solana.com/tx/$_txSignature${Environment.useDevnet ? '?cluster=devnet' : ''}'));
     }
   }
 
@@ -113,7 +115,7 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
       child: Material(
         color: Colors.transparent,
         child: Container(
-          width: 440,
+          width: Responsive.clampedWidth(context, 440),
           margin: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: AppTheme.surface,

@@ -132,6 +132,33 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     } catch (_) {}
   }
 
+  /// Fetch completed match history from the backend.
+  Future<void> fetchMatchHistory() async {
+    state = state.copyWith(isLoadingHistory: true);
+    try {
+      final response = await _api.get('/portfolio/match-history');
+      final matchesJson = response['matches'] as List<dynamic>? ?? [];
+      final matches = matchesJson.map((json) {
+        final m = json as Map<String, dynamic>;
+        return MatchResult(
+          id: m['id'] as String? ?? '',
+          opponent: m['opponentGamerTag'] as String? ?? 'Unknown',
+          timeframe: m['timeframe'] as String? ?? '',
+          isWin: m['result'] == 'WIN',
+          pnl: (m['pnl'] as num?)?.toDouble() ?? 0,
+          completedAt: m['completedAt'] != null
+              ? DateTime.parse(m['completedAt'] as String)
+              : DateTime.now(),
+        );
+      }).toList();
+
+      state = state.copyWith(matchHistory: matches, isLoadingHistory: false);
+    } catch (_) {
+      // Backend unavailable — keep existing state.
+      state = state.copyWith(isLoadingHistory: false);
+    }
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }

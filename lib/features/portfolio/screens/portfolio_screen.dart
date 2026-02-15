@@ -3,21 +3,45 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import '../../../core/config/environment.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
+import '../../../features/arena/providers/trading_provider.dart';
+import '../../../features/play/providers/queue_provider.dart';
 import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
 import '../models/transaction_models.dart';
 import '../providers/portfolio_provider.dart';
 
 /// Portfolio screen — wallet balance, open positions, match history, PnL chart.
-class PortfolioScreen extends ConsumerWidget {
+class PortfolioScreen extends ConsumerStatefulWidget {
   const PortfolioScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PortfolioScreen> createState() => _PortfolioScreenState();
+}
+
+class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final wallet = ref.read(walletProvider);
+      if (wallet.isConnected && wallet.address != null) {
+        ref.read(queueProvider.notifier).fetchUserStats(wallet.address!);
+        ref.read(portfolioProvider.notifier).fetchMatchHistory();
+        ref.read(portfolioProvider.notifier).fetchTransactions();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final portfolio = ref.watch(portfolioProvider);
+    final queue = ref.watch(queueProvider);
+    final trading = ref.watch(tradingProvider);
     final isMobile = Responsive.isMobile(context);
 
     return SingleChildScrollView(
@@ -100,6 +124,13 @@ class PortfolioScreen extends ConsumerWidget {
               child: _PortfolioHero(
                 balance: wallet.usdcBalance ?? 0,
                 isMobile: isMobile,
+                inPlay: trading.matchActive
+                    ? (TradingState.demoBalance - trading.balance).abs()
+                    : 0,
+                totalPnl: queue.userPnl,
+                wins: queue.userWins,
+                losses: queue.userLosses,
+                winRate: queue.userWinRate,
               ),
             ),
             const SizedBox(height: 32),
@@ -119,22 +150,58 @@ class PortfolioScreen extends ConsumerWidget {
             const SizedBox(height: 12),
             Padding(
               padding: Responsive.horizontalPadding(context),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: _ActiveMatchRow(
-                  opponent: 'CryptoKing',
-                  timeframe: '1h',
-                  yourPnl: '+2.4%',
-                  oppPnl: '+1.1%',
-                  timeLeft: '23m left',
-                ),
-              ),
+              child: trading.matchActive
+                  ? Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusLg),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: _ActiveMatchRow(
+                        opponent:
+                            trading.opponentGamerTag ?? 'Opponent',
+                        timeframe:
+                            '${(trading.matchTimeRemainingSeconds / 60).ceil()}m',
+                        yourPnl: _formatPnlPercent(
+                            trading.equity, trading.initialBalance),
+                        oppPnl: _formatPnlPercent(
+                            trading.opponentEquity,
+                            trading.initialBalance),
+                        timeLeft:
+                            '${_formatTimeLeft(trading.matchTimeRemainingSeconds)} left',
+                        yourPnlPositive:
+                            trading.equity >= trading.initialBalance,
+                        oppPnlPositive: trading.opponentEquity >=
+                            trading.initialBalance,
+                      ),
+                    )
+                  : Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusLg),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.sports_esports_outlined,
+                              size: 36, color: AppTheme.textTertiary),
+                          const SizedBox(height: 10),
+                          Text(
+                            'No active matches',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppTheme.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
             ),
             const SizedBox(height: 32),
 
@@ -153,46 +220,59 @@ class PortfolioScreen extends ConsumerWidget {
             const SizedBox(height: 12),
             Padding(
               padding: Responsive.horizontalPadding(context),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: AppTheme.surface,
-                  borderRadius: BorderRadius.circular(AppTheme.radiusLg),
-                  border: Border.all(color: AppTheme.border),
-                ),
-                child: Column(
-                  children: const [
-                    _HistoryRow(
-                        opponent: 'SolWhale',
-                        timeframe: '15m',
-                        result: 'WIN',
-                        pnl: '+\$10.00'),
-                    Divider(height: 1),
-                    _HistoryRow(
-                        opponent: 'MoonShot99',
-                        timeframe: '4h',
-                        result: 'WIN',
-                        pnl: '+\$25.00'),
-                    Divider(height: 1),
-                    _HistoryRow(
-                        opponent: 'BearSlayer',
-                        timeframe: '1h',
-                        result: 'LOSS',
-                        pnl: '-\$25.00'),
-                    Divider(height: 1),
-                    _HistoryRow(
-                        opponent: 'DeFiNinja',
-                        timeframe: '30m',
-                        result: 'WIN',
-                        pnl: '+\$10.00'),
-                    Divider(height: 1),
-                    _HistoryRow(
-                        opponent: 'TokenMaster',
-                        timeframe: '15m',
-                        result: 'WIN',
-                        pnl: '+\$10.00'),
-                  ],
-                ),
-              ),
+              child: portfolio.matchHistory.isEmpty
+                  ? Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusLg),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Column(
+                        children: [
+                          Icon(Icons.history_rounded,
+                              size: 36, color: AppTheme.textTertiary),
+                          const SizedBox(height: 10),
+                          Text(
+                            'No matches played yet',
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: AppTheme.textTertiary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusLg),
+                        border: Border.all(color: AppTheme.border),
+                      ),
+                      child: Column(
+                        children: [
+                          for (int i = 0;
+                              i < portfolio.matchHistory.length;
+                              i++) ...[
+                            if (i > 0) const Divider(height: 1),
+                            _HistoryRow(
+                              opponent:
+                                  portfolio.matchHistory[i].opponent,
+                              timeframe:
+                                  portfolio.matchHistory[i].timeframe,
+                              result: portfolio.matchHistory[i].isWin
+                                  ? 'WIN'
+                                  : 'LOSS',
+                              pnl: _formatPnlDollar(
+                                  portfolio.matchHistory[i].pnl),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
             ),
             const SizedBox(height: 32),
 
@@ -264,6 +344,24 @@ class PortfolioScreen extends ConsumerWidget {
       ),
     );
   }
+
+  static String _formatPnlPercent(double equity, double initial) {
+    if (initial <= 0) return '0.0%';
+    final pct = (equity - initial) / initial * 100;
+    final sign = pct >= 0 ? '+' : '';
+    return '$sign${pct.toStringAsFixed(1)}%';
+  }
+
+  static String _formatPnlDollar(double pnl) {
+    final sign = pnl >= 0 ? '+' : '-';
+    return '$sign\$${pnl.abs().toStringAsFixed(2)}';
+  }
+
+  static String _formatTimeLeft(int seconds) {
+    if (seconds < 60) return '${seconds}s';
+    if (seconds < 3600) return '${(seconds / 60).ceil()}m';
+    return '${(seconds / 3600).ceil()}h';
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -273,10 +371,20 @@ class PortfolioScreen extends ConsumerWidget {
 class _PortfolioHero extends StatelessWidget {
   final double balance;
   final bool isMobile;
+  final double inPlay;
+  final double totalPnl;
+  final int wins;
+  final int losses;
+  final int winRate;
 
   const _PortfolioHero({
     required this.balance,
     required this.isMobile,
+    this.inPlay = 0,
+    this.totalPnl = 0,
+    this.wins = 0,
+    this.losses = 0,
+    this.winRate = 0,
   });
 
   @override
@@ -375,7 +483,7 @@ class _PortfolioHero extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            'Devnet',
+                            Environment.useDevnet ? 'Devnet' : 'Mainnet',
                             style: GoogleFonts.inter(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -431,14 +539,14 @@ class _PortfolioHero extends StatelessWidget {
                                 Expanded(
                                     child: _HeroStat(
                                         label: 'In Play',
-                                        value: '\$25.00',
+                                        value: '\$${inPlay.toStringAsFixed(2)}',
                                         color: AppTheme.solanaPurpleLight)),
                                 _statDivider(),
                                 Expanded(
                                     child: _HeroStat(
                                         label: 'Total PnL',
-                                        value: '+\$420.50',
-                                        color: AppTheme.success)),
+                                        value: '${totalPnl >= 0 ? '+' : '-'}\$${totalPnl.abs().toStringAsFixed(2)}',
+                                        color: totalPnl >= 0 ? AppTheme.success : AppTheme.error)),
                               ],
                             ),
                             const SizedBox(height: 12),
@@ -452,13 +560,13 @@ class _PortfolioHero extends StatelessWidget {
                                 Expanded(
                                     child: _HeroStat(
                                         label: 'Record',
-                                        value: '4W - 1L',
+                                        value: '${wins}W - ${losses}L',
                                         color: AppTheme.solanaGreen)),
                                 _statDivider(),
                                 Expanded(
                                     child: _HeroStat(
                                         label: 'Win Rate',
-                                        value: '80%',
+                                        value: '$winRate%',
                                         color: AppTheme.warning)),
                               ],
                             ),
@@ -469,25 +577,25 @@ class _PortfolioHero extends StatelessWidget {
                             Expanded(
                                 child: _HeroStat(
                                     label: 'In Play',
-                                    value: '\$25.00',
+                                    value: '\$${inPlay.toStringAsFixed(2)}',
                                     color: AppTheme.solanaPurpleLight)),
                             _statDivider(),
                             Expanded(
                                 child: _HeroStat(
                                     label: 'Total PnL',
-                                    value: '+\$420.50',
-                                    color: AppTheme.success)),
+                                    value: '${totalPnl >= 0 ? '+' : '-'}\$${totalPnl.abs().toStringAsFixed(2)}',
+                                    color: totalPnl >= 0 ? AppTheme.success : AppTheme.error)),
                             _statDivider(),
                             Expanded(
                                 child: _HeroStat(
                                     label: 'Record',
-                                    value: '4W - 1L',
+                                    value: '${wins}W - ${losses}L',
                                     color: AppTheme.solanaGreen)),
                             _statDivider(),
                             Expanded(
                                 child: _HeroStat(
                                     label: 'Win Rate',
-                                    value: '80%',
+                                    value: '$winRate%',
                                     color: AppTheme.warning)),
                           ],
                         ),
@@ -558,6 +666,8 @@ class _ActiveMatchRow extends StatelessWidget {
   final String yourPnl;
   final String oppPnl;
   final String timeLeft;
+  final bool yourPnlPositive;
+  final bool oppPnlPositive;
 
   const _ActiveMatchRow({
     required this.opponent,
@@ -565,6 +675,8 @@ class _ActiveMatchRow extends StatelessWidget {
     required this.yourPnl,
     required this.oppPnl,
     required this.timeLeft,
+    this.yourPnlPositive = true,
+    this.oppPnlPositive = false,
   });
 
   @override
@@ -590,7 +702,7 @@ class _ActiveMatchRow extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.success,
+                  color: yourPnlPositive ? AppTheme.success : AppTheme.error,
                 ),
               ),
             ],
@@ -653,7 +765,7 @@ class _ActiveMatchRow extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.error,
+                  color: oppPnlPositive ? AppTheme.success : AppTheme.error,
                 ),
               ),
             ],

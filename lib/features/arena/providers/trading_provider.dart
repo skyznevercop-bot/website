@@ -21,6 +21,7 @@ class TradingState {
   final double opponentPnl;
   final double opponentEquity;
   final int opponentPositionCount;
+  final String? arenaRoute;
 
   static const double demoBalance = 1000000;
 
@@ -38,6 +39,7 @@ class TradingState {
     this.opponentPnl = 0,
     this.opponentEquity = demoBalance,
     this.opponentPositionCount = 0,
+    this.arenaRoute,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -89,6 +91,7 @@ class TradingState {
     double? opponentPnl,
     double? opponentEquity,
     int? opponentPositionCount,
+    String? arenaRoute,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -106,6 +109,7 @@ class TradingState {
       opponentEquity: opponentEquity ?? this.opponentEquity,
       opponentPositionCount:
           opponentPositionCount ?? this.opponentPositionCount,
+      arenaRoute: arenaRoute ?? this.arenaRoute,
     );
   }
 }
@@ -132,13 +136,23 @@ class TradingNotifier extends Notifier<TradingState> {
   }
 
   /// Start the trading match.
+  /// If a match with the same [matchId] is already active, this is a
+  /// no-op (idempotent) — the user is just returning to the arena.
   void startMatch({
     required int durationSeconds,
     required double betAmount,
     String? matchId,
     String? opponentAddress,
     String? opponentGamerTag,
+    String? arenaRoute,
   }) {
+    // Idempotent: if returning to an already-running match, just ensure
+    // the price feed is active and skip resetting state.
+    if (state.matchActive && matchId != null && state.matchId == matchId) {
+      _priceFeed.start();
+      return;
+    }
+
     _priceFeed.start();
 
     state = state.copyWith(
@@ -151,6 +165,7 @@ class TradingNotifier extends Notifier<TradingState> {
       opponentAddress: opponentAddress,
       opponentGamerTag: opponentGamerTag,
       opponentPnl: 0,
+      arenaRoute: arenaRoute,
     );
 
     // Join the match room via WebSocket.
@@ -205,6 +220,10 @@ class TradingNotifier extends Notifier<TradingState> {
 
       case 'match_end':
         endMatch();
+        break;
+
+      case 'chat_message':
+        // Handled by MatchChatNotifier's own wsStream subscription.
         break;
     }
   }

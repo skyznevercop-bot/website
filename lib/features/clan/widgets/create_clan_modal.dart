@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/responsive.dart';
 import '../models/clan_models.dart';
 import '../providers/clan_provider.dart';
 
@@ -72,7 +73,7 @@ class _CreateClanModalState extends ConsumerState<_CreateClanModal> {
       child: Material(
         color: Colors.transparent,
         child: Container(
-          width: 440,
+          width: Responsive.clampedWidth(context, 440),
           margin: const EdgeInsets.all(24),
           decoration: BoxDecoration(
             color: AppTheme.surface,

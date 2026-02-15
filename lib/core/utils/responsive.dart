@@ -35,4 +35,15 @@ class Responsive {
       horizontal: value(context, mobile: 16.0, tablet: 32.0, desktop: 48.0),
     );
   }
+
+  /// Current screen width shorthand.
+  static double screenWidth(BuildContext context) =>
+      MediaQuery.sizeOf(context).width;
+
+  /// Returns [desired] clamped so it fits within the screen minus [margin].
+  static double clampedWidth(BuildContext context, double desired,
+      {double margin = 48}) {
+    final maxWidth = screenWidth(context) - margin;
+    return desired.clamp(0.0, maxWidth);
+  }
 }

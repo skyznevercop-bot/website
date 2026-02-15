@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
 
 /// Queue state for matchmaking.
@@ -38,8 +40,8 @@ class QueueState {
   final List<LiveMatch> liveMatches;
 
   const QueueState({
-    this.queueSizes = const [0, 0, 0, 0, 0, 0],
-    this.waitTimes = const ['--', '--', '--', '--', '--', '--'],
+    this.queueSizes = const [0, 0, 0, 0, 0],
+    this.waitTimes = const ['--', '--', '--', '--', '--'],
     this.isInQueue = false,
     this.queuedTimeframeIndex,
     this.waitSeconds = 0,
@@ -119,12 +121,14 @@ class LiveMatch {
   final String player2;
   final String timeframe;
   final bool player1Leading;
+  final double bet;
 
   const LiveMatch({
     required this.player1,
     required this.player2,
     required this.timeframe,
     required this.player1Leading,
+    this.bet = 0,
   });
 }
 
@@ -133,6 +137,16 @@ class QueueNotifier extends Notifier<QueueState> {
   StreamSubscription? _wsSubscription;
   Timer? _waitTimer;
   Timer? _pollTimer;
+  Timer? _liveTimer;
+  final _rng = Random();
+
+  // Track whether we got real data from backend.
+  bool _hasRealData = false;
+
+  // Base demo stats — slowly increment over time.
+  int _demoPlayers = 1247;
+  int _demoMatches = 8432;
+  double _demoVolume = 423500;
 
   @override
   QueueState build() {
@@ -140,6 +154,7 @@ class QueueNotifier extends Notifier<QueueState> {
       _wsSubscription?.cancel();
       _waitTimer?.cancel();
       _pollTimer?.cancel();
+      _liveTimer?.cancel();
     });
     return const QueueState();
   }
@@ -149,15 +164,29 @@ class QueueNotifier extends Notifier<QueueState> {
     _wsSubscription?.cancel();
     _wsSubscription = _api.wsStream.listen(_handleWsEvent);
 
-    // Fetch initial data.
-    fetchQueueStats();
-    fetchLiveMatches();
+    // Seed demo data immediately so UI is never empty.
+    // Real backend data will overwrite if/when it responds.
+    if (!_hasRealData) _seedDemoData();
+
+    // Try to fetch real data from backend.
+    _fetchAll();
 
     // Poll queue stats every 10s as fallback.
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      fetchQueueStats();
+      _fetchAll();
     });
+
+    // Refresh live demo data every 8s for a dynamic feel.
+    _liveTimer?.cancel();
+    _liveTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!_hasRealData) _refreshDemoData();
+    });
+  }
+
+  Future<void> _fetchAll() async {
+    await fetchQueueStats();
+    await fetchLiveMatches();
   }
 
   /// Stop listening.
@@ -165,6 +194,7 @@ class QueueNotifier extends Notifier<QueueState> {
     _wsSubscription?.cancel();
     _waitTimer?.cancel();
     _pollTimer?.cancel();
+    _liveTimer?.cancel();
   }
 
   void _handleWsEvent(Map<String, dynamic> data) {
@@ -182,13 +212,16 @@ class QueueNotifier extends Notifier<QueueState> {
     final queues = data['queues'] as List<dynamic>?;
     if (queues == null) return;
 
-    final sizes = List<int>.filled(6, 0);
-    final waits = List<String>.filled(6, '--');
+    _hasRealData = true;
+
+    final count = AppConstants.timeframes.length;
+    final sizes = List<int>.filled(count, 0);
+    final waits = List<String>.filled(count, '--');
 
     for (final q in queues) {
       final queue = q as Map<String, dynamic>;
       final index = queue['index'] as int?;
-      if (index != null && index >= 0 && index < 6) {
+      if (index != null && index >= 0 && index < count) {
         sizes[index] = queue['size'] as int? ?? 0;
         final avgWait = queue['avgWaitSeconds'] as int?;
         waits[index] = avgWait != null ? _formatWait(avgWait) : '--';
@@ -274,13 +307,16 @@ class QueueNotifier extends Notifier<QueueState> {
       final queues = response['queues'] as List<dynamic>?;
       if (queues == null) return;
 
-      final sizes = List<int>.filled(6, 0);
-      final waits = List<String>.filled(6, '--');
+      _hasRealData = true;
+
+      final count = AppConstants.timeframes.length;
+      final sizes = List<int>.filled(count, 0);
+      final waits = List<String>.filled(count, '--');
 
       for (final q in queues) {
         final queue = q as Map<String, dynamic>;
         final index = queue['index'] as int?;
-        if (index != null && index >= 0 && index < 6) {
+        if (index != null && index >= 0 && index < count) {
           sizes[index] = queue['size'] as int? ?? 0;
           final avgWait = queue['avgWaitSeconds'] as int?;
           waits[index] = avgWait != null ? _formatWait(avgWait) : '--';
@@ -297,7 +333,12 @@ class QueueNotifier extends Notifier<QueueState> {
           totalVolume: (response['totalVolume'] as num?)?.toDouble() ?? 0,
         );
       }
-    } catch (_) {}
+    } catch (_) {
+      // Backend unavailable — seed demo data if not already set.
+      if (!_hasRealData && state.totalPlayers == 0) {
+        _seedDemoData();
+      }
+    }
   }
 
   /// Fetch user stats from the backend.
@@ -319,6 +360,8 @@ class QueueNotifier extends Notifier<QueueState> {
       final matchesJson = response['matches'] as List<dynamic>?;
       if (matchesJson == null) return;
 
+      _hasRealData = true;
+
       final matches = matchesJson.take(5).map((m) {
         final match = m as Map<String, dynamic>;
         return LiveMatch(
@@ -329,11 +372,97 @@ class QueueNotifier extends Notifier<QueueState> {
                   null &&
               ((match['player1Pnl'] as num?)?.toDouble() ?? 0) >=
                   ((match['player2Pnl'] as num?)?.toDouble() ?? 0),
+          bet: (match['bet'] as num?)?.toDouble() ?? 0,
         );
       }).toList();
 
       state = state.copyWith(liveMatches: matches);
-    } catch (_) {}
+    } catch (_) {
+      // Backend unavailable — seed demo matches if empty.
+      if (!_hasRealData && state.liveMatches.isEmpty) {
+        state = state.copyWith(liveMatches: _generateDemoMatches());
+      }
+    }
+  }
+
+  // ── Demo data (shown when backend is unavailable) ───────────────────────
+
+  static const _demoTags = [
+    'CryptoKing', 'SolSniper', 'DeFiDegen', 'AlphaSeeker',
+    'MoonHunter', 'DiamondHands', 'WhaleWatch', 'FlipMaster',
+    'PumpChaser', 'TokenSlayer', 'YieldFarmer', 'LiqHunter',
+    'ApeMode', 'GigaBrain', 'Wagmi420', 'NightTrader',
+    'BullRunner', 'ChartWizard', 'StackSats', 'Mev_Andy',
+  ];
+
+  static const _demoTimeframes = ['15m', '1h', '4h', '12h', '24h'];
+
+  void _seedDemoData() {
+    _demoPlayers = 1200 + _rng.nextInt(200);
+    _demoMatches = 8000 + _rng.nextInt(1000);
+    _demoVolume = 400000 + _rng.nextInt(100000).toDouble();
+
+    state = state.copyWith(
+      totalPlayers: _demoPlayers,
+      totalMatches: _demoMatches,
+      totalVolume: _demoVolume,
+      queueSizes: _generateQueueSizes(),
+      waitTimes: _generateWaitTimes(),
+      liveMatches: _generateDemoMatches(),
+    );
+  }
+
+  void _refreshDemoData() {
+    // Small increments to feel live.
+    if (_rng.nextBool()) _demoPlayers += _rng.nextInt(3);
+    if (_rng.nextDouble() > 0.3) _demoMatches += _rng.nextInt(2) + 1;
+    _demoVolume += (_rng.nextInt(50) + 10).toDouble();
+
+    state = state.copyWith(
+      totalPlayers: _demoPlayers,
+      totalMatches: _demoMatches,
+      totalVolume: _demoVolume,
+      queueSizes: _generateQueueSizes(),
+      waitTimes: _generateWaitTimes(),
+      liveMatches: _generateDemoMatches(),
+    );
+  }
+
+  List<int> _generateQueueSizes() {
+    // 15m and 1h are most popular.
+    return [
+      3 + _rng.nextInt(8),  // 15m
+      2 + _rng.nextInt(6),  // 1h
+      1 + _rng.nextInt(4),  // 4h
+      _rng.nextInt(3),       // 12h
+      _rng.nextInt(2),       // 24h
+    ];
+  }
+
+  List<String> _generateWaitTimes() {
+    return [
+      '~${5 + _rng.nextInt(15)}s',
+      '~${10 + _rng.nextInt(20)}s',
+      '~${30 + _rng.nextInt(30)}s',
+      '~${1 + _rng.nextInt(3)}m',
+      '~${2 + _rng.nextInt(5)}m',
+    ];
+  }
+
+  List<LiveMatch> _generateDemoMatches() {
+    final shuffled = List<String>.from(_demoTags)..shuffle(_rng);
+    final count = 3 + _rng.nextInt(3); // 3-5 matches
+    final bets = [5, 10, 25, 50, 100];
+
+    return List.generate(count, (i) {
+      return LiveMatch(
+        player1: shuffled[i * 2],
+        player2: shuffled[i * 2 + 1],
+        timeframe: _demoTimeframes[_rng.nextInt(_demoTimeframes.length)],
+        player1Leading: _rng.nextBool(),
+        bet: bets[_rng.nextInt(bets.length)].toDouble(),
+      );
+    });
   }
 
   static String _formatWait(int seconds) {

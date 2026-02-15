@@ -9,18 +9,58 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../models/trading_models.dart';
+import '../providers/match_chat_provider.dart';
 import '../providers/price_feed_provider.dart';
 import '../providers/trading_provider.dart';
+import '../widgets/match_chat_panel.dart';
 import '../widgets/tradingview_chart_widget.dart';
 
-/// Full-screen trading arena with TradingView chart + custom demo trading panel.
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+String _fmtPrice(double price) {
+  if (price >= 10000) return price.toStringAsFixed(2);
+  if (price >= 100) return price.toStringAsFixed(2);
+  return price.toStringAsFixed(3);
+}
+
+String _fmtBalance(double value) {
+  if (value >= 1000000) return '\$${(value / 1000000).toStringAsFixed(2)}M';
+  if (value >= 1000) return '\$${(value / 1000).toStringAsFixed(1)}K';
+  return '\$${value.toStringAsFixed(2)}';
+}
+
+Color _assetColor(String symbol) {
+  switch (symbol) {
+    case 'BTC':
+      return const Color(0xFFF7931A);
+    case 'ETH':
+      return const Color(0xFF627EEA);
+    case 'SOL':
+      return AppTheme.solanaPurple;
+    default:
+      return AppTheme.textSecondary;
+  }
+}
+
+Color _leverageColor(double lev, bool isLong) {
+  if (lev >= 76) return AppTheme.error;
+  if (lev >= 26) return AppTheme.warning;
+  return isLong ? AppTheme.success : AppTheme.error;
+}
+
+// =============================================================================
+// Arena Screen
+// =============================================================================
+
 class ArenaScreen extends ConsumerStatefulWidget {
   final int durationSeconds;
   final double betAmount;
   final String? matchId;
   final String? opponentAddress;
   final String? opponentGamerTag;
-  final int? startTime; // epoch ms — used to calculate remaining time on refresh
+  final int? startTime;
 
   const ArenaScreen({
     super.key,
@@ -37,23 +77,46 @@ class ArenaScreen extends ConsumerStatefulWidget {
 }
 
 class _ArenaScreenState extends ConsumerState<ArenaScreen> {
+  bool _chatOpen = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Calculate remaining time from server start time (survives refresh).
       int remaining = widget.durationSeconds;
       if (widget.startTime != null) {
         final elapsed =
             (DateTime.now().millisecondsSinceEpoch - widget.startTime!) ~/ 1000;
-        remaining = (widget.durationSeconds - elapsed).clamp(0, widget.durationSeconds);
+        remaining =
+            (widget.durationSeconds - elapsed).clamp(0, widget.durationSeconds);
       }
+
+      final arenaUri = Uri(
+        path: AppConstants.arenaRoute,
+        queryParameters: {
+          'd': widget.durationSeconds.toString(),
+          'bet': widget.betAmount.toString(),
+          if (widget.matchId != null) 'matchId': widget.matchId!,
+          if (widget.opponentAddress != null) 'opp': widget.opponentAddress!,
+          if (widget.opponentGamerTag != null)
+            'oppTag': widget.opponentGamerTag!,
+          if (widget.startTime != null) 'st': widget.startTime.toString(),
+        },
+      ).toString();
+
       ref.read(tradingProvider.notifier).startMatch(
             durationSeconds: remaining,
             betAmount: widget.betAmount,
             matchId: widget.matchId,
             opponentAddress: widget.opponentAddress,
             opponentGamerTag: widget.opponentGamerTag,
+            arenaRoute: arenaUri,
+          );
+
+      // Initialize chat for this match.
+      ref.read(matchChatProvider.notifier).init(
+            matchId: widget.matchId ?? '',
+            myTag: 'You',
           );
     });
   }
@@ -63,7 +126,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     final state = ref.watch(tradingProvider);
     final isMobile = Responsive.isMobile(context);
 
-    // Sync prices from feed into trading provider
     ref.listen<Map<String, double>>(priceFeedProvider, (_, prices) {
       ref.read(tradingProvider.notifier).updatePrices(prices);
     });
@@ -72,11 +134,15 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
       backgroundColor: AppTheme.background,
       body: Column(
         children: [
-          _ArenaToolbar(state: state),
-          if (state.matchActive) _OpponentBar(state: state),
+          _ArenaToolbar(
+            state: state,
+            chatOpen: _chatOpen,
+            onChatToggle: () => setState(() => _chatOpen = !_chatOpen),
+          ),
           Expanded(
-            child:
-                isMobile ? _buildMobileLayout(state) : _buildDesktopLayout(state),
+            child: isMobile
+                ? _buildMobileLayout(state)
+                : _buildDesktopLayout(state),
           ),
         ],
       ),
@@ -84,34 +150,47 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   }
 
   Widget _buildDesktopLayout(TradingState state) {
+    final orderW = Responsive.value<double>(context,
+        mobile: 340, tablet: 300, desktop: 340);
+    final chatW = Responsive.value<double>(context,
+        mobile: 300, tablet: 260, desktop: 300);
+    final positionsH = Responsive.value<double>(context,
+        mobile: 180, tablet: 180, desktop: 200);
+
     return Row(
       children: [
-        // Left: asset tabs + TradingView chart
         Expanded(
           flex: 3,
           child: Column(
             children: [
-              _AssetTabBar(state: state),
+              _AssetMarketBar(state: state),
               Expanded(
                 child: TradingViewChart(
                   tvSymbol: state.selectedAsset.tvSymbol,
                 ),
               ),
+              Container(height: 1, color: AppTheme.border),
+              SizedBox(
+                height: positionsH,
+                child: _PositionsTable(state: state),
+              ),
             ],
           ),
         ),
         Container(width: 1, color: AppTheme.border),
-        // Right: order panel + positions
         SizedBox(
-          width: 380,
-          child: Column(
-            children: [
-              Expanded(flex: 3, child: _OrderPanel(state: state)),
-              Container(height: 1, color: AppTheme.border),
-              Expanded(flex: 2, child: _PositionsPanel(state: state)),
-            ],
-          ),
+          width: orderW,
+          child: _OrderPanel(state: state),
         ),
+        if (_chatOpen) ...[
+          Container(width: 1, color: AppTheme.border),
+          SizedBox(
+            width: chatW,
+            child: MatchChatPanel(
+              onClose: () => setState(() => _chatOpen = false),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -119,29 +198,31 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   Widget _buildMobileLayout(TradingState state) {
     return Column(
       children: [
-        _AssetTabBar(state: state),
+        _AssetMarketBar(state: state),
         Expanded(
-          flex: 2,
+          flex: 5,
           child: TradingViewChart(tvSymbol: state.selectedAsset.tvSymbol),
         ),
         Container(height: 1, color: AppTheme.border),
         Expanded(
-          flex: 3,
+          flex: 7,
           child: DefaultTabController(
-            length: 2,
+            length: 3,
             child: Column(
               children: [
                 Container(
-                  color: AppTheme.surface,
+                  color: AppTheme.background,
                   child: TabBar(
                     labelColor: AppTheme.solanaPurple,
                     unselectedLabelColor: AppTheme.textTertiary,
                     indicatorColor: AppTheme.solanaPurple,
+                    indicatorWeight: 2,
                     labelStyle: GoogleFonts.inter(
                         fontSize: 13, fontWeight: FontWeight.w600),
                     tabs: const [
                       Tab(text: 'Trade'),
                       Tab(text: 'Positions'),
+                      Tab(text: 'Chat'),
                     ],
                   ),
                 ),
@@ -149,8 +230,11 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                   child: TabBarView(
                     children: [
                       SingleChildScrollView(
-                          child: _OrderPanel(state: state)),
-                      _PositionsPanel(state: state),
+                        padding: const EdgeInsets.only(bottom: 24),
+                        child: _OrderPanel(state: state),
+                      ),
+                      _PositionsTable(state: state),
+                      const MatchChatPanel(),
                     ],
                   ),
                 ),
@@ -163,24 +247,24 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Arena Toolbar
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// Arena Toolbar — merged with opponent info
+// =============================================================================
 
 class _ArenaToolbar extends StatelessWidget {
   final TradingState state;
-  const _ArenaToolbar({required this.state});
+  final bool chatOpen;
+  final VoidCallback onChatToggle;
+  const _ArenaToolbar({
+    required this.state,
+    this.chatOpen = false,
+    required this.onChatToggle,
+  });
 
   String _formatTime(int totalSeconds) {
     final m = totalSeconds ~/ 60;
     final s = totalSeconds % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
-
-  String _fmtBalance(double value) {
-    if (value >= 1000000) return '\$${(value / 1000000).toStringAsFixed(2)}M';
-    if (value >= 1000) return '\$${(value / 1000).toStringAsFixed(1)}K';
-    return '\$${value.toStringAsFixed(2)}';
   }
 
   double get _roi =>
@@ -193,17 +277,19 @@ class _ArenaToolbar extends StatelessWidget {
     final pnl = state.totalUnrealizedPnl;
     final pnlColor = pnl >= 0 ? AppTheme.success : AppTheme.error;
     final isMobile = Responsive.isMobile(context);
+    final oppRoi = state.opponentRoi;
+    final oppRoiColor = oppRoi >= 0 ? AppTheme.success : AppTheme.error;
 
     return Container(
-      height: 52,
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24),
+      height: 48,
+      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 20),
       decoration: const BoxDecoration(
-        color: AppTheme.surface,
+        color: AppTheme.background,
         border: Border(bottom: BorderSide(color: AppTheme.border)),
       ),
       child: Row(
         children: [
-          // Back
+          // Back button
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
@@ -218,11 +304,11 @@ class _ArenaToolbar extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(Icons.arrow_back_rounded,
-                      size: 20, color: AppTheme.textSecondary),
+                      size: 18, color: AppTheme.textSecondary),
                   if (!isMobile) ...[
                     const SizedBox(width: 8),
                     Text(
-                      'SolFight Arena',
+                      'SolFight',
                       style: GoogleFonts.inter(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -234,30 +320,41 @@ class _ArenaToolbar extends StatelessWidget {
               ),
             ),
           ),
-          const Spacer(),
-          // Timer
+          const SizedBox(width: 16),
           if (state.matchActive) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            // Timer with glow
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
                 color: state.matchTimeRemainingSeconds <= 30
                     ? AppTheme.error.withValues(alpha: 0.15)
                     : AppTheme.surfaceAlt,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: state.matchTimeRemainingSeconds <= 60
+                    ? [
+                        BoxShadow(
+                          color: AppTheme.error.withValues(alpha: 0.25),
+                          blurRadius: 10,
+                          spreadRadius: 1,
+                        ),
+                      ]
+                    : null,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(Icons.timer_rounded,
-                      size: 16,
+                      size: 14,
                       color: state.matchTimeRemainingSeconds <= 30
                           ? AppTheme.error
                           : AppTheme.textSecondary),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 5),
                   Text(
                     _formatTime(state.matchTimeRemainingSeconds),
                     style: GoogleFonts.inter(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w700,
                       fontFeatures: const [FontFeature.tabularFigures()],
                       color: state.matchTimeRemainingSeconds <= 30
@@ -269,30 +366,112 @@ class _ArenaToolbar extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Opponent ROI badge
+            if (state.opponentGamerTag != null) ...[
+              Flexible(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (!isMobile) ...[
+                        Flexible(
+                          child: Text(
+                            'VS ${state.opponentGamerTag}',
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textSecondary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ],
+                      if (isMobile)
+                        Text(
+                          'VS ',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: oppRoiColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '${oppRoi >= 0 ? '+' : ''}${oppRoi.toStringAsFixed(2)}%',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            color: oppRoiColor,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+            ],
           ],
-          // Demo Balance
+          const Spacer(),
           if (!isMobile) ...[
-            _ToolbarStat(
-                label: 'Demo Balance',
-                value: _fmtBalance(state.balance)),
-            const SizedBox(width: 12),
+            // Chat toggle button
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: onChatToggle,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: chatOpen
+                        ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                        : AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    chatOpen
+                        ? Icons.chat_bubble_rounded
+                        : Icons.chat_bubble_outline_rounded,
+                    size: 16,
+                    color: chatOpen
+                        ? AppTheme.solanaPurple
+                        : AppTheme.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            _ToolbarStat(label: 'Balance', value: _fmtBalance(state.balance)),
+            const SizedBox(width: 14),
           ],
-          _ToolbarStat(
-              label: 'Equity',
-              value: _fmtBalance(state.equity)),
-          const SizedBox(width: 12),
-          // ROI badge
+          _ToolbarStat(label: 'Equity', value: _fmtBalance(state.equity)),
+          const SizedBox(width: 10),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
               color: pnlColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
               '${_roi >= 0 ? '+' : ''}${_roi.toStringAsFixed(2)}%',
               style: GoogleFonts.inter(
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
                 color: pnlColor,
               ),
             ),
@@ -305,23 +484,37 @@ class _ArenaToolbar extends StatelessWidget {
   void _showExitDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => PointerInterceptor(child: AlertDialog(
+      builder: (ctx) => PointerInterceptor(
+          child: AlertDialog(
         backgroundColor: AppTheme.surface,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
-        title: Text('Leave Arena?',
+        title: Text('Leave Match?',
             style: GoogleFonts.inter(
                 fontWeight: FontWeight.w700,
                 fontSize: 18,
                 color: AppTheme.textPrimary)),
         content: Text(
-            'All open positions will be closed and the match will end.',
+            'You can return to your match from the lobby, or forfeit to end it now.',
             style:
                 GoogleFonts.inter(fontSize: 14, color: AppTheme.textSecondary)),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(),
               child: const Text('Stay')),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              side: const BorderSide(color: AppTheme.solanaPurple),
+            ),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              context.go(AppConstants.playRoute);
+            },
+            child: Text('Return to Lobby',
+                style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.solanaPurple)),
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
             onPressed: () {
@@ -331,7 +524,7 @@ class _ArenaToolbar extends StatelessWidget {
                   .endMatch();
               context.go(AppConstants.playRoute);
             },
-            child: const Text('Leave'),
+            child: const Text('Forfeit Match'),
           ),
         ],
       )),
@@ -355,97 +548,118 @@ class _ToolbarStat extends StatelessWidget {
                 GoogleFonts.inter(fontSize: 10, color: AppTheme.textTertiary)),
         Text(value,
             style: GoogleFonts.inter(
-                fontSize: 13,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
+                fontFeatures: const [FontFeature.tabularFigures()],
                 color: AppTheme.textPrimary)),
       ],
     );
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Opponent Bar — shows opponent name, equity, ROI, and open positions count
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// Asset Market Bar — price integrated into selected tab
+// =============================================================================
 
-class _OpponentBar extends StatelessWidget {
+class _AssetMarketBar extends ConsumerWidget {
   final TradingState state;
-  const _OpponentBar({required this.state});
-
-  String _fmtBalance(double value) {
-    if (value >= 1000000) return '\$${(value / 1000000).toStringAsFixed(2)}M';
-    if (value >= 1000) return '\$${(value / 1000).toStringAsFixed(1)}K';
-    return '\$${value.toStringAsFixed(2)}';
-  }
+  const _AssetMarketBar({required this.state});
 
   @override
-  Widget build(BuildContext context) {
-    final oppTag = state.opponentGamerTag ?? 'Opponent';
-    final oppRoi = state.opponentRoi;
-    final roiColor = oppRoi >= 0 ? AppTheme.success : AppTheme.error;
+  Widget build(BuildContext context, WidgetRef ref) {
     final isMobile = Responsive.isMobile(context);
 
     return Container(
-      height: 36,
-      padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24),
+      height: 42,
       decoration: const BoxDecoration(
-        color: AppTheme.surfaceAlt,
+        color: AppTheme.background,
         border: Border(bottom: BorderSide(color: AppTheme.border)),
       ),
       child: Row(
         children: [
-          Icon(Icons.person_outline_rounded,
-              size: 14, color: AppTheme.textTertiary),
-          const SizedBox(width: 6),
-          Text(
-            'VS $oppTag',
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textSecondary,
-            ),
-          ),
-          const Spacer(),
-          // Opponent equity
-          Text(
-            'Equity: ${_fmtBalance(state.opponentEquity)}',
-            style: GoogleFonts.inter(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Opponent ROI badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: roiColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '${oppRoi >= 0 ? '+' : ''}${oppRoi.toStringAsFixed(2)}%',
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: roiColor,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Opponent open positions count
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppTheme.solanaPurple.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              '${state.opponentPositionCount} open',
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.solanaPurple,
-              ),
+          Padding(
+            padding: EdgeInsets.only(left: isMobile ? 8 : 12),
+            child: Row(
+              children: List.generate(TradingAsset.all.length, (index) {
+                final asset = TradingAsset.all[index];
+                final isSelected = index == state.selectedAssetIndex;
+                final price =
+                    state.currentPrices[asset.symbol] ?? asset.basePrice;
+                final color = _assetColor(asset.symbol);
+
+                return Padding(
+                  padding: const EdgeInsets.only(right: 2),
+                  child: GestureDetector(
+                    onTap: () =>
+                        ref.read(tradingProvider.notifier).selectAsset(index),
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: isMobile ? 10 : 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: isSelected ? color : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Center(
+                                child: Text(
+                                  asset.symbol[0],
+                                  style: GoogleFonts.inter(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    color: color,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              asset.symbol,
+                              style: GoogleFonts.inter(
+                                fontSize: isSelected ? 14 : 13,
+                                fontWeight: isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                color: isSelected
+                                    ? AppTheme.textPrimary
+                                    : AppTheme.textSecondary,
+                              ),
+                            ),
+                            if (isSelected) ...[
+                              const SizedBox(width: 8),
+                              Text(
+                                '\$${_fmtPrice(price)}',
+                                style: GoogleFonts.inter(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures()
+                                  ],
+                                  color: AppTheme.textPrimary,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              }),
             ),
           ),
         ],
@@ -454,75 +668,9 @@ class _OpponentBar extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Asset Tab Bar
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _AssetTabBar extends ConsumerWidget {
-  final TradingState state;
-  const _AssetTabBar({required this.state});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      height: 44,
-      decoration: const BoxDecoration(
-        color: AppTheme.surface,
-        border: Border(bottom: BorderSide(color: AppTheme.border)),
-      ),
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        itemCount: TradingAsset.all.length,
-        itemBuilder: (context, index) {
-          final asset = TradingAsset.all[index];
-          final isSelected = index == state.selectedAssetIndex;
-          return GestureDetector(
-            onTap: () =>
-                ref.read(tradingProvider.notifier).selectAsset(index),
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: Container(
-                margin:
-                    const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? AppTheme.solanaPurple.withValues(alpha: 0.12)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: isSelected
-                      ? Border.all(
-                          color:
-                              AppTheme.solanaPurple.withValues(alpha: 0.3))
-                      : null,
-                ),
-                child: Center(
-                  child: Text(
-                    asset.symbol,
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                      color: isSelected
-                          ? Colors.white
-                          : AppTheme.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Order Panel — side, size, leverage, SL/TP, margin info
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// Order Panel
+// =============================================================================
 
 class _OrderPanel extends ConsumerStatefulWidget {
   final TradingState state;
@@ -532,21 +680,51 @@ class _OrderPanel extends ConsumerStatefulWidget {
   ConsumerState<_OrderPanel> createState() => _OrderPanelState();
 }
 
-class _OrderPanelState extends ConsumerState<_OrderPanel> {
+class _OrderPanelState extends ConsumerState<_OrderPanel>
+    with SingleTickerProviderStateMixin {
   final _sizeCtrl = TextEditingController(text: '10000');
   final _slCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
-  double _leverage = 5;
+  double _leverage = 10;
+  bool _isLong = true;
+  bool _showSlTp = false;
+  bool _actionHovered = false;
+
+  // Price flash animation
+  late final AnimationController _priceFlashCtrl;
+  double _lastPrice = 0;
+  int _priceDirection = 0; // -1 down, 0 neutral, 1 up
+
+  @override
+  void initState() {
+    super.initState();
+    _priceFlashCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _OrderPanel old) {
+    super.didUpdateWidget(old);
+    final newPrice = widget.state.currentPrice;
+    if (_lastPrice > 0 && newPrice != _lastPrice) {
+      _priceDirection = newPrice > _lastPrice ? 1 : -1;
+      _priceFlashCtrl.forward(from: 0);
+    }
+    _lastPrice = newPrice;
+  }
 
   @override
   void dispose() {
+    _priceFlashCtrl.dispose();
     _sizeCtrl.dispose();
     _slCtrl.dispose();
     _tpCtrl.dispose();
     super.dispose();
   }
 
-  void _openPosition(bool isLong) {
+  void _openPosition() {
     final size = double.tryParse(_sizeCtrl.text);
     if (size == null || size <= 0) return;
     if (size > widget.state.balance) {
@@ -568,16 +746,16 @@ class _OrderPanelState extends ConsumerState<_OrderPanel> {
 
     ref.read(tradingProvider.notifier).openPosition(
           assetSymbol: widget.state.selectedAsset.symbol,
-          isLong: isLong,
+          isLong: _isLong,
           size: size,
           leverage: _leverage,
           stopLoss: sl,
           takeProfit: tp,
         );
 
-    // Clear SL/TP after opening
     _slCtrl.clear();
     _tpCtrl.clear();
+    setState(() => _showSlTp = false);
   }
 
   @override
@@ -587,419 +765,774 @@ class _OrderPanelState extends ConsumerState<_OrderPanel> {
     final matchActive = widget.state.matchActive;
     final currentPrice = widget.state.currentPrice;
 
-    // Calculate preview values
     final size = double.tryParse(_sizeCtrl.text) ?? 0;
-    final margin = size;
     final notional = size * _leverage;
-    final liqLong = currentPrice * (1 - (1 / _leverage) * 0.9);
-    final liqShort = currentPrice * (1 + (1 / _leverage) * 0.9);
+    final liqPrice = _isLong
+        ? currentPrice * (1 - (1 / _leverage) * 0.9)
+        : currentPrice * (1 + (1 / _leverage) * 0.9);
+
+    final accentColor = _isLong ? AppTheme.success : AppTheme.error;
+    final levColor = _leverageColor(_leverage, _isLong);
 
     return Container(
       color: AppTheme.surface,
-      padding: const EdgeInsets.all(20),
       child: Column(
         children: [
-          // Scrollable form area
+          // Long/Short tabs
+          Container(
+            height: 48,
+            padding: const EdgeInsets.all(4),
+            decoration: const BoxDecoration(
+              color: AppTheme.surface,
+              border: Border(bottom: BorderSide(color: AppTheme.border)),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _DirectionTab(
+                    label: 'Long',
+                    icon: Icons.trending_up_rounded,
+                    isActive: _isLong,
+                    color: AppTheme.success,
+                    onTap: () => setState(() => _isLong = true),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: _DirectionTab(
+                    label: 'Short',
+                    icon: Icons.trending_down_rounded,
+                    isActive: !_isLong,
+                    color: AppTheme.error,
+                    onTap: () => setState(() => _isLong = false),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // Scrollable form
           Expanded(
             child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header + current price
+                  // Market order label + live price
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('OPEN POSITION',
+                      Text('MARKET ORDER',
                           style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.textTertiary,
-                              letterSpacing: 1.5)),
-                      Text(
-                        '${asset.symbol} ${_fmtPrice(currentPrice)}',
-                        style: GoogleFonts.inter(
-                            fontSize: 13,
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: AppTheme.textPrimary),
+                            color: AppTheme.textTertiary,
+                            letterSpacing: 1,
+                          )),
+                      const SizedBox(width: 6),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: AppTheme.success,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.success.withValues(alpha: 0.5),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Spacer(),
+                      AnimatedBuilder(
+                        animation: _priceFlashCtrl,
+                        builder: (context, _) {
+                          final flashColor = _priceDirection == 1
+                              ? AppTheme.success
+                              : _priceDirection == -1
+                                  ? AppTheme.error
+                                  : AppTheme.textPrimary;
+                          final color = Color.lerp(
+                            flashColor,
+                            AppTheme.textPrimary,
+                            _priceFlashCtrl.value,
+                          )!;
+                          return Text(
+                            '\$${_fmtPrice(currentPrice)}',
+                            style: GoogleFonts.inter(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures()
+                              ],
+                              color: color,
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
 
-                  // Size input
-                  _buildLabel('Size (Margin)'),
-                  const SizedBox(height: 4),
-                  TextField(
-                    controller: _sizeCtrl,
-                    keyboardType: TextInputType.number,
-                    style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textPrimary),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(
-                          RegExp(r'^\d+\.?\d{0,2}')),
+                  // "You're paying" + available
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Size',
+                          style: GoogleFonts.inter(
+                              fontSize: 12, color: AppTheme.textSecondary)),
+                      Text('${_fmtBalance(balance)} available',
+                          style: GoogleFonts.inter(
+                              fontSize: 11, color: AppTheme.textTertiary)),
                     ],
-                    onChanged: (_) => setState(() {}),
-                    decoration: InputDecoration(
-                      prefixText: '\$ ',
-                      prefixStyle: GoogleFonts.inter(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textTertiary),
-                      suffixIcon: GestureDetector(
-                        onTap: () {
-                          _sizeCtrl.text = balance.toStringAsFixed(0);
-                          setState(() {});
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: Center(
-                            widthFactor: 1,
-                            child: Text('MAX',
-                                style: GoogleFonts.inter(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.solanaPurple)),
+                  ),
+                  const SizedBox(height: 6),
+
+                  // Amount input
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surfaceAlt,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.background,
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 18,
+                                height: 18,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2775CA).withValues(alpha: 0.15),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '\$',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF2775CA)),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text('USDC',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppTheme.textPrimary)),
+                            ],
                           ),
                         ),
-                      ),
+                        Expanded(
+                          child: TextField(
+                            controller: _sizeCtrl,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.right,
+                            style: GoogleFonts.inter(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.textPrimary),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d+\.?\d{0,2}')),
+                            ],
+                            onChanged: (_) => setState(() {}),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              fillColor: Colors.transparent,
+                              filled: true,
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 8),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text('Available: \$${balance.toStringAsFixed(2)}',
-                      style: GoogleFonts.inter(
-                          fontSize: 11, color: AppTheme.textTertiary)),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 8),
+
+                  // Percentage buttons
+                  Row(
+                    children: [
+                      for (final pct in [25, 50, 75, 100]) ...[
+                        if (pct != 25) const SizedBox(width: 6),
+                        Expanded(
+                          child: _PercentButton(
+                            label: pct == 100 ? 'MAX' : '$pct%',
+                            isActive: _isPctActive(pct, balance),
+                            accentColor: accentColor,
+                            onTap: matchActive
+                                ? () {
+                                    _sizeCtrl.text = (balance * pct / 100)
+                                        .toStringAsFixed(0);
+                                    setState(() {});
+                                  }
+                                : null,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 18),
 
                   // Leverage
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      _buildLabel('Leverage'),
+                      Text('Leverage',
+                          style: GoogleFonts.inter(
+                              fontSize: 12, color: AppTheme.textSecondary)),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 3),
+                            horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _leverage >= 20
-                              ? AppTheme.warning.withValues(alpha: 0.15)
-                              : AppTheme.solanaPurple.withValues(alpha: 0.1),
+                          color: levColor.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          '${_leverage.toStringAsFixed(0)}x',
+                          '${_leverage.toStringAsFixed(_leverage == _leverage.roundToDouble() ? 0 : 1)}x',
                           style: GoogleFonts.inter(
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: _leverage >= 20
-                                ? AppTheme.warning
-                                : AppTheme.solanaPurple,
+                            color: levColor,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 6),
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: _leverage >= 20
-                          ? AppTheme.warning
-                          : AppTheme.solanaPurple,
+                      activeTrackColor: levColor,
                       inactiveTrackColor: AppTheme.border,
-                      thumbColor: _leverage >= 20
-                          ? AppTheme.warning
-                          : AppTheme.solanaPurple,
-                      overlayColor:
-                          AppTheme.solanaPurple.withValues(alpha: 0.1),
+                      thumbColor: levColor,
+                      overlayColor: levColor.withValues(alpha: 0.1),
                       trackHeight: 4,
                       thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 8),
+                          const RoundSliderThumbShape(enabledThumbRadius: 7),
                     ),
                     child: Slider(
-                      value: _leverage,
+                      value: _leverage.clamp(1, 100),
                       min: 1,
-                      max: asset.maxLeverage,
-                      divisions: (asset.maxLeverage - 1).toInt(),
+                      max: 100,
                       onChanged: matchActive
-                          ? (v) => setState(() => _leverage = v)
+                          ? (v) => setState(() => _leverage =
+                              double.parse(v.toStringAsFixed(0)))
                           : null,
                     ),
                   ),
-                  // Quick leverage buttons
+                  // Leverage presets
                   Row(
                     children: [
-                      for (final lev in [1, 2, 5, 10, 20, 50])
-                        if (lev <= asset.maxLeverage)
-                          Padding(
-                            padding: const EdgeInsets.only(right: 6),
-                            child: GestureDetector(
+                      for (final lev in [1, 5, 10, 25, 50, 100])
+                        ...[
+                          if (lev != 1) const SizedBox(width: 4),
+                          Expanded(
+                            child: _PercentButton(
+                              label: '${lev}x',
+                              isActive: _leverage == lev,
+                              accentColor: _leverageColor(lev.toDouble(), _isLong),
                               onTap: matchActive
                                   ? () => setState(
                                       () => _leverage = lev.toDouble())
                                   : null,
-                              child: MouseRegion(
-                                cursor: matchActive
-                                    ? SystemMouseCursors.click
-                                    : SystemMouseCursors.basic,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: _leverage == lev
-                                        ? AppTheme.solanaPurple
-                                            .withValues(alpha: 0.1)
-                                        : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(6),
-                                    border: Border.all(
-                                      color: _leverage == lev
-                                          ? AppTheme.solanaPurple
-                                              .withValues(alpha: 0.3)
-                                          : AppTheme.border,
+                            ),
+                          ),
+                        ],
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+
+                  // TP/SL toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Take Profit / Stop Loss',
+                          style: GoogleFonts.inter(
+                              fontSize: 12, color: AppTheme.textSecondary)),
+                      SizedBox(
+                        height: 24,
+                        width: 40,
+                        child: FittedBox(
+                          fit: BoxFit.fill,
+                          child: Switch(
+                            value: _showSlTp,
+                            activeTrackColor: accentColor,
+                            onChanged: (v) => setState(() => _showSlTp = v),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  AnimatedCrossFade(
+                    firstChild: const SizedBox.shrink(),
+                    secondChild: _buildSlTpInputs(currentPrice),
+                    crossFadeState: _showSlTp
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    duration: const Duration(milliseconds: 200),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // Action button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: MouseRegion(
+                      cursor: matchActive
+                          ? SystemMouseCursors.click
+                          : SystemMouseCursors.basic,
+                      onEnter: (_) => setState(() => _actionHovered = true),
+                      onExit: (_) => setState(() => _actionHovered = false),
+                      child: GestureDetector(
+                        onTap: matchActive ? _openPosition : null,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          curve: Curves.easeInOut,
+                          decoration: BoxDecoration(
+                            gradient: matchActive
+                                ? (_isLong
+                                    ? AppTheme.longGradient
+                                    : AppTheme.shortGradient)
+                                : null,
+                            color: matchActive ? null : AppTheme.surfaceAlt,
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusMd),
+                            boxShadow: matchActive && _actionHovered
+                                ? [
+                                    BoxShadow(
+                                      color:
+                                          accentColor.withValues(alpha: 0.3),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 4),
                                     ),
-                                  ),
-                                  child: Text('${lev}x',
-                                      style: GoogleFonts.inter(
-                                          fontSize: 11,
-                                          fontWeight: _leverage == lev
-                                              ? FontWeight.w700
-                                              : FontWeight.w500,
-                                          color: _leverage == lev
-                                              ? AppTheme.solanaPurple
-                                              : AppTheme.textTertiary)),
-                                ),
+                                  ]
+                                : matchActive
+                                    ? [
+                                        BoxShadow(
+                                          color: accentColor
+                                              .withValues(alpha: 0.2),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ]
+                                    : null,
+                          ),
+                          child: Center(
+                            child: Text(
+                              _isLong
+                                  ? 'Long ${asset.symbol}'
+                                  : 'Short ${asset.symbol}',
+                              style: GoogleFonts.inter(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: matchActive
+                                    ? Colors.white
+                                    : AppTheme.textTertiary,
                               ),
                             ),
                           ),
-                    ],
-                  ),
-                  if (_leverage >= 20) ...[
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(Icons.warning_amber_rounded,
-                            size: 14, color: AppTheme.warning),
-                        const SizedBox(width: 4),
-                        Text('High leverage increases liquidation risk',
-                            style: GoogleFonts.inter(
-                                fontSize: 10, color: AppTheme.warning)),
-                      ],
+                        ),
+                      ),
                     ),
-                  ],
-                  const SizedBox(height: 14),
-
-                  // SL / TP row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel('Stop Loss'),
-                            const SizedBox(height: 4),
-                            TextField(
-                              controller: _slCtrl,
-                              keyboardType: TextInputType.number,
-                              style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.error),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d+\.?\d{0,2}')),
-                              ],
-                              decoration: InputDecoration(
-                                hintText: 'Optional',
-                                hintStyle: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    color: AppTheme.textTertiary),
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildLabel('Take Profit'),
-                            const SizedBox(height: 4),
-                            TextField(
-                              controller: _tpCtrl,
-                              keyboardType: TextInputType.number,
-                              style: GoogleFonts.inter(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.success),
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                    RegExp(r'^\d+\.?\d{0,2}')),
-                              ],
-                              decoration: InputDecoration(
-                                hintText: 'Optional',
-                                hintStyle: GoogleFonts.inter(
-                                    fontSize: 12,
-                                    color: AppTheme.textTertiary),
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 10),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                   ),
                   const SizedBox(height: 14),
 
-                  // Margin info box
+                  // Info rows
                   Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AppTheme.surfaceAlt,
-                      borderRadius:
-                          BorderRadius.circular(AppTheme.radiusSm),
+                      borderRadius: BorderRadius.circular(8),
                     ),
                     child: Column(
                       children: [
-                        _infoRow('Margin Required',
-                            '\$${margin.toStringAsFixed(2)}'),
-                        const SizedBox(height: 4),
-                        _infoRow('Notional Value',
-                            '\$${notional.toStringAsFixed(2)}'),
-                        const SizedBox(height: 4),
-                        _infoRow('Liq. Price (Long)', _fmtPrice(liqLong),
-                            color: AppTheme.error),
-                        const SizedBox(height: 4),
-                        _infoRow('Liq. Price (Short)', _fmtPrice(liqShort),
-                            color: AppTheme.error),
+                        _infoRow(
+                            'Entry Price', '\$${_fmtPrice(currentPrice)}'),
+                        const SizedBox(height: 8),
+                        _infoRow('Liquidation Price',
+                            '\$${_fmtPrice(liqPrice)}',
+                            valueColor: AppTheme.error),
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Divider(height: 1, color: AppTheme.border),
+                        ),
+                        _infoRow('Notional Size',
+                            '\$${notional.toStringAsFixed(0)}'),
                       ],
                     ),
                   ),
+
+                  if (!matchActive) ...[
+                    const SizedBox(height: 16),
+                    _MatchEndBanner(state: widget.state),
+                  ],
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 12),
-
-          // Long / Short buttons (pinned at bottom)
-          Row(
-            children: [
-              Expanded(
-                child: _TradeButton(
-                  label: 'Long',
-                  icon: Icons.trending_up_rounded,
-                  color: AppTheme.success,
-                  enabled: matchActive,
-                  onTap: () => _openPosition(true),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _TradeButton(
-                  label: 'Short',
-                  icon: Icons.trending_down_rounded,
-                  color: AppTheme.error,
-                  enabled: matchActive,
-                  onTap: () => _openPosition(false),
-                ),
-              ),
-            ],
-          ),
-
-          if (!matchActive) ...[
-            const SizedBox(height: 12),
-            _MatchEndBanner(state: widget.state),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildLabel(String text) {
-    return Text(text,
-        style: GoogleFonts.inter(fontSize: 12, color: AppTheme.textSecondary));
+  Widget _buildSlTpInputs(double currentPrice) {
+    final tpHint = _isLong
+        ? (currentPrice * 1.02).toStringAsFixed(2)
+        : (currentPrice * 0.98).toStringAsFixed(2);
+    final slHint = _isLong
+        ? (currentPrice * 0.98).toStringAsFixed(2)
+        : (currentPrice * 1.02).toStringAsFixed(2);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('TP Price',
+                    style: GoogleFonts.inter(
+                        fontSize: 10, color: AppTheme.success)),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _tpCtrl,
+                  keyboardType: TextInputType.number,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.success),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d+\.?\d{0,2}')),
+                  ],
+                  decoration: InputDecoration(
+                    hintText: tpHint,
+                    hintStyle: GoogleFonts.inter(
+                        fontSize: 11, color: AppTheme.textTertiary),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('SL Price',
+                    style: GoogleFonts.inter(
+                        fontSize: 10, color: AppTheme.error)),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _slCtrl,
+                  keyboardType: TextInputType.number,
+                  style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.error),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.allow(
+                        RegExp(r'^\d+\.?\d{0,2}')),
+                  ],
+                  decoration: InputDecoration(
+                    hintText: slHint,
+                    hintStyle: GoogleFonts.inter(
+                        fontSize: 11, color: AppTheme.textTertiary),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 8),
+                    isDense: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget _infoRow(String label, String value, {Color? color}) {
+  bool _isPctActive(int pct, double balance) {
+    if (balance <= 0) return false;
+    final currentSize = double.tryParse(_sizeCtrl.text) ?? 0;
+    final target = balance * pct / 100;
+    return (currentSize - target).abs() < 1;
+  }
+
+  Widget _infoRow(String label, String value, {Color? valueColor}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
             style: GoogleFonts.inter(
-                fontSize: 11, color: AppTheme.textTertiary)),
+                fontSize: 12, color: AppTheme.textTertiary)),
         Text(value,
             style: GoogleFonts.inter(
-                fontSize: 11,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: color ?? AppTheme.textPrimary)),
+                fontFeatures: const [FontFeature.tabularFigures()],
+                color: valueColor ?? AppTheme.textSecondary)),
       ],
     );
   }
-
-  String _fmtPrice(double price) {
-    if (price >= 10000) return price.toStringAsFixed(1);
-    if (price >= 100) return price.toStringAsFixed(2);
-    return price.toStringAsFixed(3);
-  }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Trade Button
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// Reusable small widgets
+// =============================================================================
 
-class _TradeButton extends StatefulWidget {
+class _DirectionTab extends StatelessWidget {
   final String label;
   final IconData icon;
+  final bool isActive;
   final Color color;
-  final bool enabled;
   final VoidCallback onTap;
-
-  const _TradeButton({
+  const _DirectionTab({
     required this.label,
     required this.icon,
+    required this.isActive,
     required this.color,
-    required this.enabled,
     required this.onTap,
   });
 
   @override
-  State<_TradeButton> createState() => _TradeButtonState();
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          curve: Curves.easeInOut,
+          decoration: BoxDecoration(
+            color:
+                isActive ? color.withValues(alpha: 0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isActive
+                ? Border.all(color: color.withValues(alpha: 0.3))
+                : null,
+          ),
+          child: Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon,
+                    size: 16,
+                    color: isActive ? color : AppTheme.textTertiary),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: isActive ? color : AppTheme.textTertiary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _TradeButtonState extends State<_TradeButton> {
+class _PercentButton extends StatefulWidget {
+  final String label;
+  final bool isActive;
+  final Color accentColor;
+  final VoidCallback? onTap;
+  const _PercentButton({
+    required this.label,
+    required this.isActive,
+    required this.accentColor,
+    this.onTap,
+  });
+
+  @override
+  State<_PercentButton> createState() => _PercentButtonState();
+}
+
+class _PercentButtonState extends State<_PercentButton> {
   bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.enabled ? widget.color : AppTheme.textTertiary;
     return MouseRegion(
-      cursor:
-          widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: widget.onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: widget.enabled ? widget.onTap : null,
+        onTap: widget.onTap,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          height: 48,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeInOut,
+          height: Responsive.value<double>(context,
+              mobile: 38, desktop: 28),
           decoration: BoxDecoration(
-            color: _hovered && widget.enabled
-                ? c.withValues(alpha: 0.2)
-                : c.withValues(alpha: 0.12),
+            color: widget.isActive
+                ? widget.accentColor.withValues(alpha: 0.12)
+                : _hovered
+                    ? AppTheme.surfaceAlt
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(
+              color: widget.isActive
+                  ? widget.accentColor.withValues(alpha: 0.3)
+                  : AppTheme.border,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              widget.label,
+              style: GoogleFonts.inter(
+                fontSize: Responsive.value<double>(context,
+                    mobile: 12, desktop: 11),
+                fontWeight:
+                    widget.isActive ? FontWeight.w700 : FontWeight.w500,
+                color: widget.isActive
+                    ? widget.accentColor
+                    : AppTheme.textTertiary,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Match End Banner
+// =============================================================================
+
+class _MatchEndBanner extends StatefulWidget {
+  final TradingState state;
+  const _MatchEndBanner({required this.state});
+
+  @override
+  State<_MatchEndBanner> createState() => _MatchEndBannerState();
+}
+
+class _MatchEndBannerState extends State<_MatchEndBanner> {
+  bool _visible = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() => _visible = true);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isProfit = widget.state.equity >= widget.state.initialBalance;
+    final c = isProfit ? AppTheme.success : AppTheme.error;
+    final roi = widget.state.initialBalance > 0
+        ? (widget.state.equity - widget.state.initialBalance) /
+            widget.state.initialBalance *
+            100
+        : 0.0;
+
+    return AnimatedSlide(
+      offset: _visible ? Offset.zero : const Offset(0, 0.3),
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOut,
+      child: AnimatedOpacity(
+        opacity: _visible ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 400),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: RadialGradient(
+              colors: [
+                c.withValues(alpha: 0.15),
+                c.withValues(alpha: 0.05),
+              ],
+              radius: 1.5,
+            ),
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
             border: Border.all(color: c.withValues(alpha: 0.3)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          child: Column(
             children: [
-              Icon(widget.icon, size: 20, color: c),
-              const SizedBox(width: 8),
-              Text(widget.label,
+              Text('Match Over!',
                   style: GoogleFonts.inter(
-                      fontSize: 15, fontWeight: FontWeight.w700, color: c)),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.textPrimary)),
+              const SizedBox(height: 6),
+              Text(
+                'Final ROI: ${roi >= 0 ? '+' : ''}${roi.toStringAsFixed(2)}%',
+                style: GoogleFonts.inter(
+                    fontSize: 20, fontWeight: FontWeight.w800, color: c),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Equity: \$${widget.state.equity.toStringAsFixed(2)}',
+                style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textSecondary),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: GestureDetector(
+                  onTap: () => context.go(AppConstants.playRoute),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: AppTheme.purpleGradient,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusMd),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.solanaPurple
+                                .withValues(alpha: 0.25),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Back to Lobby',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -1008,259 +1541,399 @@ class _TradeButtonState extends State<_TradeButton> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Match End Banner
-// ═══════════════════════════════════════════════════════════════════════════════
+// =============================================================================
+// Positions Table
+// =============================================================================
 
-class _MatchEndBanner extends StatelessWidget {
+class _PositionsTable extends ConsumerStatefulWidget {
   final TradingState state;
-  const _MatchEndBanner({required this.state});
+  const _PositionsTable({required this.state});
+
+  @override
+  ConsumerState<_PositionsTable> createState() => _PositionsTableState();
+}
+
+class _PositionsTableState extends ConsumerState<_PositionsTable>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  String? _hoveredRowId;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isProfit = state.equity >= state.initialBalance;
-    final c = isProfit ? AppTheme.success : AppTheme.error;
+    final open = widget.state.openPositions;
+    final closed = widget.state.closedPositions;
 
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-        border: Border.all(color: c.withValues(alpha: 0.3)),
-      ),
+      color: AppTheme.background,
       child: Column(
         children: [
-          Text('Match Over!',
-              style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.textPrimary)),
-          const SizedBox(height: 4),
-          Text('Final equity: \$${state.equity.toStringAsFixed(2)}',
-              style: GoogleFonts.inter(
-                  fontSize: 14, fontWeight: FontWeight.w600, color: c)),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => context.go(AppConstants.playRoute),
-              child: const Text('Back to Lobby'),
+          Container(
+            height: 38,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: AppTheme.border)),
+            ),
+            child: Row(
+              children: [
+                _posTab('Positions', 0, open.length),
+                const SizedBox(width: 16),
+                _posTab('History', 1, closed.length),
+                const Spacer(),
+                if (open.isNotEmpty)
+                  Tooltip(
+                    message: 'Close all open positions at market price',
+                    child: GestureDetector(
+                      onTap: () {
+                        for (final p in open) {
+                          ref
+                              .read(tradingProvider.notifier)
+                              .closePosition(p.id);
+                        }
+                      },
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(5),
+                            border: Border.all(
+                                color:
+                                    AppTheme.error.withValues(alpha: 0.25)),
+                          ),
+                          child: Text('Close All',
+                              style: GoogleFonts.inter(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.error)),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: AnimatedBuilder(
+              animation: _tabController,
+              builder: (context, _) {
+                final isPositions = _tabController.index == 0;
+                final items = isPositions ? open : closed;
+
+                if (items.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.show_chart_rounded,
+                            size: 32, color: AppTheme.textTertiary),
+                        const SizedBox(height: 8),
+                        Text(
+                            isPositions
+                                ? 'No open positions'
+                                : 'No trade history',
+                            style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: AppTheme.textTertiary)),
+                      ],
+                    ),
+                  );
+                }
+
+                return Column(
+                  children: [
+                    _tableHeader(isPositions),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: items.length,
+                        padding: EdgeInsets.zero,
+                        itemBuilder: (context, index) {
+                          final pos = items[index];
+                          final price = isPositions
+                              ? (widget.state.currentPrices[pos.assetSymbol] ??
+                                  pos.entryPrice)
+                              : (pos.exitPrice ?? pos.entryPrice);
+                          return _tableRow(pos, price, isPositions);
+                        },
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
       ),
     );
   }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Positions Panel
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _PositionsPanel extends ConsumerWidget {
-  final TradingState state;
-  const _PositionsPanel({required this.state});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final open = state.openPositions;
-    final closed = state.closedPositions;
-
-    return Container(
-      color: AppTheme.surface,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text('POSITIONS',
-                  style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textTertiary,
-                      letterSpacing: 1.5)),
-              const SizedBox(width: 8),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppTheme.solanaPurple.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text('${open.length}',
-                    style: GoogleFonts.inter(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.solanaPurple)),
+  Widget _posTab(String label, int index, int count) {
+    final isActive = _tabController.index == index;
+    return GestureDetector(
+      onTap: () => setState(() => _tabController.animateTo(index)),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(
+                color: isActive ? AppTheme.solanaPurple : Colors.transparent,
+                width: 2,
               ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                  color:
+                      isActive ? AppTheme.textPrimary : AppTheme.textTertiary,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(width: 4),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text('$count',
+                      style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.solanaPurple)),
+                ),
+              ],
             ],
           ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: open.isEmpty && closed.isEmpty
-                ? Center(
-                    child: Text('No positions yet',
-                        style: GoogleFonts.inter(
-                            fontSize: 13, color: AppTheme.textTertiary)),
-                  )
-                : ListView(
-                    children: [
-                      for (final p in open)
-                        _PositionRow(
-                          position: p,
-                          currentPrice:
-                              state.currentPrices[p.assetSymbol] ??
-                                  p.entryPrice,
-                          onClose: () => ref
-                              .read(tradingProvider.notifier)
-                              .closePosition(p.id),
-                        ),
-                      if (closed.isNotEmpty) ...[
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          child: Text('CLOSED',
-                              style: GoogleFonts.inter(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.textTertiary,
-                                  letterSpacing: 1)),
-                        ),
-                        for (final p in closed.take(10))
-                          _PositionRow(
-                            position: p,
-                            currentPrice: p.exitPrice ?? p.entryPrice,
-                            onClose: null,
-                          ),
-                      ],
-                    ],
-                  ),
-          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tableHeader(bool isPositions) {
+    return Container(
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        border: Border(bottom: BorderSide(color: AppTheme.border)),
+      ),
+      child: Row(
+        children: [
+          _headerCell('MARKET', flex: 2),
+          _headerCell('SIDE', flex: 1),
+          _headerCell('SIZE', flex: 2),
+          _headerCell('LEV', flex: 1),
+          _headerCell('ENTRY', flex: 2),
+          _headerCell(isPositions ? 'MARK' : 'EXIT', flex: 2),
+          _headerCell('PNL', flex: 2),
+          if (isPositions) _headerCell('', flex: 1),
+          if (!isPositions) _headerCell('TYPE', flex: 1),
         ],
       ),
     );
   }
-}
 
-class _PositionRow extends StatelessWidget {
-  final Position position;
-  final double currentPrice;
-  final VoidCallback? onClose;
+  Widget _headerCell(String label, {int flex = 1}) {
+    return Expanded(
+      flex: flex,
+      child: Text(label,
+          style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.5,
+              color: AppTheme.textTertiary)),
+    );
+  }
 
-  const _PositionRow({
-    required this.position,
-    required this.currentPrice,
-    this.onClose,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final pnl = position.pnl(currentPrice);
-    final pnlPct = position.pnlPercent(currentPrice);
+  Widget _tableRow(Position pos, double price, bool isPositions) {
+    final pnl = pos.pnl(price);
+    final pnlPct = pos.pnlPercent(price);
     final pnlColor = pnl >= 0 ? AppTheme.success : AppTheme.error;
-    final dirColor = position.isLong ? AppTheme.success : AppTheme.error;
+    final sideColor = pos.isLong ? AppTheme.success : AppTheme.error;
+    final isHovered = _hoveredRowId == pos.id;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppTheme.radiusSm),
-      ),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hoveredRowId = pos.id),
+      onExit: (_) => setState(() => _hoveredRowId = null),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          color: isHovered
+              ? AppTheme.surfaceAlt.withValues(alpha: 0.5)
+              : Colors.transparent,
+          border: const Border(
+              bottom: BorderSide(color: AppTheme.border, width: 0.5)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 2,
+              child: Row(
+                children: [
+                  Container(
+                    width: 18,
+                    height: 18,
+                    decoration: BoxDecoration(
+                      color: _assetColor(pos.assetSymbol)
+                          .withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(pos.assetSymbol[0],
+                          style: GoogleFonts.inter(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w800,
+                              color: _assetColor(pos.assetSymbol))),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(pos.assetSymbol,
+                      style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textPrimary)),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 1,
+              child: Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                 decoration: BoxDecoration(
-                  color: dirColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(4),
+                  color: sideColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(3),
                 ),
-                child: Text(position.isLong ? 'LONG' : 'SHORT',
+                child: Text(pos.isLong ? 'Long' : 'Short',
+                    textAlign: TextAlign.center,
                     style: GoogleFonts.inter(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: dirColor)),
+                        color: sideColor)),
               ),
-              const SizedBox(width: 8),
-              Text(position.assetSymbol,
+            ),
+            Expanded(
+              flex: 2,
+              child: Text('\$${pos.size.toStringAsFixed(0)}',
                   style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                       color: AppTheme.textPrimary)),
-              const SizedBox(width: 6),
-              Text('${position.leverage.toStringAsFixed(0)}x',
+            ),
+            Expanded(
+              flex: 1,
+              child: Text(
+                  '${pos.leverage.toStringAsFixed(pos.leverage == pos.leverage.roundToDouble() ? 0 : 1)}x',
                   style: GoogleFonts.inter(
-                      fontSize: 11, color: AppTheme.textTertiary)),
-              const Spacer(),
-              Text(
-                '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
-                style: GoogleFonts.inter(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    color: pnlColor),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                '${pnlPct >= 0 ? '+' : ''}${pnlPct.toStringAsFixed(1)}%',
-                style: GoogleFonts.inter(fontSize: 11, color: pnlColor),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              Text('Entry: ${_fmtPrice(position.entryPrice)}',
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.textSecondary)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text('\$${_fmtPrice(pos.entryPrice)}',
                   style: GoogleFonts.inter(
-                      fontSize: 11, color: AppTheme.textTertiary)),
-              const SizedBox(width: 10),
-              Text('Size: \$${position.size.toStringAsFixed(0)}',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: AppTheme.textPrimary)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Text('\$${_fmtPrice(price)}',
                   style: GoogleFonts.inter(
-                      fontSize: 11, color: AppTheme.textTertiary)),
-              if (position.stopLoss != null) ...[
-                const SizedBox(width: 10),
-                Text('SL: ${_fmtPrice(position.stopLoss!)}',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: AppTheme.textPrimary)),
+            ),
+            Expanded(
+              flex: 2,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
                     style: GoogleFonts.inter(
-                        fontSize: 10, color: AppTheme.error)),
-              ],
-              if (position.takeProfit != null) ...[
-                const SizedBox(width: 10),
-                Text('TP: ${_fmtPrice(position.takeProfit!)}',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: pnlColor),
+                  ),
+                  Text(
+                    '${pnlPct >= 0 ? '+' : ''}${pnlPct.toStringAsFixed(1)}%',
                     style: GoogleFonts.inter(
-                        fontSize: 10, color: AppTheme.success)),
-              ],
-              const Spacer(),
-              if (onClose != null)
-                GestureDetector(
-                  onTap: onClose,
+                        fontSize: 9,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        color: pnlColor),
+                  ),
+                ],
+              ),
+            ),
+            if (isPositions)
+              Expanded(
+                flex: 1,
+                child: Center(
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.error.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                            color: AppTheme.error.withValues(alpha: 0.3)),
+                    child: GestureDetector(
+                      onTap: () => ref
+                          .read(tradingProvider.notifier)
+                          .closePosition(pos.id),
+                      child: Tooltip(
+                        message: 'Close at market',
+                        child: Container(
+                          width: Responsive.value<double>(context,
+                              mobile: 36, desktop: 28),
+                          height: Responsive.value<double>(context,
+                              mobile: 36, desktop: 28),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                                color:
+                                    AppTheme.error.withValues(alpha: 0.25)),
+                          ),
+                          child: const Icon(Icons.close_rounded,
+                              size: 14, color: AppTheme.error),
+                        ),
                       ),
-                      child: Text('Close',
-                          style: GoogleFonts.inter(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.error)),
                     ),
                   ),
                 ),
-              if (onClose == null && position.closeReason != null)
-                _closeReasonBadge(position.closeReason!),
-            ],
-          ),
-        ],
+              ),
+            if (!isPositions)
+              Expanded(
+                flex: 1,
+                child: _closeReasonBadge(pos.closeReason ?? 'manual'),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1268,10 +1941,10 @@ class _PositionRow extends StatelessWidget {
   Widget _closeReasonBadge(String reason) {
     final labels = {
       'manual': 'Closed',
-      'sl': 'Stop Loss',
-      'tp': 'Take Profit',
-      'liquidation': 'Liquidated',
-      'match_end': 'Match End',
+      'sl': 'SL',
+      'tp': 'TP',
+      'liquidation': 'Liqd',
+      'match_end': 'End',
     };
     final colors = {
       'manual': AppTheme.textTertiary,
@@ -1283,22 +1956,17 @@ class _PositionRow extends StatelessWidget {
     final c = colors[reason] ?? AppTheme.textTertiary;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
         color: c.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(3),
       ),
       child: Text(
         labels[reason] ?? reason,
+        textAlign: TextAlign.center,
         style: GoogleFonts.inter(
-            fontSize: 10, fontWeight: FontWeight.w600, color: c),
+            fontSize: 9, fontWeight: FontWeight.w600, color: c),
       ),
     );
-  }
-
-  String _fmtPrice(double price) {
-    if (price >= 10000) return price.toStringAsFixed(1);
-    if (price >= 100) return price.toStringAsFixed(2);
-    return price.toStringAsFixed(3);
   }
 }

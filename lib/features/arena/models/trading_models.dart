@@ -1,12 +1,11 @@
-/// Tradeable asset definition with base price, symbol info, and chart mapping.
+/// Tradeable asset definition with symbol info and chart mapping.
 class TradingAsset {
   final String symbol;
   final String name;
   final String tvSymbol; // TradingView chart symbol
   final String binanceSymbol; // Binance API symbol
   final String coingeckoId; // CoinGecko API id
-  final double basePrice;
-  final double volatility;
+  final double basePrice; // Fallback price before live feed connects
   final double maxLeverage;
 
   const TradingAsset({
@@ -16,7 +15,6 @@ class TradingAsset {
     required this.binanceSymbol,
     required this.coingeckoId,
     required this.basePrice,
-    required this.volatility,
     this.maxLeverage = 20,
   });
 
@@ -27,9 +25,8 @@ class TradingAsset {
       tvSymbol: 'BINANCE:BTCUSDT',
       binanceSymbol: 'BTCUSDT',
       coingeckoId: 'bitcoin',
-      basePrice: 97500,
-      volatility: 0.0018,
-      maxLeverage: 50,
+      basePrice: 66000,
+      maxLeverage: 100,
     ),
     TradingAsset(
       symbol: 'ETH',
@@ -37,9 +34,8 @@ class TradingAsset {
       tvSymbol: 'BINANCE:ETHUSDT',
       binanceSymbol: 'ETHUSDT',
       coingeckoId: 'ethereum',
-      basePrice: 3850,
-      volatility: 0.0022,
-      maxLeverage: 50,
+      basePrice: 2000,
+      maxLeverage: 100,
     ),
     TradingAsset(
       symbol: 'SOL',
@@ -47,19 +43,10 @@ class TradingAsset {
       tvSymbol: 'BINANCE:SOLUSDT',
       binanceSymbol: 'SOLUSDT',
       coingeckoId: 'solana',
-      basePrice: 178,
-      volatility: 0.0030,
-      maxLeverage: 50,
+      basePrice: 80,
+      maxLeverage: 100,
     ),
   ];
-}
-
-/// A single price data point for charting.
-class PricePoint {
-  final DateTime time;
-  final double price;
-
-  const PricePoint({required this.time, required this.price});
 }
 
 /// Represents an open or closed trading position.

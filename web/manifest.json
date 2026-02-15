@@ -1,11 +1,11 @@
 {
-    "name": "trading_website",
-    "short_name": "trading_website",
+    "name": "SolFight",
+    "short_name": "SolFight",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#131722",
+    "theme_color": "#9945FF",
+    "description": "1v1 Competitive Trading Arena on Solana",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

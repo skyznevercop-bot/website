@@ -1,185 +1,233 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
+import 'dart:js_interop';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:web/web.dart' as web;
 
 import '../../../core/services/api_client.dart';
 import '../models/trading_models.dart';
 
-/// Provides real-time crypto prices.
+/// Provides real-time crypto prices via multiple sources.
 ///
-/// When backend is connected: receives prices via WebSocket.
-/// Fallback: CoinGecko / Binance / random walk (same as before).
+/// 1. Binance WebSocket aggTrade stream (real-time, fires on every trade).
+/// 2. CoinGecko REST API polling (CORS-friendly, no proxy needed).
+/// 3. Backend WebSocket relay (if connected).
+///
+/// Incoming WS prices are buffered and flushed every 250ms to avoid
+/// excessive UI rebuilds while staying responsive.
 class PriceFeedNotifier extends Notifier<Map<String, double>> {
+  web.WebSocket? _binanceWs;
+  Timer? _reconnectTimer;
   Timer? _pollTimer;
-  StreamSubscription? _wsSubscription;
-  final Random _random = Random();
-  final Map<String, double> _lastKnown = {};
-  bool _useBinanceFallback = false;
+  Timer? _flushTimer;
+  StreamSubscription? _backendWsSub;
+  int _reconnectAttempts = 0;
+  bool _started = false;
+  bool _wsConnected = false;
 
-  static const _corsProxy = 'https://corsproxy.io/?';
+  /// Buffer for incoming WS prices — flushed to state periodically.
+  final Map<String, double> _priceBuffer = {};
+
+  static const _flushInterval = Duration(milliseconds: 250);
+
+  /// Map Binance trading pair symbols to our asset symbols.
+  static final _symbolMap = {
+    for (final a in TradingAsset.all) a.binanceSymbol: a.symbol,
+  };
 
   final _api = ApiClient.instance;
 
   @override
   Map<String, double> build() {
-    ref.onDispose(() {
-      _pollTimer?.cancel();
-      _wsSubscription?.cancel();
-    });
+    ref.onDispose(stop);
     return {};
   }
 
   void start() {
-    // Try WebSocket price feed first.
+    if (_started) return;
+    _started = true;
+    _wsConnected = false;
+
+    // 1. Fetch prices from CoinGecko immediately (reliable, CORS-friendly).
+    _fetchCoinGecko();
+
+    // 2. Connect Binance WebSocket for real-time streaming.
+    _connectBinanceWs();
+
+    // 3. Start flush timer for buffered WS prices.
+    _flushTimer?.cancel();
+    _flushTimer = Timer.periodic(_flushInterval, (_) => _flushBuffer());
+
+    // 4. Start polling as fallback — runs until WS is confirmed working.
+    _startPolling();
+
+    // 5. Listen to backend WS if connected.
+    _backendWsSub?.cancel();
     if (_api.isWsConnected) {
-      _wsSubscription?.cancel();
-      _wsSubscription = _api.wsStream
-          .where((data) => data['type'] == 'price_update')
+      _backendWsSub = _api.wsStream
+          .where((d) => d['type'] == 'price_update')
           .listen((data) {
-        final prices = <String, double>{};
-        if (data['btc'] != null) {
-          prices['BTC'] = (data['btc'] as num).toDouble();
-        }
-        if (data['eth'] != null) {
-          prices['ETH'] = (data['eth'] as num).toDouble();
-        }
-        if (data['sol'] != null) {
-          prices['SOL'] = (data['sol'] as num).toDouble();
-        }
-        if (prices.isNotEmpty) {
-          _lastKnown.addAll(prices);
-          state = prices;
+        for (final asset in TradingAsset.all) {
+          final key = asset.symbol.toLowerCase();
+          if (data[key] != null) {
+            _priceBuffer[asset.symbol] = (data[key] as num).toDouble();
+          }
         }
       });
     }
-
-    // Also poll as fallback (if WS disconnects or for initial data).
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!_api.isWsConnected) {
-        _fetchPrices();
-      }
-    });
-    _fetchPrices();
   }
 
   void stop() {
+    _started = false;
+    _wsConnected = false;
+    _binanceWs?.close();
+    _binanceWs = null;
+    _reconnectTimer?.cancel();
     _pollTimer?.cancel();
-    _wsSubscription?.cancel();
+    _flushTimer?.cancel();
+    _backendWsSub?.cancel();
+    _priceBuffer.clear();
   }
 
-  Future<void> _fetchPrices() async {
-    if (_useBinanceFallback) {
-      await _fetchFromBinance();
-    } else {
-      await _fetchFromCoinGecko();
+  // ── Binance WebSocket (primary — real-time) ───────────────────────────────
+
+  void _connectBinanceWs() {
+    if (!_started) return;
+
+    _binanceWs?.close();
+    _wsConnected = false;
+
+    final streams = TradingAsset.all
+        .map((a) => '${a.binanceSymbol.toLowerCase()}@aggTrade')
+        .join('/');
+    final url = 'wss://stream.binance.com:9443/stream?streams=$streams';
+
+    try {
+      _binanceWs = web.WebSocket(url);
+    } catch (e) {
+      debugPrint('[PriceFeed] WS create failed: $e');
+      return;
     }
+
+    _binanceWs!.onopen = ((web.Event e) {
+      _reconnectAttempts = 0;
+      _wsConnected = true;
+      debugPrint('[PriceFeed] Binance aggTrade WS connected');
+    }).toJS;
+
+    _binanceWs!.onmessage = ((web.MessageEvent event) {
+      try {
+        // event.data is a JSAny — cast to JSString then convert to Dart.
+        final raw = (event.data as JSString).toDart;
+        final msg = json.decode(raw) as Map<String, dynamic>;
+        final data = msg['data'] as Map<String, dynamic>;
+        final symbol = data['s'] as String; // e.g. 'BTCUSDT'
+        final price = double.parse(data['p'] as String); // trade price
+
+        final assetSymbol = _symbolMap[symbol];
+        if (assetSymbol != null) {
+          _priceBuffer[assetSymbol] = price;
+        }
+      } catch (e) {
+        debugPrint('[PriceFeed] WS parse error: $e');
+      }
+    }).toJS;
+
+    _binanceWs!.onclose = ((web.Event e) {
+      debugPrint('[PriceFeed] Binance WS disconnected');
+      _wsConnected = false;
+      if (_started) _scheduleReconnect();
+    }).toJS;
+
+    _binanceWs!.onerror = ((web.Event e) {
+      debugPrint('[PriceFeed] Binance WS error');
+      _wsConnected = false;
+      _binanceWs?.close();
+    }).toJS;
   }
 
-  Future<void> _fetchFromCoinGecko() async {
+  void _scheduleReconnect() {
+    if (!_started) return;
+    final delay = Duration(
+      milliseconds: 1000 * (1 << _reconnectAttempts.clamp(0, 5)),
+    );
+    _reconnectAttempts++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, _connectBinanceWs);
+  }
+
+  // ── CoinGecko REST (fallback — CORS-friendly, no proxy) ───────────────────
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    // Poll every 2s. Once WS is confirmed working, slow down to every 10s
+    // as a safety net.
+    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (_wsConnected) {
+        // WS is working — slow down polling to just a keep-alive check.
+        _pollTimer?.cancel();
+        _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+          if (!_wsConnected) {
+            // WS dropped — speed polling back up.
+            _startPolling();
+          } else {
+            _fetchCoinGecko();
+          }
+        });
+      } else {
+        _fetchCoinGecko();
+      }
+    });
+  }
+
+  Future<void> _fetchCoinGecko() async {
     try {
       final ids = TradingAsset.all.map((a) => a.coingeckoId).join(',');
-      final targetUrl =
-          'https://api.coingecko.com/api/v3/simple/price'
-          '?ids=$ids&vs_currencies=usd';
       final uri = Uri.parse(
-        kIsWeb ? '$_corsProxy${Uri.encodeComponent(targetUrl)}' : targetUrl,
+        'https://api.coingecko.com/api/v3/simple/price'
+        '?ids=$ids&vs_currencies=usd',
       );
       final response = await http.get(uri).timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 8),
       );
-
       if (response.statusCode == 200) {
         final data = json.decode(response.body) as Map<String, dynamic>;
-        final newPrices = Map<String, double>.from(state);
-
+        final prices = <String, double>{};
         for (final asset in TradingAsset.all) {
-          final entry = data[asset.coingeckoId] as Map<String, dynamic>?;
-          if (entry != null && entry['usd'] != null) {
-            final price = (entry['usd'] as num).toDouble();
-            newPrices[asset.symbol] = price;
-            _lastKnown[asset.symbol] = price;
+          final coinData = data[asset.coingeckoId] as Map<String, dynamic>?;
+          if (coinData != null && coinData['usd'] != null) {
+            prices[asset.symbol] = (coinData['usd'] as num).toDouble();
           }
         }
-
-        state = newPrices;
-        return;
-      }
-
-      if (response.statusCode == 429) {
-        _useBinanceFallback = true;
-        await _fetchFromBinance();
-        return;
-      }
-
-      _simulateFallback();
-    } catch (e) {
-      debugPrint('CoinGecko unavailable, trying Binance');
-      await _fetchFromBinance();
-    }
-  }
-
-  Future<void> _fetchFromBinance() async {
-    try {
-      final futures = TradingAsset.all.map((asset) async {
-        final targetUrl =
-            'https://api.binance.com/api/v3/ticker/price'
-            '?symbol=${asset.binanceSymbol}';
-        final uri = Uri.parse(
-          kIsWeb ? '$_corsProxy${Uri.encodeComponent(targetUrl)}' : targetUrl,
-        );
-        final response = await http.get(uri).timeout(
-          const Duration(seconds: 5),
-        );
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          return MapEntry(
-            asset.symbol,
-            double.parse(data['price'] as String),
-          );
+        if (prices.isNotEmpty) {
+          debugPrint('[PriceFeed] CoinGecko: $prices');
+          _merge(prices);
         }
-        return null;
-      });
-
-      final results = await Future.wait(futures);
-      final newPrices = Map<String, double>.from(state);
-      bool gotAny = false;
-
-      for (final entry in results) {
-        if (entry != null) {
-          newPrices[entry.key] = entry.value;
-          _lastKnown[entry.key] = entry.value;
-          gotAny = true;
-        }
-      }
-
-      if (gotAny) {
-        state = newPrices;
       } else {
-        _simulateFallback();
+        debugPrint('[PriceFeed] CoinGecko HTTP ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Binance unavailable, using price simulation');
-      _simulateFallback();
+      debugPrint('[PriceFeed] CoinGecko fetch failed: $e');
     }
   }
 
-  void _simulateFallback() {
-    final newPrices = Map<String, double>.from(state);
-    for (final asset in TradingAsset.all) {
-      final current = _lastKnown[asset.symbol] ?? asset.basePrice;
-      final drift = (asset.basePrice - current) * 0.0001;
-      final noise =
-          current * asset.volatility * (_random.nextDouble() * 2 - 1);
-      final newPrice = current + drift + noise;
-      _lastKnown[asset.symbol] = newPrice;
-      newPrices[asset.symbol] = newPrice;
-    }
-    state = newPrices;
+  // ── Helpers ────────────────────────────────────────────────────────────────
+
+  /// Flush buffered WS prices to provider state.
+  void _flushBuffer() {
+    if (_priceBuffer.isEmpty) return;
+    final flushed = Map<String, double>.from(_priceBuffer);
+    _priceBuffer.clear();
+    _merge(flushed);
+  }
+
+  void _merge(Map<String, double> incoming) {
+    final updated = Map<String, double>.from(state);
+    updated.addAll(incoming);
+    state = updated;
   }
 }
 

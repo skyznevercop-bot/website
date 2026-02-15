@@ -74,6 +74,18 @@ class AppTheme {
     end: Alignment.bottomRight,
   );
 
+  static const LinearGradient longGradient = LinearGradient(
+    colors: [Color(0xFF10B981), Color(0xFF0DA672)],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
+  static const LinearGradient shortGradient = LinearGradient(
+    colors: [Color(0xFFEF4444), Color(0xFFD93B3B)],
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+  );
+
   // ── Theme Data ────────────────────────────────────────────────────────────
   static ThemeData get darkTheme {
     final base = ThemeData(

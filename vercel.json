@@ -7,33 +7,5 @@
       "source": "/((?!assets|canvaskit|icons|flutter|main|manifest|version|favicon|tradingview).*)",
       "destination": "/index.html"
     }
-  ],
-  "headers": [
-    {
-      "source": "/tradingview_chart.html",
-      "headers": [
-        {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "unsafe-none"
-        },
-        {
-          "key": "Cross-Origin-Embedder-Policy",
-          "value": "unsafe-none"
-        }
-      ]
-    },
-    {
-      "source": "/((?!tradingview).*)",
-      "headers": [
-        {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin"
-        },
-        {
-          "key": "Cross-Origin-Embedder-Policy",
-          "value": "credentialless"
-        }
-      ]
-    }
   ]
 }

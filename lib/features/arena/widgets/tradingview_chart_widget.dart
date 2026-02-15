@@ -1,11 +1,13 @@
+import 'dart:async';
 import 'dart:js_interop';
 import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
-/// Embeds a TradingView Advanced Chart widget via iframe.
-/// Symbol changes are sent to the iframe via postMessage.
+/// Embeds a TradingView chart by creating a div platform view and
+/// initializing the TradingView widget via tv.js (loaded in index.html).
+/// No iframe nesting — works reliably with CanvasKit renderer.
 class TradingViewChart extends StatefulWidget {
   final String tvSymbol;
   final String theme;
@@ -20,32 +22,36 @@ class TradingViewChart extends StatefulWidget {
   State<TradingViewChart> createState() => _TradingViewChartState();
 }
 
+@JS('window._createTVChart')
+external void _jsCreateChart(String containerId, String symbol, String theme);
+
+@JS('window._destroyTVChart')
+external void _jsDestroyChart(String containerId);
+
 class _TradingViewChartState extends State<TradingViewChart> {
   static int _counter = 0;
   late final String _viewType;
-  web.HTMLIFrameElement? _iframe;
+  late final String _containerId;
+  Timer? _initTimer;
 
   @override
   void initState() {
     super.initState();
     _counter++;
+    _containerId = 'tv-chart-$_counter';
     _viewType = 'tradingview-chart-$_counter';
-    _registerFactory();
-  }
 
-  void _registerFactory() {
     ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
-      final src = 'tradingview_chart.html'
-          '?symbol=${Uri.encodeComponent(widget.tvSymbol)}'
-          '&theme=${widget.theme}';
-      _iframe = web.HTMLIFrameElement()
-        ..src = src
-        ..style.border = 'none'
+      return web.HTMLDivElement()
+        ..id = _containerId
         ..style.width = '100%'
         ..style.height = '100%'
-        ..allow = 'clipboard-write';
-      _iframe!.setAttribute('loading', 'lazy');
-      return _iframe!;
+        ..style.backgroundColor = '#131722';
+    });
+
+    // Wait for the div to be added to the DOM, then create the widget.
+    _initTimer = Timer(const Duration(milliseconds: 300), () {
+      _jsCreateChart(_containerId, widget.tvSymbol, widget.theme);
     });
   }
 
@@ -53,14 +59,15 @@ class _TradingViewChartState extends State<TradingViewChart> {
   void didUpdateWidget(TradingViewChart oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.tvSymbol != widget.tvSymbol) {
-      _iframe?.contentWindow?.postMessage(
-        <String, String>{
-          'type': 'changeSymbol',
-          'symbol': widget.tvSymbol,
-        }.jsify(),
-        '*'.toJS,
-      );
+      _jsCreateChart(_containerId, widget.tvSymbol, widget.theme);
     }
+  }
+
+  @override
+  void dispose() {
+    _initTimer?.cancel();
+    _jsDestroyChart(_containerId);
+    super.dispose();
   }
 
   @override
