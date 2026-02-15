@@ -421,7 +421,6 @@ class TradingNotifier extends Notifier<TradingState> {
       if (match == null) return;
 
       final matchId = match['matchId'] as String;
-      final status = match['status'] as String?;
       final betAmount = (match['betAmount'] as num?)?.toDouble() ?? 1.0;
       final oppAddress = match['opponentAddress'] as String?;
       final oppTag = match['opponentGamerTag'] as String?;
@@ -449,9 +448,6 @@ class TradingNotifier extends Notifier<TradingState> {
             (DateTime.now().millisecondsSinceEpoch - startTime) ~/ 1000;
         remaining = (durationSeconds - elapsed).clamp(0, durationSeconds);
       }
-
-      // If the match already ended, don't show banner.
-      if (status == 'active' && remaining <= 0) return;
 
       // Build the arena route for navigation.
       final arenaUri = Uri(
