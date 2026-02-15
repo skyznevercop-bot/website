@@ -40,11 +40,41 @@ class _LearnScreenState extends ConsumerState<LearnScreen> {
     });
   }
 
+  /// Returns the next lesson (and its path) after the current one, or null.
+  ({Lesson lesson, LearningPath path})? _getNextLesson() {
+    if (_openLesson == null || _openLessonPath == null) return null;
+
+    final currentPath = _openLessonPath!;
+    final currentIndex =
+        currentPath.lessons.indexWhere((l) => l.id == _openLesson!.id);
+
+    // Next lesson in the same path
+    if (currentIndex >= 0 && currentIndex < currentPath.lessons.length - 1) {
+      return (
+        lesson: currentPath.lessons[currentIndex + 1],
+        path: currentPath,
+      );
+    }
+
+    // First lesson of the next path
+    final pathIndex =
+        allLearningPaths.indexWhere((p) => p.id == currentPath.id);
+    if (pathIndex >= 0 && pathIndex < allLearningPaths.length - 1) {
+      final nextPath = allLearningPaths[pathIndex + 1];
+      if (nextPath.lessons.isNotEmpty) {
+        return (lesson: nextPath.lessons.first, path: nextPath);
+      }
+    }
+
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final learn = ref.watch(learnProvider);
 
     if (_openLesson != null) {
+      final next = _getNextLesson();
       return _LessonDetailView(
         lesson: _openLesson!,
         path: _openLessonPath!,
@@ -53,6 +83,9 @@ class _LearnScreenState extends ConsumerState<LearnScreen> {
         onMarkComplete: () {
           ref.read(learnProvider.notifier).markCompleted(_openLesson!.id);
         },
+        onGoToNext: next != null
+            ? () => _openLessonDetail(next.lesson, next.path)
+            : null,
       );
     }
 
@@ -834,6 +867,7 @@ class _LessonDetailView extends StatelessWidget {
   final bool isCompleted;
   final VoidCallback onBack;
   final VoidCallback onMarkComplete;
+  final VoidCallback? onGoToNext;
 
   const _LessonDetailView({
     required this.lesson,
@@ -841,6 +875,7 @@ class _LessonDetailView extends StatelessWidget {
     required this.isCompleted,
     required this.onBack,
     required this.onMarkComplete,
+    this.onGoToNext,
   });
 
   @override
@@ -1072,35 +1107,80 @@ class _LessonDetailView extends StatelessWidget {
 
               const SizedBox(height: 32),
 
-              // Mark complete button
+              // Mark complete / Next lesson button
               Center(
                 child: isCompleted
-                    ? Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 12),
-                        decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                              color: AppTheme.success.withValues(alpha: 0.2)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.check_circle_rounded,
-                                size: 20, color: AppTheme.success),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Lesson Complete',
-                              style: GoogleFonts.inter(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.success,
+                    ? onGoToNext != null
+                        ? MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: GestureDetector(
+                              onTap: onGoToNext,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 24, vertical: 12),
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    colors: [
+                                      AppTheme.solanaPurple,
+                                      AppTheme.solanaPurpleDark,
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(10),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: AppTheme.solanaPurple
+                                          .withValues(alpha: 0.3),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Next Lesson',
+                                      style: GoogleFonts.inter(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Icon(Icons.arrow_forward_rounded,
+                                        size: 20, color: Colors.white),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                        ),
-                      )
+                          )
+                        : Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 24, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.success.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color:
+                                      AppTheme.success.withValues(alpha: 0.2)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check_circle_rounded,
+                                    size: 20, color: AppTheme.success),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'All Lessons Complete!',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.success,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
                     : MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: GestureDetector(
