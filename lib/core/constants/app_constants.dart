@@ -6,13 +6,13 @@ class AppConstants {
   static const String appName = 'SolFight';
   static const String appTagline = '1v1 Trading Battles on Solana';
 
-  // ── Queue Timeframes ──────────────────────────────────────────────────────
-  static const List<QueueTimeframe> timeframes = [
-    QueueTimeframe(label: '15m', duration: Duration(minutes: 15)),
-    QueueTimeframe(label: '1h', duration: Duration(hours: 1)),
-    QueueTimeframe(label: '4h', duration: Duration(hours: 4)),
-    QueueTimeframe(label: '12h', duration: Duration(hours: 12)),
-    QueueTimeframe(label: '24h', duration: Duration(hours: 24)),
+  // ── Match Durations ────────────────────────────────────────────────────
+  static const List<QueueDuration> durations = [
+    QueueDuration(label: '15m', length: Duration(minutes: 15)),
+    QueueDuration(label: '1h', length: Duration(hours: 1)),
+    QueueDuration(label: '4h', length: Duration(hours: 4)),
+    QueueDuration(label: '12h', length: Duration(hours: 12)),
+    QueueDuration(label: '24h', length: Duration(hours: 24)),
   ];
 
   // ── Bet Amounts (USDC) ──────────────────────────────────────────────────
@@ -36,13 +36,13 @@ class AppConstants {
   static const String referralRoute = '/referral';
 }
 
-/// Represents a queue timeframe option for matchmaking.
-class QueueTimeframe {
+/// Represents a match duration option for matchmaking.
+class QueueDuration {
   final String label;
-  final Duration duration;
+  final Duration length;
 
-  const QueueTimeframe({
+  const QueueDuration({
     required this.label,
-    required this.duration,
+    required this.length,
   });
 }

@@ -6,21 +6,21 @@ const router = Router();
 
 /** POST /api/queue/join — Join a matchmaking queue. */
 router.post("/join", requireAuth, async (req: AuthRequest, res) => {
-  const { timeframe, bet } = req.body;
+  const { duration, bet } = req.body;
 
-  if (!timeframe || typeof bet !== "number" || bet <= 0) {
-    res.status(400).json({ error: "Invalid timeframe or bet amount" });
+  if (!duration || typeof bet !== "number" || bet <= 0) {
+    res.status(400).json({ error: "Invalid duration or bet amount" });
     return;
   }
 
-  await joinQueue(req.userAddress!, timeframe, bet);
-  res.json({ status: "queued", timeframe, bet });
+  await joinQueue(req.userAddress!, duration, bet);
+  res.json({ status: "queued", duration, bet });
 });
 
 /** DELETE /api/queue/leave — Leave a matchmaking queue. */
 router.delete("/leave", requireAuth, async (req: AuthRequest, res) => {
-  const { timeframe, bet } = req.body;
-  await leaveQueue(req.userAddress!, timeframe, bet);
+  const { duration, bet } = req.body;
+  await leaveQueue(req.userAddress!, duration, bet);
   res.json({ status: "left" });
 });
 

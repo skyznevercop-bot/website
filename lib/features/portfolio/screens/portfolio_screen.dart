@@ -163,7 +163,7 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
                       child: _ActiveMatchRow(
                         opponent:
                             trading.opponentGamerTag ?? 'Opponent',
-                        timeframe:
+                        duration:
                             '${(trading.matchTimeRemainingSeconds / 60).ceil()}m',
                         yourPnl: _formatPnlPercent(
                             trading.equity, trading.initialBalance),
@@ -261,8 +261,8 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
                             _HistoryRow(
                               opponent:
                                   portfolio.matchHistory[i].opponent,
-                              timeframe:
-                                  portfolio.matchHistory[i].timeframe,
+                              duration:
+                                  portfolio.matchHistory[i].duration,
                               result: portfolio.matchHistory[i].isWin
                                   ? 'WIN'
                                   : 'LOSS',
@@ -662,7 +662,7 @@ class _HeroStat extends StatelessWidget {
 
 class _ActiveMatchRow extends StatelessWidget {
   final String opponent;
-  final String timeframe;
+  final String duration;
   final String yourPnl;
   final String oppPnl;
   final String timeLeft;
@@ -671,7 +671,7 @@ class _ActiveMatchRow extends StatelessWidget {
 
   const _ActiveMatchRow({
     required this.opponent,
-    required this.timeframe,
+    required this.duration,
     required this.yourPnl,
     required this.oppPnl,
     required this.timeLeft,
@@ -719,7 +719,7 @@ class _ActiveMatchRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                'VS  $timeframe',
+                'VS  $duration',
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
@@ -782,13 +782,13 @@ class _ActiveMatchRow extends StatelessWidget {
 
 class _HistoryRow extends StatelessWidget {
   final String opponent;
-  final String timeframe;
+  final String duration;
   final String result;
   final String pnl;
 
   const _HistoryRow({
     required this.opponent,
-    required this.timeframe,
+    required this.duration,
     required this.result,
     required this.pnl,
   });
@@ -823,7 +823,7 @@ class _HistoryRow extends StatelessWidget {
           ),
           const SizedBox(width: 14),
 
-          // Opponent + timeframe
+          // Opponent + duration
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -837,7 +837,7 @@ class _HistoryRow extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  timeframe,
+                  duration,
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: AppTheme.textTertiary,

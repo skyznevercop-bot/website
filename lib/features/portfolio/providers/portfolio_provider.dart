@@ -143,7 +143,7 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
         return MatchResult(
           id: m['id'] as String? ?? '',
           opponent: m['opponentGamerTag'] as String? ?? 'Unknown',
-          timeframe: m['timeframe'] as String? ?? '',
+          duration: m['duration'] as String? ?? '',
           isWin: m['result'] == 'WIN',
           pnl: (m['pnl'] as num?)?.toDouble() ?? 0,
           completedAt: m['completedAt'] != null

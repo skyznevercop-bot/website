@@ -24,8 +24,8 @@ class OnboardingSteps {
           'Pick your settings and fight for the pot.',
     ),
     OnboardingStep(
-      id: 'timeframe',
-      title: 'Choose Your Timeframe',
+      id: 'duration',
+      title: 'Choose Your Duration',
       description:
           'Scroll the wheel to pick how long your match lasts. '
           'Shorter matches are faster and more intense.',

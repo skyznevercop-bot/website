@@ -4,14 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Holds GlobalKeys for each onboarding target element.
 class OnboardingTargetKeys {
   final GlobalKey heroKey;
-  final GlobalKey timeframeWheelKey;
+  final GlobalKey durationWheelKey;
   final GlobalKey betAmountWheelKey;
   final GlobalKey matchInfoRowKey;
   final GlobalKey connectWalletButtonKey;
 
   const OnboardingTargetKeys({
     required this.heroKey,
-    required this.timeframeWheelKey,
+    required this.durationWheelKey,
     required this.betAmountWheelKey,
     required this.matchInfoRowKey,
     required this.connectWalletButtonKey,
@@ -22,8 +22,8 @@ class OnboardingTargetKeys {
     switch (stepId) {
       case 'hero':
         return heroKey;
-      case 'timeframe':
-        return timeframeWheelKey;
+      case 'duration':
+        return durationWheelKey;
       case 'betAmount':
         return betAmountWheelKey;
       case 'matchInfo':

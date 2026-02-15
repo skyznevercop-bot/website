@@ -180,21 +180,21 @@ async function handleMessage(
 
   switch (data.type) {
     case "join_queue": {
-      const { timeframe, bet } = data as {
-        timeframe: string;
+      const { duration, bet } = data as {
+        duration: string;
         bet: number;
       };
-      await joinQueue(ws.userAddress, timeframe, bet);
-      ws.send(JSON.stringify({ type: "queue_joined", timeframe, bet }));
+      await joinQueue(ws.userAddress, duration, bet);
+      ws.send(JSON.stringify({ type: "queue_joined", duration, bet }));
       break;
     }
 
     case "leave_queue": {
-      const { timeframe, bet } = data as {
-        timeframe: string;
+      const { duration, bet } = data as {
+        duration: string;
         bet: number;
       };
-      await leaveQueue(ws.userAddress, timeframe, bet);
+      await leaveQueue(ws.userAddress, duration, bet);
       ws.send(JSON.stringify({ type: "queue_left" }));
       break;
     }

@@ -108,7 +108,7 @@ async function activateMatch(
   matchId: string,
   match: DbMatch
 ): Promise<{ success: boolean; message: string; matchNowActive: boolean }> {
-  const durationMs = parseDuration(match.timeframe);
+  const durationMs = parseDuration(match.duration);
   const matchRef = matchesRef.child(matchId);
 
   const result = await matchRef.transaction((current: DbMatch | null) => {

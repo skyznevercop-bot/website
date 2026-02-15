@@ -94,7 +94,7 @@ export async function updateUser(
 export interface DbMatch {
   player1: string;
   player2: string;
-  timeframe: string;
+  duration: string;
   betAmount: number;
   status:
     | "pending"

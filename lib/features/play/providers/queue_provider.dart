@@ -8,17 +8,17 @@ import '../../../core/services/api_client.dart';
 
 /// Queue state for matchmaking.
 class QueueState {
-  /// Per-timeframe queue sizes (index matches AppConstants.timeframes).
+  /// Per-duration queue sizes (index matches AppConstants.durations).
   final List<int> queueSizes;
 
-  /// Per-timeframe estimated wait times.
+  /// Per-duration estimated wait times.
   final List<String> waitTimes;
 
   /// Whether the user is currently in a queue.
   final bool isInQueue;
 
-  /// The timeframe index the user queued for.
-  final int? queuedTimeframeIndex;
+  /// The duration index the user queued for.
+  final int? queuedDurationIndex;
 
   /// Seconds spent waiting in queue.
   final int waitSeconds;
@@ -43,7 +43,7 @@ class QueueState {
     this.queueSizes = const [0, 0, 0, 0, 0],
     this.waitTimes = const ['--', '--', '--', '--', '--'],
     this.isInQueue = false,
-    this.queuedTimeframeIndex,
+    this.queuedDurationIndex,
     this.waitSeconds = 0,
     this.matchFound,
     this.totalPlayers = 0,
@@ -66,8 +66,8 @@ class QueueState {
     List<int>? queueSizes,
     List<String>? waitTimes,
     bool? isInQueue,
-    int? queuedTimeframeIndex,
-    bool clearQueuedTimeframe = false,
+    int? queuedDurationIndex,
+    bool clearQueuedDuration = false,
     int? waitSeconds,
     MatchFoundData? matchFound,
     bool clearMatchFound = false,
@@ -83,9 +83,9 @@ class QueueState {
       queueSizes: queueSizes ?? this.queueSizes,
       waitTimes: waitTimes ?? this.waitTimes,
       isInQueue: isInQueue ?? this.isInQueue,
-      queuedTimeframeIndex: clearQueuedTimeframe
+      queuedDurationIndex: clearQueuedDuration
           ? null
-          : (queuedTimeframeIndex ?? this.queuedTimeframeIndex),
+          : (queuedDurationIndex ?? this.queuedDurationIndex),
       waitSeconds: waitSeconds ?? this.waitSeconds,
       matchFound:
           clearMatchFound ? null : (matchFound ?? this.matchFound),
@@ -104,14 +104,14 @@ class MatchFoundData {
   final String matchId;
   final String opponentGamerTag;
   final String opponentAddress;
-  final String timeframe;
+  final String duration;
   final double bet;
 
   const MatchFoundData({
     required this.matchId,
     required this.opponentGamerTag,
     required this.opponentAddress,
-    required this.timeframe,
+    required this.duration,
     required this.bet,
   });
 }
@@ -119,14 +119,14 @@ class MatchFoundData {
 class LiveMatch {
   final String player1;
   final String player2;
-  final String timeframe;
+  final String duration;
   final bool player1Leading;
   final double bet;
 
   const LiveMatch({
     required this.player1,
     required this.player2,
-    required this.timeframe,
+    required this.duration,
     required this.player1Leading,
     this.bet = 0,
   });
@@ -214,7 +214,7 @@ class QueueNotifier extends Notifier<QueueState> {
 
     _hasRealData = true;
 
-    final count = AppConstants.timeframes.length;
+    final count = AppConstants.durations.length;
     final sizes = List<int>.filled(count, 0);
     final waits = List<String>.filled(count, '--');
 
@@ -235,7 +235,7 @@ class QueueNotifier extends Notifier<QueueState> {
     _waitTimer?.cancel();
     state = state.copyWith(
       isInQueue: false,
-      clearQueuedTimeframe: true,
+      clearQueuedDuration: true,
       waitSeconds: 0,
       matchFound: MatchFoundData(
         matchId: data['matchId'] as String,
@@ -247,7 +247,7 @@ class QueueNotifier extends Notifier<QueueState> {
             (data['opponent'] as Map<String, dynamic>?)?['address']
                     as String? ??
                 '',
-        timeframe: data['timeframe'] as String? ?? '',
+        duration: data['duration'] as String? ?? '',
         bet: (data['bet'] as num?)?.toDouble() ?? 0,
       ),
     );
@@ -255,22 +255,22 @@ class QueueNotifier extends Notifier<QueueState> {
 
   /// Join the matchmaking queue.
   void joinQueue({
-    required int timeframeIndex,
-    required String timeframeLabel,
+    required int durationIndex,
+    required String durationLabel,
     required double betAmount,
   }) {
     if (state.isInQueue) return;
 
     state = state.copyWith(
       isInQueue: true,
-      queuedTimeframeIndex: timeframeIndex,
+      queuedDurationIndex: durationIndex,
       waitSeconds: 0,
       clearMatchFound: true,
     );
 
     _api.wsSend({
       'type': 'join_queue',
-      'timeframe': timeframeLabel,
+      'duration': durationLabel,
       'bet': betAmount,
     });
 
@@ -290,7 +290,7 @@ class QueueNotifier extends Notifier<QueueState> {
 
     state = state.copyWith(
       isInQueue: false,
-      clearQueuedTimeframe: true,
+      clearQueuedDuration: true,
       waitSeconds: 0,
     );
   }
@@ -309,7 +309,7 @@ class QueueNotifier extends Notifier<QueueState> {
 
       _hasRealData = true;
 
-      final count = AppConstants.timeframes.length;
+      final count = AppConstants.durations.length;
       final sizes = List<int>.filled(count, 0);
       final waits = List<String>.filled(count, '--');
 
@@ -367,7 +367,7 @@ class QueueNotifier extends Notifier<QueueState> {
         return LiveMatch(
           player1: match['player1GamerTag'] as String? ?? '???',
           player2: match['player2GamerTag'] as String? ?? '???',
-          timeframe: match['timeframe'] as String? ?? '',
+          duration: match['duration'] as String? ?? '',
           player1Leading: (match['player1Pnl'] as num?)?.toDouble() !=
                   null &&
               ((match['player1Pnl'] as num?)?.toDouble() ?? 0) >=
@@ -395,7 +395,7 @@ class QueueNotifier extends Notifier<QueueState> {
     'BullRunner', 'ChartWizard', 'StackSats', 'Mev_Andy',
   ];
 
-  static const _demoTimeframes = ['15m', '1h', '4h', '12h', '24h'];
+  static const _demoDurations = ['15m', '1h', '4h', '12h', '24h'];
 
   void _seedDemoData() {
     _demoPlayers = 1200 + _rng.nextInt(200);
@@ -458,7 +458,7 @@ class QueueNotifier extends Notifier<QueueState> {
       return LiveMatch(
         player1: shuffled[i * 2],
         player2: shuffled[i * 2 + 1],
-        timeframe: _demoTimeframes[_rng.nextInt(_demoTimeframes.length)],
+        duration: _demoDurations[_rng.nextInt(_demoDurations.length)],
         player1Leading: _rng.nextBool(),
         bet: bets[_rng.nextInt(bets.length)].toDouble(),
       );

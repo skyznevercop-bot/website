@@ -49,7 +49,7 @@ class Transaction {
 class MatchResult {
   final String id;
   final String opponent;
-  final String timeframe;
+  final String duration;
   final bool isWin;
   final double pnl;
   final DateTime completedAt;
@@ -57,7 +57,7 @@ class MatchResult {
   const MatchResult({
     required this.id,
     required this.opponent,
-    required this.timeframe,
+    required this.duration,
     required this.isWin,
     required this.pnl,
     required this.completedAt,

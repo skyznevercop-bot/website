@@ -162,7 +162,7 @@ class _ActiveMatchBanner extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Unified Arena Card — hero + timeframe picker in one card
+// Unified Arena Card — hero + duration picker in one card
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _ArenaCard extends ConsumerStatefulWidget {
@@ -173,7 +173,7 @@ class _ArenaCard extends ConsumerStatefulWidget {
 }
 
 class _ArenaCardState extends ConsumerState<_ArenaCard> {
-  late final FixedExtentScrollController _timeframeController;
+  late final FixedExtentScrollController _durationController;
   late final FixedExtentScrollController _betController;
   int _selectedIndex = 0;
   int _betIndex = 3; // default $10
@@ -182,7 +182,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
 
   // Onboarding target keys
   final _heroKey = GlobalKey(debugLabel: 'onboarding_hero');
-  final _timeframeWheelKey = GlobalKey(debugLabel: 'onboarding_timeframe');
+  final _durationWheelKey = GlobalKey(debugLabel: 'onboarding_duration');
   final _betAmountWheelKey = GlobalKey(debugLabel: 'onboarding_betAmount');
   final _matchInfoRowKey = GlobalKey(debugLabel: 'onboarding_matchInfo');
   final _connectWalletButtonKey = GlobalKey(debugLabel: 'onboarding_connectWallet');
@@ -190,7 +190,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   @override
   void initState() {
     super.initState();
-    _timeframeController =
+    _durationController =
         FixedExtentScrollController(initialItem: _selectedIndex);
     _betController = FixedExtentScrollController(initialItem: _betIndex);
 
@@ -200,7 +200,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
       ref.read(onboardingKeysProvider.notifier).setKeys(
             OnboardingTargetKeys(
               heroKey: _heroKey,
-              timeframeWheelKey: _timeframeWheelKey,
+              durationWheelKey: _durationWheelKey,
               betAmountWheelKey: _betAmountWheelKey,
               matchInfoRowKey: _matchInfoRowKey,
               connectWalletButtonKey: _connectWalletButtonKey,
@@ -234,16 +234,16 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
 
   @override
   void dispose() {
-    _timeframeController.dispose();
+    _durationController.dispose();
     _betController.dispose();
     super.dispose();
   }
 
   int get _betAmount => _betAmounts[_betIndex];
-  QueueTimeframe get _selected => AppConstants.timeframes[_selectedIndex];
+  QueueDuration get _selected => AppConstants.durations[_selectedIndex];
 
   void _showMatchFoundDialog(BuildContext context, MatchFoundData match) {
-    final durationSec = _selected.duration.inSeconds;
+    final durationSec = _selected.length.inSeconds;
     final now = DateTime.now().millisecondsSinceEpoch;
     final wallet = ref.read(walletProvider);
     final walletName = wallet.walletType?.name ?? 'phantom';
@@ -843,7 +843,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
         // Subtitle
         Text(
           'Go head-to-head in 1v1 trading battles. Deposit USDC, '
-          'pick a timeframe, and outperform your opponent to win the pot.',
+          'pick a duration, and outperform your opponent to win the pot.',
           style: GoogleFonts.inter(
             fontSize: isMobile ? 13 : 15,
             fontWeight: FontWeight.w400,
@@ -987,7 +987,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                 )
               : _JoinQueueButton(
                   isConnected: wallet.isConnected,
-                  timeframeLabel: _selected.label,
+                  durationLabel: _selected.label,
                   betAmount: _betAmount,
                   onTap: () {
                     if (!wallet.isConnected) {
@@ -995,8 +995,8 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                       return;
                     }
                     ref.read(queueProvider.notifier).joinQueue(
-                          timeframeIndex: _selectedIndex,
-                          timeframeLabel: _selected.label,
+                          durationIndex: _selectedIndex,
+                          durationLabel: _selected.label,
                           betAmount: _betAmount.toDouble(),
                         );
                   },
@@ -1012,20 +1012,20 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Timeframe wheel
+        // Duration wheel
         Expanded(
           child: Column(
-            key: _timeframeWheelKey,
+            key: _durationWheelKey,
             children: [
-              _buildSectionLabel('TIMEFRAME'),
+              _buildSectionLabel('DURATION'),
               const SizedBox(height: 8),
               Expanded(
                 child: _buildWheel(
-                  controller: _timeframeController,
-                  itemCount: AppConstants.timeframes.length,
+                  controller: _durationController,
+                  itemCount: AppConstants.durations.length,
                   selectedIndex: _selectedIndex,
                   onChanged: (i) => setState(() => _selectedIndex = i),
-                  labelBuilder: (i) => AppConstants.timeframes[i].label,
+                  labelBuilder: (i) => AppConstants.durations[i].label,
                 ),
               ),
             ],
@@ -1373,7 +1373,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                   _buildMatchRow(
                     match.player1,
                     match.player2,
-                    match.timeframe,
+                    match.duration,
                     match.player1Leading,
                   ),
                 ],
@@ -1384,7 +1384,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
     );
   }
 
-  Widget _buildMatchRow(String p1, String p2, String timeframe, bool p1Up) {
+  Widget _buildMatchRow(String p1, String p2, String duration, bool p1Up) {
     return Row(
       children: [
         Expanded(
@@ -1404,7 +1404,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             borderRadius: BorderRadius.circular(8),
           ),
           child: Text(
-            'VS  $timeframe',
+            'VS  $duration',
             style: GoogleFonts.inter(
               fontSize: 10,
               fontWeight: FontWeight.w700,
@@ -1604,12 +1604,12 @@ class _InfoTile extends StatelessWidget {
 
 class _JoinQueueButton extends StatefulWidget {
   final bool isConnected;
-  final String timeframeLabel;
+  final String durationLabel;
   final int betAmount;
   final VoidCallback onTap;
   const _JoinQueueButton({
     required this.isConnected,
-    required this.timeframeLabel,
+    required this.durationLabel,
     required this.betAmount,
     required this.onTap,
   });
@@ -1883,7 +1883,7 @@ class _JoinQueueButtonState extends State<_JoinQueueButton> {
           child: Center(
             child: Text(
               widget.isConnected
-                  ? 'Join ${widget.timeframeLabel} Queue — \$${widget.betAmount} USDC'
+                  ? 'Join ${widget.durationLabel} Queue — \$${widget.betAmount} USDC'
                   : 'Connect Wallet to Play',
               style: GoogleFonts.inter(
                 fontSize: 15,

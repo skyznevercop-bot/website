@@ -4,14 +4,14 @@ import { config } from "../config";
 
 /**
  * Add a player to the FIFO matchmaking queue.
- * Queue key: "queues/{timeframe}_{bet}/{walletAddress}"
+ * Queue key: "queues/{duration}_{bet}/{walletAddress}"
  */
 export async function joinQueue(
   address: string,
-  timeframe: string,
+  duration: string,
   bet: number
 ): Promise<void> {
-  const queueKey = `${timeframe}_${bet}`;
+  const queueKey = `${duration}_${bet}`;
   await queuesRef.child(queueKey).child(address).set({
     joinedAt: Date.now(),
   });
@@ -22,10 +22,10 @@ export async function joinQueue(
  */
 export async function leaveQueue(
   address: string,
-  timeframe: string,
+  duration: string,
   bet: number
 ): Promise<void> {
-  const queueKey = `${timeframe}_${bet}`;
+  const queueKey = `${duration}_${bet}`;
   await queuesRef.child(queueKey).child(address).remove();
 }
 
@@ -33,10 +33,10 @@ export async function leaveQueue(
  * Get queue statistics for all active queues.
  */
 export async function getQueueStats(): Promise<
-  Array<{ timeframe: string; bet: number; count: number }>
+  Array<{ duration: string; bet: number; count: number }>
 > {
   const snap = await queuesRef.once("value");
-  const stats: Array<{ timeframe: string; bet: number; count: number }> = [];
+  const stats: Array<{ duration: string; bet: number; count: number }> = [];
 
   if (snap.exists()) {
     snap.forEach((child) => {
@@ -46,7 +46,7 @@ export async function getQueueStats(): Promise<
         const count = child.numChildren();
         if (count > 0) {
           stats.push({
-            timeframe: parts[0],
+            duration: parts[0],
             bet: parseFloat(parts[1]),
             count,
           });
@@ -109,7 +109,7 @@ async function matchPair(
   ]);
 
   const parts = queueKey.split("_");
-  const timeframe = parts[0];
+  const duration = parts[0];
   const bet = parseFloat(parts[1]);
 
   const now = Date.now();
@@ -117,7 +117,7 @@ async function matchPair(
   const matchData: DbMatch = {
     player1,
     player2,
-    timeframe,
+    duration,
     betAmount: bet,
     status: "awaiting_deposits",
     escrowState: "awaiting_deposits",
@@ -127,7 +127,7 @@ async function matchPair(
   const matchId = await createDbMatch(matchData);
 
   console.log(
-    `[Matchmaking] Match created: ${matchId} | ${player1} vs ${player2} | ${timeframe} | $${bet}`
+    `[Matchmaking] Match created: ${matchId} | ${player1} vs ${player2} | ${duration} | $${bet}`
   );
 
   const [p1User, p2User] = await Promise.all([
@@ -142,7 +142,7 @@ async function matchPair(
       address: player2,
       gamerTag: p2User?.gamerTag || player2.slice(0, 8),
     },
-    timeframe,
+    duration,
     bet,
   });
 
@@ -153,8 +153,7 @@ async function matchPair(
       address: player1,
       gamerTag: p1User?.gamerTag || player1.slice(0, 8),
     },
-    timeframe,
+    duration,
     bet,
   });
 }
-
