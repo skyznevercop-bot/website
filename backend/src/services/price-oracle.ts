@@ -8,9 +8,9 @@ export interface PriceData {
 }
 
 let latestPrices: PriceData = {
-  btc: 97500,
-  eth: 3850,
-  sol: 178,
+  btc: 100000,
+  eth: 2700,
+  sol: 200,
   timestamp: Date.now(),
 };
 

@@ -79,6 +79,61 @@
     });
   </script>
 
+  <!-- TradingView Widget Library -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+    // Global chart management for Dart JS interop.
+    window._tvWidgets = {};
+
+    window._createTVChart = function(containerId, symbol, theme) {
+      // Destroy existing widget if any.
+      window._destroyTVChart(containerId);
+
+      var container = document.getElementById(containerId);
+      if (!container) {
+        console.warn('TradingView: container not found:', containerId);
+        return;
+      }
+      container.innerHTML = '';
+
+      try {
+        var widget = new TradingView.widget({
+          container_id: containerId,
+          autosize: true,
+          symbol: symbol || 'BINANCE:BTCUSDT',
+          interval: '5',
+          timezone: 'Etc/UTC',
+          theme: theme || 'dark',
+          style: '1',
+          locale: 'en',
+          toolbar_bg: '#131722',
+          enable_publishing: false,
+          allow_symbol_change: true,
+          hide_top_toolbar: false,
+          hide_legend: false,
+          hide_side_toolbar: false,
+          save_image: false,
+          calendar: false,
+          hide_volume: false,
+          withdateranges: true,
+          details: false
+        });
+        window._tvWidgets[containerId] = widget;
+      } catch(e) {
+        console.error('TradingView widget error:', e);
+      }
+    };
+
+    window._destroyTVChart = function(containerId) {
+      if (window._tvWidgets[containerId]) {
+        try { window._tvWidgets[containerId].remove(); } catch(e) {}
+        delete window._tvWidgets[containerId];
+      }
+      var container = document.getElementById(containerId);
+      if (container) container.innerHTML = '';
+    };
+  </script>
+
   <!-- Buffer polyfill (required by @solana/web3.js in browsers) -->
   <script src="https://unpkg.com/buffer@6.0.3/index.js"></script>
   <script>window.Buffer = buffer.Buffer;</script>
@@ -89,56 +144,193 @@
     // Expose solanaWeb3 globally for Dart JS interop.
     window.solanaWeb3 = solanaWeb3;
 
-    // Fetch USDC balance from Solana mainnet via native fetch (avoids Dart http CORS issues).
-    window._getUsdcBalance = function(address) {
-      return fetch('https://api.mainnet-beta.solana.com', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getTokenAccountsByOwner',
-          params: [
-            address,
-            { mint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' },
-            { encoding: 'jsonParsed' }
-          ]
-        })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var accounts = data.result && data.result.value;
-        if (!accounts || !accounts.length) return 0;
-        var total = 0;
-        for (var i = 0; i < accounts.length; i++) {
-          try {
-            var amt = accounts[i].account.data.parsed.info.tokenAmount;
-            total += parseFloat(amt.uiAmountString || '0');
-          } catch(e) {}
+    // Fetch USDC balance for a wallet address via Solana JSON-RPC.
+    // Params are passed from Dart so it queries the correct network.
+    window._getUsdcBalance = async function(address, rpcUrl, usdcMint) {
+      var mint = (typeof usdcMint === 'string' && usdcMint.length > 0) ? usdcMint : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      // Try multiple RPCs: provided URL, PublicNode, then backend proxy.
+      var rpcs = [];
+      if (typeof rpcUrl === 'string' && rpcUrl.length > 0) rpcs.push(rpcUrl);
+      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+
+      for (var ri = 0; ri < rpcs.length; ri++) {
+        try {
+          var response = await fetch(rpcs[ri], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTokenAccountsByOwner',
+              params: [address, { mint: mint }, { encoding: 'jsonParsed' }]
+            })
+          });
+
+          if (!response.ok) continue;
+          var data = await response.json();
+          if (data.error) continue;
+
+          var accounts = data.result && data.result.value;
+          if (!accounts || accounts.length === 0) return 0.0;
+
+          var total = 0.0;
+          for (var i = 0; i < accounts.length; i++) {
+            try {
+              var info = accounts[i].account.data.parsed.info;
+              total += parseFloat(info.tokenAmount.uiAmountString || '0');
+            } catch(e) { /* skip */ }
+          }
+          return total;
+        } catch(e) {
+          console.warn('[SolFight] RPC ' + rpcs[ri] + ' failed for balance, trying next...', e);
         }
-        return total;
-      })
-      .catch(function() { return 0; });
+      }
+      return 0.0;
     };
 
-    // Fetch SOL balance from Solana mainnet.
-    window._getSolBalance = function(address) {
-      return fetch('https://api.mainnet-beta.solana.com', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'getBalance',
-          params: [address]
-        })
-      })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        var lamports = data.result && data.result.value;
-        return typeof lamports === 'number' ? lamports / 1e9 : 0;
-      })
-      .catch(function() { return 0; });
+    // Fetch SOL balance from Solana (with RPC fallback).
+    window._getSolBalance = async function(address, rpcUrl) {
+      var rpcs = [];
+      if (rpcUrl) rpcs.push(rpcUrl);
+      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+      for (var ri = 0; ri < rpcs.length; ri++) {
+        try {
+          var r = await fetch(rpcs[ri], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] })
+          });
+          if (!r.ok) continue;
+          var data = await r.json();
+          if (data.error) continue;
+          var lamports = data.result && data.result.value;
+          return typeof lamports === 'number' ? lamports / 1e9 : 0;
+        } catch(e) { /* try next */ }
+      }
+      return 0;
+    };
+    // ── Escrow: Send USDC to escrow wallet for a match ──────────────────────
+    window._sendUsdcToEscrow = async function(walletName, escrowAddress, amountUsdc, usdcMint, rpcUrl) {
+      var Connection = solanaWeb3.Connection;
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+      var SystemProgram = solanaWeb3.SystemProgram;
+
+      var TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+      var ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+
+      // Get wallet provider (legacy providers: Phantom, Solflare, Backpack)
+      var provider = null;
+      var name = walletName.toLowerCase();
+      if (name === 'phantom' && window.phantom && window.phantom.solana) {
+        provider = window.phantom.solana;
+      } else if (name === 'solflare' && window.solflare) {
+        provider = window.solflare;
+      } else if (name === 'backpack') {
+        provider = window.backpack || (window.xnft && window.xnft.solana);
+      }
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      // Try multiple RPCs: PublicNode (CORS-friendly), backend proxy, then official.
+      var rpcList = [
+        'https://solana-rpc.publicnode.com',
+        'https://solfight-backend.onrender.com/api/rpc-proxy',
+        rpcUrl
+      ];
+      var connection = null;
+      var bh = null;
+      for (var r = 0; r < rpcList.length; r++) {
+        try {
+          var testConn = new Connection(rpcList[r], 'confirmed');
+          bh = await testConn.getLatestBlockhash('confirmed');
+          connection = testConn;
+          console.log('[SolFight] Using RPC: ' + rpcList[r]);
+          break;
+        } catch(e) {
+          console.warn('[SolFight] RPC ' + rpcList[r] + ' failed, trying next...', e);
+        }
+      }
+      if (!connection || !bh) {
+        throw new Error('All Solana RPC endpoints returned errors. Please try again.');
+      }
+      var sender = provider.publicKey;
+      var escrow = new PublicKey(escrowAddress);
+      var mint = new PublicKey(usdcMint);
+
+      // USDC has 6 decimals
+      var amountSmallest = BigInt(Math.round(amountUsdc * 1000000));
+
+      // Derive Associated Token Accounts
+      var senderAta = PublicKey.findProgramAddressSync(
+        [sender.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )[0];
+      var escrowAta = PublicKey.findProgramAddressSync(
+        [escrow.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+        ASSOCIATED_TOKEN_PROGRAM_ID
+      )[0];
+
+      var tx = new Transaction();
+
+      // Create escrow ATA idempotently (instruction index 1).
+      // This creates the account if missing, or succeeds silently if it exists.
+      // Avoids the getAccountInfo RPC call which gets 403'd by public RPCs.
+      tx.add(new TransactionInstruction({
+        programId: ASSOCIATED_TOKEN_PROGRAM_ID,
+        keys: [
+          { pubkey: sender, isSigner: true, isWritable: true },
+          { pubkey: escrowAta, isSigner: false, isWritable: true },
+          { pubkey: escrow, isSigner: false, isWritable: false },
+          { pubkey: mint, isSigner: false, isWritable: false },
+          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+        ],
+        data: new Uint8Array([1]),
+      }));
+
+      // SPL Token transfer instruction (index 3)
+      var amountBytes = new Uint8Array(8);
+      var val = amountSmallest;
+      for (var i = 0; i < 8; i++) {
+        amountBytes[i] = Number(val & BigInt(0xFF));
+        val = val >> BigInt(8);
+      }
+      var transferData = new Uint8Array(9);
+      transferData[0] = 3; // Transfer instruction index
+      transferData.set(amountBytes, 1);
+
+      tx.add(new TransactionInstruction({
+        programId: TOKEN_PROGRAM_ID,
+        keys: [
+          { pubkey: senderAta, isSigner: false, isWritable: true },
+          { pubkey: escrowAta, isSigner: false, isWritable: true },
+          { pubkey: sender, isSigner: true, isWritable: false },
+        ],
+        data: transferData,
+      }));
+
+      // Set blockhash (already fetched during RPC probe) and fee payer
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = sender;
+
+      // Sign & send via wallet
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
+      // Confirm transaction
+      await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
     };
   </script>
 

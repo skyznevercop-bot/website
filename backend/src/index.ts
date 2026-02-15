@@ -16,6 +16,7 @@ import leaderboardRoutes from "./routes/leaderboard";
 import portfolioRoutes from "./routes/portfolio";
 import referralRoutes from "./routes/referral";
 import clanRoutes from "./routes/clan";
+import rpcProxyRoutes from "./routes/rpc-proxy";
 
 const app = express();
 const server = createServer(app);
@@ -38,6 +39,7 @@ app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/clan", clanRoutes);
+app.use("/api/rpc-proxy", rpcProxyRoutes);
 
 // WebSocket
 setupWebSocket(server);

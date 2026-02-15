@@ -226,6 +226,27 @@ async function handleMessage(
         leverage: number;
       };
 
+      // Input validation.
+      if (typeof size !== "number" || size < 1 || size > DEMO_BALANCE) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Invalid position size (1 – $1M)" })
+        );
+        return;
+      }
+      if (typeof leverage !== "number" || leverage < 1 || leverage > 100) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Invalid leverage (1x – 100x)" })
+        );
+        return;
+      }
+      const validAssets = ["BTC", "ETH", "SOL"];
+      if (!validAssets.includes(asset)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Unknown asset" })
+        );
+        return;
+      }
+
       const prices = getLatestPrices();
       const priceMap: Record<string, number> = {
         BTC: prices.btc,
@@ -235,7 +256,7 @@ async function handleMessage(
       const entryPrice = priceMap[asset];
       if (!entryPrice) {
         ws.send(
-          JSON.stringify({ type: "error", message: "Unknown asset" })
+          JSON.stringify({ type: "error", message: "Price unavailable" })
         );
         return;
       }

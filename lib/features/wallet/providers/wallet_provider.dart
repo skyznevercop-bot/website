@@ -1,10 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:js_interop';
-import 'dart:js_interop_unsafe';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
+import '../../../core/config/environment.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/solana_wallet_adapter.dart';
 import '../models/wallet_state.dart';
@@ -83,10 +84,10 @@ class WalletNotifier extends Notifier<WalletState> {
 
       _backendConnected = backendAvailable;
 
-      // Fetch on-chain USDC balance when backend is not available.
-      if (!backendAvailable) {
-        balance = await _fetchOnChainUsdcBalance(address);
-      }
+      // Always use on-chain USDC balance (backend platformBalance is 0
+      // until custodial accounting is implemented).
+      final onChainBalance = await _fetchOnChainUsdcBalance(address);
+      balance = onChainBalance;
 
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
@@ -151,40 +152,76 @@ class WalletNotifier extends Notifier<WalletState> {
     state = state.copyWith(usdcBalance: current + amount);
   }
 
-  /// Refresh USDC balance from the backend or on-chain.
+  /// Refresh USDC balance from on-chain (always uses on-chain for now).
   Future<void> refreshBalance() async {
     if (!state.isConnected || state.address == null) return;
     try {
-      if (_backendConnected) {
-        final response = await _api.get('/portfolio/balance');
-        final platformBalance =
-            (response['platformBalance'] as num).toDouble();
-        state = state.copyWith(usdcBalance: platformBalance);
-      } else {
-        final balance = await _fetchOnChainUsdcBalance(state.address!);
-        state = state.copyWith(usdcBalance: balance);
-      }
+      final balance = await _fetchOnChainUsdcBalance(state.address!);
+      state = state.copyWith(usdcBalance: balance);
     } catch (_) {
       // Silently fail, keep existing balance.
     }
   }
 
-  /// Fetch USDC balance from Solana mainnet via JS interop (browser fetch).
+  /// Fetch USDC SPL token balance directly from Solana RPC via Dart HTTP.
+  /// Tries primary RPC first, falls back to secondary if it fails.
   static Future<double> _fetchOnChainUsdcBalance(String walletAddress) async {
+    // Try primary RPC, then fallback.
+    for (final rpcUrl in [
+      Environment.solanaRpcUrl,
+      Environment.solanaRpcUrlFallback,
+    ]) {
+      final result = await _queryUsdcBalance(walletAddress, rpcUrl);
+      if (result != null) return result;
+    }
+    return 0;
+  }
+
+  /// Query USDC balance from a specific Solana RPC endpoint.
+  /// Returns null on failure so the caller can try the next RPC.
+  static Future<double?> _queryUsdcBalance(
+      String walletAddress, String rpcUrl) async {
     try {
-      final fn = globalContext.getProperty('_getUsdcBalance'.toJS);
-      if (fn == null || !fn.isA<JSFunction>()) return 0;
+      final response = await http.post(
+        Uri.parse(rpcUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 1,
+          'method': 'getTokenAccountsByOwner',
+          'params': [
+            walletAddress,
+            {'mint': Environment.usdcMint},
+            {'encoding': 'jsonParsed'},
+          ],
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-      final promise = globalContext.callMethod(
-          '_getUsdcBalance'.toJS, walletAddress.toJS) as JSPromise;
-      final result = await promise.toDart;
+      if (response.statusCode != 200) return null;
 
-      if (result.isA<JSNumber>()) {
-        return (result as JSNumber).toDartDouble;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      if (data.containsKey('error')) return null;
+
+      final result = data['result'] as Map<String, dynamic>?;
+      final accounts = result?['value'] as List<dynamic>?;
+      if (accounts == null || accounts.isEmpty) return 0;
+
+      double total = 0;
+      for (final account in accounts) {
+        try {
+          final info = account['account']['data']['parsed']['info']
+              as Map<String, dynamic>;
+          final tokenAmount = info['tokenAmount'] as Map<String, dynamic>;
+          final uiAmount = tokenAmount['uiAmountString'] as String? ?? '0';
+          total += double.tryParse(uiAmount) ?? 0;
+        } catch (_) {
+          continue;
+        }
       }
-      return 0;
-    } catch (_) {
-      return 0;
+      return total;
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl failed: $e');
+      return null;
     }
   }
 
