@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
+import '../../wallet/providers/wallet_provider.dart';
 import '../models/trading_models.dart';
 import 'price_feed_provider.dart';
 
@@ -521,14 +522,41 @@ class TradingNotifier extends Notifier<TradingState> {
       return p;
     }).toList();
 
+    final myFinalBalance = state.balance + balanceReturn;
+
+    // If no winner was provided (timer expired locally), determine winner
+    // by comparing final balances. Whoever has the higher balance wins.
+    String? resolvedWinner = winner;
+    bool resolvedIsTie = isTie ?? false;
+    final bool resolvedIsForfeit = isForfeit ?? false;
+
+    if (resolvedWinner == null && !resolvedIsTie && !resolvedIsForfeit) {
+      final myAddress = ref.read(walletProvider).address;
+      final oppAddress = state.opponentAddress;
+      final myEquity = myFinalBalance;
+      final oppEquity = state.opponentEquity;
+
+      if (myAddress != null && oppAddress != null) {
+        final diff = (myEquity - oppEquity).abs();
+        // Tie if balances are within 0.01% of initial balance.
+        if (diff <= state.initialBalance * 0.0001) {
+          resolvedIsTie = true;
+        } else if (myEquity > oppEquity) {
+          resolvedWinner = myAddress;
+        } else {
+          resolvedWinner = oppAddress;
+        }
+      }
+    }
+
     state = state.copyWith(
       positions: updatedPositions,
-      balance: state.balance + balanceReturn,
+      balance: myFinalBalance,
       matchActive: false,
       matchTimeRemainingSeconds: 0,
-      matchWinner: winner,
-      matchIsTie: isTie,
-      matchIsForfeit: isForfeit,
+      matchWinner: resolvedWinner,
+      matchIsTie: resolvedIsTie,
+      matchIsForfeit: resolvedIsForfeit,
     );
   }
 }
