@@ -129,8 +129,8 @@ class LeaderboardScreen extends ConsumerWidget {
                           children: List.generate(rest.length, (i) {
                             final player = rest[i];
                             final isCurrentUser =
-                                wallet.gamerTag != null &&
-                                    wallet.gamerTag == player.gamerTag;
+                                wallet.address != null &&
+                                    wallet.address == player.id;
                             return _LeaderboardRow(
                               rank: i + 4,
                               player: player,
@@ -266,7 +266,30 @@ class _LeaderboardHero extends StatelessWidget {
 
                 // Podium
                 if (top3.length >= 3)
-                  _Podium(top3: top3, isMobile: isMobile),
+                  _Podium(top3: top3, isMobile: isMobile)
+                else if (top3.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Column(
+                      children: [
+                        Icon(
+                          Icons.emoji_events_outlined,
+                          color: Colors.white.withValues(alpha: 0.2),
+                          size: 48,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          'No fighters yet — be the first!',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            color: Colors.white.withValues(alpha: 0.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  _PartialPodium(players: top3, isMobile: isMobile),
               ],
             ),
           ),
@@ -322,6 +345,40 @@ class _Podium extends StatelessWidget {
             isMobile: isMobile,
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Handles 1-2 players — shows them in a centered row without the full podium.
+class _PartialPodium extends StatelessWidget {
+  final List<LeaderboardPlayer> players;
+  final bool isMobile;
+  const _PartialPodium({required this.players, required this.isMobile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (int i = 0; i < players.length; i++) ...[
+          if (i > 0) const SizedBox(width: 16),
+          SizedBox(
+            width: isMobile ? 120 : 160,
+            child: _PodiumSlot(
+              player: players[i],
+              rank: i + 1,
+              color: i == 0
+                  ? const Color(0xFFFFD700)
+                  : const Color(0xFFC0C0C0),
+              height: i == 0
+                  ? (isMobile ? 110 : 130)
+                  : (isMobile ? 80 : 100),
+              isMobile: isMobile,
+            ),
+          ),
+        ],
       ],
     );
   }
