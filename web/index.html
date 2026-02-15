@@ -275,33 +275,9 @@
         ASSOCIATED_TOKEN_PROGRAM_ID
       )[0];
 
-      var MEMO_PROGRAM_ID = new PublicKey('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr');
-
       var tx = new Transaction();
 
-      // Add memo so wallets can identify the transaction purpose.
-      var memoText = 'SolFight Match Deposit: ' + amountUsdc + ' USDC';
-      tx.add(new TransactionInstruction({
-        programId: MEMO_PROGRAM_ID,
-        keys: [],
-        data: new TextEncoder().encode(memoText),
-      }));
-
-      // Create escrow ATA idempotently (instruction index 1).
-      // This creates the account if missing, or succeeds silently if it exists.
-      // Avoids the getAccountInfo RPC call which gets 403'd by public RPCs.
-      tx.add(new TransactionInstruction({
-        programId: ASSOCIATED_TOKEN_PROGRAM_ID,
-        keys: [
-          { pubkey: sender, isSigner: true, isWritable: true },
-          { pubkey: escrowAta, isSigner: false, isWritable: true },
-          { pubkey: escrow, isSigner: false, isWritable: false },
-          { pubkey: mint, isSigner: false, isWritable: false },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        ],
-        data: new Uint8Array([1]),
-      }));
+      // SPL Token transfer only — escrow ATA is pre-created on the server side.
 
       // SPL Token transfer instruction (index 3)
       var amountBytes = new Uint8Array(8);
