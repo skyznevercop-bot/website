@@ -234,11 +234,10 @@
     // Get a working RPC connection (with fallback).
     window._getRpcConnection = async function(rpcUrl) {
       var Connection = solanaWeb3.Connection;
-      var rpcList = [
-        'https://solana-rpc.publicnode.com',
-        'https://solfight-backend.onrender.com/api/rpc-proxy',
-        rpcUrl
-      ];
+      var rpcList = [];
+      if (rpcUrl) rpcList.push(rpcUrl);
+      rpcList.push('https://solana-rpc.publicnode.com');
+      rpcList.push('https://solfight-backend.onrender.com/api/rpc-proxy');
       for (var r = 0; r < rpcList.length; r++) {
         try {
           var testConn = new Connection(rpcList[r], 'confirmed');

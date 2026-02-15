@@ -56,11 +56,13 @@ class ApiClient {
 
   // ── REST ───────────────────────────────────────────────
 
+  static const _timeout = Duration(seconds: 15);
+
   Future<Map<String, dynamic>> get(String path) async {
     final response = await http.get(
       Uri.parse('${Environment.apiBaseUrl}$path'),
       headers: _authHeaders,
-    );
+    ).timeout(_timeout);
     return _handleResponse(response);
   }
 
@@ -72,7 +74,7 @@ class ApiClient {
       Uri.parse('${Environment.apiBaseUrl}$path'),
       headers: _authHeaders,
       body: body != null ? jsonEncode(body) : null,
-    );
+    ).timeout(_timeout);
     return _handleResponse(response);
   }
 
@@ -84,7 +86,7 @@ class ApiClient {
       Uri.parse('${Environment.apiBaseUrl}$path'),
       headers: _authHeaders,
       body: jsonEncode(body),
-    );
+    ).timeout(_timeout);
     return _handleResponse(response);
   }
 
@@ -96,12 +98,17 @@ class ApiClient {
       Uri.parse('${Environment.apiBaseUrl}$path'),
       headers: _authHeaders,
       body: body != null ? jsonEncode(body) : null,
-    );
+    ).timeout(_timeout);
     return _handleResponse(response);
   }
 
   Map<String, dynamic> _handleResponse(http.Response response) {
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    Map<String, dynamic> body;
+    try {
+      body = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (_) {
+      throw ApiException(response.statusCode, response.body);
+    }
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return body;
     }

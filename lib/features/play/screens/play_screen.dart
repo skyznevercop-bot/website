@@ -398,16 +398,6 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                     } catch (_) {}
                   },
                 );
-
-                // Cleanup when dialog unmounts.
-                Future.doWhile(() async {
-                  await Future.delayed(const Duration(milliseconds: 500));
-                  if (!ctx.mounted) {
-                    cleanup();
-                    return false;
-                  }
-                  return true;
-                });
               }
             } catch (e) {
               cleanup();

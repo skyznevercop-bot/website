@@ -84,6 +84,9 @@ class TradingState {
           ? (opponentEquity - initialBalance) / initialBalance * 100
           : 0;
 
+  /// Sentinel to distinguish "not passed" from "explicitly set to null".
+  static const _unchanged = Object();
+
   TradingState copyWith({
     int? selectedAssetIndex,
     Map<String, double>? currentPrices,
@@ -92,14 +95,14 @@ class TradingState {
     int? matchTimeRemainingSeconds,
     bool? matchActive,
     double? initialBalance,
-    String? matchId,
-    String? opponentAddress,
-    String? opponentGamerTag,
+    Object? matchId = _unchanged,
+    Object? opponentAddress = _unchanged,
+    Object? opponentGamerTag = _unchanged,
     double? opponentPnl,
     double? opponentEquity,
     int? opponentPositionCount,
-    String? arenaRoute,
-    String? matchWinner,
+    Object? arenaRoute = _unchanged,
+    Object? matchWinner = _unchanged,
     bool? matchIsTie,
     bool? matchIsForfeit,
   }) {
@@ -112,15 +115,22 @@ class TradingState {
           matchTimeRemainingSeconds ?? this.matchTimeRemainingSeconds,
       matchActive: matchActive ?? this.matchActive,
       initialBalance: initialBalance ?? this.initialBalance,
-      matchId: matchId ?? this.matchId,
-      opponentAddress: opponentAddress ?? this.opponentAddress,
-      opponentGamerTag: opponentGamerTag ?? this.opponentGamerTag,
+      matchId: matchId == _unchanged ? this.matchId : matchId as String?,
+      opponentAddress: opponentAddress == _unchanged
+          ? this.opponentAddress
+          : opponentAddress as String?,
+      opponentGamerTag: opponentGamerTag == _unchanged
+          ? this.opponentGamerTag
+          : opponentGamerTag as String?,
       opponentPnl: opponentPnl ?? this.opponentPnl,
       opponentEquity: opponentEquity ?? this.opponentEquity,
       opponentPositionCount:
           opponentPositionCount ?? this.opponentPositionCount,
-      arenaRoute: arenaRoute ?? this.arenaRoute,
-      matchWinner: matchWinner ?? this.matchWinner,
+      arenaRoute:
+          arenaRoute == _unchanged ? this.arenaRoute : arenaRoute as String?,
+      matchWinner: matchWinner == _unchanged
+          ? this.matchWinner
+          : matchWinner as String?,
       matchIsTie: matchIsTie ?? this.matchIsTie,
       matchIsForfeit: matchIsForfeit ?? this.matchIsForfeit,
     );
@@ -181,7 +191,13 @@ class TradingNotifier extends Notifier<TradingState> {
         opponentAddress: opponentAddress,
         opponentGamerTag: opponentGamerTag,
         opponentPnl: 0,
+        opponentEquity: TradingState.demoBalance,
+        opponentPositionCount: 0,
         arenaRoute: arenaRoute,
+        // Reset result state from any previous match.
+        matchWinner: null,
+        matchIsTie: false,
+        matchIsForfeit: false,
       );
     }
 

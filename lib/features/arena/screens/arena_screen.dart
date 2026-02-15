@@ -23,7 +23,6 @@ import '../../wallet/providers/wallet_provider.dart';
 // =============================================================================
 
 String _fmtPrice(double price) {
-  if (price >= 10000) return price.toStringAsFixed(2);
   if (price >= 100) return price.toStringAsFixed(2);
   return price.toStringAsFixed(3);
 }
@@ -534,10 +533,17 @@ class _ArenaToolbar extends StatelessWidget {
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.error),
             onPressed: () {
               Navigator.of(ctx).pop();
+              // Disconnect WS so the backend sees it as a disconnect → forfeit.
+              // The 30s grace period timer on the backend will then settle.
+              ApiClient.instance.disconnectWebSocket();
               ProviderScope.containerOf(context)
                   .read(tradingProvider.notifier)
-                  .endMatch();
+                  .endMatch(isForfeit: true);
               context.go(AppConstants.playRoute);
+              // Reconnect WS after navigating away.
+              Future.delayed(const Duration(seconds: 1), () {
+                ApiClient.instance.connectWebSocket();
+              });
             },
             child: const Text('Forfeit Match'),
           ),

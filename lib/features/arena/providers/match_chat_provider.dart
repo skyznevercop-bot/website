@@ -103,12 +103,6 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
       state = state.sublist(state.length - 100);
     }
   }
-
-  /// Clean up when match ends or user leaves.
-  void dispose() {
-    _wsSub?.cancel();
-    _wsSub = null;
-  }
 }
 
 final matchChatProvider =
