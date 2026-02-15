@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108" fill="none">
+<rect width="108" height="108" rx="26" fill="#FFFFFF"/>
+<!-- Handle tab -->
+<path d="M44 32C44 26.4772 48.4772 22 54 22C59.5228 22 64 26.4772 64 32V33H58V32C58 29.7909 56.2091 28 54 28C51.7909 28 50 29.7909 50 32V33H44V32Z" fill="#E04F4F"/>
+<!-- Main dome body -->
+<path d="M30 50C30 40.0589 38.0589 32 48 32H60C69.9411 32 78 40.0589 78 50V70C78 74.4183 74.4183 78 70 78H38C33.5817 78 30 74.4183 30 70V50Z" fill="#E04F4F"/>
+<!-- Circle window -->
+<circle cx="54" cy="55" r="8" fill="white"/>
+<!-- Bottom pocket -->
+<rect x="34" y="82" width="40" height="14" rx="6" fill="#E04F4F"/>
+</svg>

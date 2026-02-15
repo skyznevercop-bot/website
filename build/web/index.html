@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="SolFight - 1v1 Competitive Trading Game on Solana">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="SolFight">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>SolFight</title>
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    /* Loading indicator styles */
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #131722;
+      overflow: hidden;
+    }
+    .loading {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .loading h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #D1D4DC;
+      margin-bottom: 8px;
+    }
+    .loading h1 span {
+      color: #9945FF;
+    }
+    .loading p {
+      color: #787B86;
+      font-size: 0.9rem;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #2A2E39;
+      border-top: 3px solid #9945FF;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-top: 24px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="loading" id="loading">
+    <img src="icons/Icon-192.png" alt="SolFight" width="80" height="80" style="border-radius: 16px; margin-bottom: 16px;">
+    <h1>Sol<span>Fight</span></h1>
+    <p>Loading the arena...</p>
+    <div class="spinner"></div>
+  </div>
+
+  <script>
+    // Remove loading indicator once Flutter app loads
+    window.addEventListener('flutter-first-frame', function() {
+      var loading = document.getElementById('loading');
+      if (loading) loading.remove();
+    });
+  </script>
+
+  <!-- TradingView Widget Library -->
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+    // Global chart management for Dart JS interop.
+    window._tvWidgets = {};
+
+    window._createTVChart = function(containerId, symbol, theme) {
+      // Destroy existing widget if any.
+      window._destroyTVChart(containerId);
+
+      var container = document.getElementById(containerId);
+      if (!container) {
+        console.warn('TradingView: container not found:', containerId);
+        return;
+      }
+      container.innerHTML = '';
+
+      try {
+        var widget = new TradingView.widget({
+          container_id: containerId,
+          autosize: true,
+          symbol: symbol || 'BINANCE:BTCUSDT',
+          interval: '5',
+          timezone: 'Etc/UTC',
+          theme: theme || 'dark',
+          style: '1',
+          locale: 'en',
+          toolbar_bg: '#131722',
+          enable_publishing: false,
+          allow_symbol_change: true,
+          hide_top_toolbar: false,
+          hide_legend: false,
+          hide_side_toolbar: false,
+          save_image: false,
+          calendar: false,
+          hide_volume: false,
+          withdateranges: true,
+          details: false
+        });
+        window._tvWidgets[containerId] = widget;
+      } catch(e) {
+        console.error('TradingView widget error:', e);
+      }
+    };
+
+    window._destroyTVChart = function(containerId) {
+      if (window._tvWidgets[containerId]) {
+        try { window._tvWidgets[containerId].remove(); } catch(e) {}
+        delete window._tvWidgets[containerId];
+      }
+      var container = document.getElementById(containerId);
+      if (container) container.innerHTML = '';
+    };
+  </script>
+
+  <!-- Buffer polyfill (required by @solana/web3.js in browsers) -->
+  <script src="https://unpkg.com/buffer@6.0.3/index.js"></script>
+  <script>window.Buffer = buffer.Buffer;</script>
+
+  <!-- Solana Web3.js (required for wallet adapter JS interop) -->
+  <script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+  <script>
+    // Expose solanaWeb3 globally for Dart JS interop.
+    window.solanaWeb3 = solanaWeb3;
+
+    // Fetch USDC balance for a wallet address via Solana JSON-RPC.
+    // Params are passed from Dart so it queries the correct network.
+    window._getUsdcBalance = async function(address, rpcUrl, usdcMint) {
+      var mint = (typeof usdcMint === 'string' && usdcMint.length > 0) ? usdcMint : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+      // Try multiple RPCs: provided URL, PublicNode, then backend proxy.
+      var rpcs = [];
+      if (typeof rpcUrl === 'string' && rpcUrl.length > 0) rpcs.push(rpcUrl);
+      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+
+      for (var ri = 0; ri < rpcs.length; ri++) {
+        try {
+          var response = await fetch(rpcs[ri], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0',
+              id: 1,
+              method: 'getTokenAccountsByOwner',
+              params: [address, { mint: mint }, { encoding: 'jsonParsed' }]
+            })
+          });
+
+          if (!response.ok) continue;
+          var data = await response.json();
+          if (data.error) continue;
+
+          var accounts = data.result && data.result.value;
+          if (!accounts || accounts.length === 0) return 0.0;
+
+          var total = 0.0;
+          for (var i = 0; i < accounts.length; i++) {
+            try {
+              var info = accounts[i].account.data.parsed.info;
+              total += parseFloat(info.tokenAmount.uiAmountString || '0');
+            } catch(e) { /* skip */ }
+          }
+          return total;
+        } catch(e) {
+          console.warn('[SolFight] RPC ' + rpcs[ri] + ' failed for balance, trying next...', e);
+        }
+      }
+      return 0.0;
+    };
+
+    // Fetch SOL balance from Solana (with RPC fallback).
+    window._getSolBalance = async function(address, rpcUrl) {
+      var rpcs = [];
+      if (rpcUrl) rpcs.push(rpcUrl);
+      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+      for (var ri = 0; ri < rpcs.length; ri++) {
+        try {
+          var r = await fetch(rpcs[ri], {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getBalance', params: [address] })
+          });
+          if (!r.ok) continue;
+          var data = await r.json();
+          if (data.error) continue;
+          var lamports = data.result && data.result.value;
+          return typeof lamports === 'number' ? lamports / 1e9 : 0;
+        } catch(e) { /* try next */ }
+      }
+      return 0;
+    };
+    // ── Helpers ───────────────────────────────────────────────────
+    var TOKEN_PROGRAM_ID_STR = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    var ASSOC_TOKEN_PROGRAM_ID_STR = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+
+    // Compute Anchor instruction discriminator: sha256("global:<name>")[0..8]
+    window._anchorDisc = async function(name) {
+      var enc = new TextEncoder();
+      var hash = await crypto.subtle.digest('SHA-256', enc.encode('global:' + name));
+      return new Uint8Array(hash).slice(0, 8);
+    };
+
+    // Get connected wallet provider by name.
+    window._getWalletProvider = function(walletName) {
+      var name = walletName.toLowerCase();
+      if (name === 'phantom' && window.phantom && window.phantom.solana) return window.phantom.solana;
+      if (name === 'solflare' && window.solflare) return window.solflare;
+      if (name === 'backpack') return window.backpack || (window.xnft && window.xnft.solana);
+      return null;
+    };
+
+    // Get a working RPC connection (with fallback).
+    window._getRpcConnection = async function(rpcUrl) {
+      var Connection = solanaWeb3.Connection;
+      var rpcList = [
+        'https://solana-rpc.publicnode.com',
+        'https://solfight-backend.onrender.com/api/rpc-proxy',
+        rpcUrl
+      ];
+      for (var r = 0; r < rpcList.length; r++) {
+        try {
+          var testConn = new Connection(rpcList[r], 'confirmed');
+          var bh = await testConn.getLatestBlockhash('confirmed');
+          return { connection: testConn, blockhash: bh };
+        } catch(e) {
+          console.warn('[SolFight] RPC ' + rpcList[r] + ' failed, trying next...', e);
+        }
+      }
+      throw new Error('All Solana RPC endpoints returned errors. Please try again.');
+    };
+
+    // Derive Associated Token Account (ATA) address.
+    window._deriveAta = function(owner, mint) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+      var assocProgramId = new PublicKey(ASSOC_TOKEN_PROGRAM_ID_STR);
+      return PublicKey.findProgramAddressSync(
+        [owner.toBuffer(), tokenProgramId.toBuffer(), mint.toBuffer()],
+        assocProgramId
+      )[0];
+    };
+
+    // ── Deposit to Escrow (on-chain program instruction) ──────────────────
+    // Player calls deposit_to_escrow on the SolFight program.
+    // The program transfers bet_amount from player's ATA to the game's escrow ATA.
+    window._depositToEscrow = async function(walletName, programId, gamePda, escrowTokenAccount, usdcMint, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
+      var sender = provider.publicKey;
+      var mint = new PublicKey(usdcMint);
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+
+      // Derive player's USDC ATA.
+      var playerAta = window._deriveAta(sender, mint);
+
+      // Build deposit_to_escrow instruction.
+      var disc = await window._anchorDisc('deposit_to_escrow');
+
+      var ix = new TransactionInstruction({
+        programId: new PublicKey(programId),
+        keys: [
+          { pubkey: new PublicKey(gamePda), isSigner: false, isWritable: true },
+          { pubkey: playerAta, isSigner: false, isWritable: true },
+          { pubkey: new PublicKey(escrowTokenAccount), isSigner: false, isWritable: true },
+          { pubkey: sender, isSigner: true, isWritable: false },
+          { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        ],
+        data: disc,
+      });
+
+      var tx = new Transaction();
+      tx.add(ix);
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = sender;
+
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
+      await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
+    };
+
+    // ── Claim Winnings (on-chain program instruction) ────────────────────
+    // Winner calls claim_winnings to get their payout from the escrow.
+    window._claimWinnings = async function(walletName, programId, gamePda, escrowTokenAccount, platformPda, treasuryAddress, usdcMint, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
+      var winner = provider.publicKey;
+      var mint = new PublicKey(usdcMint);
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+      var treasury = new PublicKey(treasuryAddress);
+
+      // Derive ATAs.
+      var winnerAta = window._deriveAta(winner, mint);
+      var treasuryAta = window._deriveAta(treasury, mint);
+
+      // Build claim_winnings instruction.
+      var disc = await window._anchorDisc('claim_winnings');
+
+      var ix = new TransactionInstruction({
+        programId: new PublicKey(programId),
+        keys: [
+          { pubkey: new PublicKey(platformPda), isSigner: false, isWritable: false },
+          { pubkey: new PublicKey(gamePda), isSigner: false, isWritable: true },
+          { pubkey: new PublicKey(escrowTokenAccount), isSigner: false, isWritable: true },
+          { pubkey: winnerAta, isSigner: false, isWritable: true },
+          { pubkey: treasuryAta, isSigner: false, isWritable: true },
+          { pubkey: winner, isSigner: true, isWritable: false },
+          { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        ],
+        data: disc,
+      });
+
+      var tx = new Transaction();
+      tx.add(ix);
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = winner;
+
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
+      await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      return signature;
+    };
+  </script>
+
+  <!-- Wallet Standard discovery bridge (for Jupiter and other modern wallets) -->
+  <script>
+    (function() {
+      var wallets = [];
+
+      function addWallet(w) {
+        // Deduplicate by name.
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name === w.name) return;
+        }
+        wallets.push(w);
+      }
+
+      // Listen for wallets that register after app-ready.
+      window.addEventListener('wallet-standard:register-wallet', function(e) {
+        if (e.detail && typeof e.detail.register === 'function') {
+          e.detail.register(function(wallet) { addWallet(wallet); });
+        }
+      });
+
+      // Tell wallets the app is ready (triggers wallets that loaded first).
+      function emitAppReady() {
+        window.dispatchEvent(new CustomEvent('wallet-standard:app-ready', {
+          detail: {
+            register: function() {
+              for (var i = 0; i < arguments.length; i++) { addWallet(arguments[i]); }
+            }
+          }
+        }));
+      }
+      emitAppReady();
+
+      // Fuzzy name lookup: exact match first, then substring match.
+      function findByName(name) {
+        var lower = name.toLowerCase();
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name && wallets[i].name.toLowerCase() === lower) return wallets[i];
+        }
+        for (var i = 0; i < wallets.length; i++) {
+          if (wallets[i].name && wallets[i].name.toLowerCase().indexOf(lower) !== -1) return wallets[i];
+        }
+        return null;
+      }
+
+      // Expose helpers for Dart JS interop.
+      window._walletStandard = {
+        getWallets: function() { return wallets; },
+        getByName: findByName,
+        // Connect with retry — handles extensions that inject asynchronously.
+        connect: function(name) {
+          return new Promise(function(resolve, reject) {
+            var attempts = 0;
+            function tryConnect() {
+              var wallet = findByName(name);
+              if (wallet) {
+                var feat = wallet.features && wallet.features['standard:connect'];
+                if (!feat || typeof feat.connect !== 'function') {
+                  return reject(new Error(name + ' does not support connect'));
+                }
+                return feat.connect().then(function(result) {
+                  var acct = result.accounts && result.accounts[0];
+                  if (!acct) throw new Error('No accounts returned from ' + name);
+                  resolve({ publicKey: acct.address });
+                }).catch(reject);
+              }
+              attempts++;
+              if (attempts <= 15) {
+                // Re-emit app-ready on first retry to catch late-loading wallets.
+                if (attempts === 1) emitAppReady();
+                setTimeout(tryConnect, 200);
+              } else {
+                reject(new Error(name + ' wallet not found. Please install the ' + name + ' browser extension.'));
+              }
+            }
+            tryConnect();
+          });
+        },
+        disconnect: function(name) {
+          var wallet = findByName(name);
+          if (!wallet) return Promise.resolve();
+          var feat = wallet.features && wallet.features['standard:disconnect'];
+          if (!feat || typeof feat.disconnect !== 'function') return Promise.resolve();
+          return feat.disconnect();
+        },
+        signMessage: function(name, messageBytes) {
+          var wallet = findByName(name);
+          if (!wallet) return Promise.reject(new Error(name + ' wallet not found'));
+          var feat = wallet.features && wallet.features['solana:signMessage'];
+          if (!feat || typeof feat.signMessage !== 'function') {
+            return Promise.reject(new Error(name + ' does not support signMessage'));
+          }
+          var account = wallet.accounts && wallet.accounts[0];
+          if (!account) return Promise.reject(new Error('Not connected to ' + name));
+          return feat.signMessage({ message: messageBytes, account: account }).then(function(result) {
+            return { signature: result.signature };
+          });
+        }
+      };
+    })();
+  </script>
+
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
