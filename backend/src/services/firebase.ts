@@ -135,6 +135,7 @@ export interface DbMatch {
   settledAt?: number;
   onChainGameId?: number;
   onChainSettled?: boolean;
+  onChainRetries?: number;
 }
 
 export async function createMatch(data: DbMatch): Promise<string> {

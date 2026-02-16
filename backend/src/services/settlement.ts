@@ -13,7 +13,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 import { processMatchPayout } from "./escrow";
-import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain } from "../utils/solana";
+import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -283,8 +283,34 @@ export function startOnChainRetryLoop(): void {
               continue;
             }
 
-            // Game is still Active on-chain — retry end_game.
-            console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status})...`);
+            // Game is still Active on-chain — check if we CAN settle it.
+            // end_game requires both player profile PDAs to exist.
+            const p1HasProfile = await playerProfileExists(match.player1);
+            const p2HasProfile = await playerProfileExists(match.player2);
+
+            if (!p1HasProfile || !p2HasProfile) {
+              // Can't settle — player profiles don't exist. Stop wasting SOL.
+              const retries = (match.onChainRetries || 0) + 1;
+              await updateMatch(id, { onChainRetries: retries });
+              if (retries <= 1) {
+                console.warn(
+                  `[Settlement] Match ${id}: missing player profiles (p1=${p1HasProfile}, p2=${p2HasProfile}) — skipping on-chain retry`
+                );
+              }
+              continue;
+            }
+
+            // Cap retries to avoid infinite SOL drain.
+            const retries = match.onChainRetries || 0;
+            if (retries >= 10) {
+              if (retries === 10) {
+                console.error(`[Settlement] Match ${id}: max retries (10) reached — giving up on-chain settlement`);
+                await updateMatch(id, { onChainRetries: retries + 1 });
+              }
+              continue;
+            }
+
+            console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status}, attempt ${retries + 1})...`);
 
             const isForfeit = status === "forfeited";
             const p1PnlBps = Math.round((match.player1Roi || 0) * 10000);
@@ -298,7 +324,7 @@ export function startOnChainRetryLoop(): void {
               isForfeit
             );
 
-            await updateMatch(id, { onChainSettled: true });
+            await updateMatch(id, { onChainSettled: true, onChainRetries: retries + 1 });
             console.log(`[Settlement] On-chain retry succeeded for match ${id}`);
 
             const updatedMatch = await getMatch(id);
@@ -308,7 +334,10 @@ export function startOnChainRetryLoop(): void {
               });
             }
           } catch (err) {
-            console.error(`[Settlement] On-chain retry still failing for match ${id}:`, err);
+            // Increment retry counter on failure.
+            const retries = (match.onChainRetries || 0) + 1;
+            await updateMatch(id, { onChainRetries: retries });
+            console.error(`[Settlement] On-chain retry #${retries} failed for match ${id}:`, err);
           }
         }
       }
