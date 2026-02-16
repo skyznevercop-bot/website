@@ -13,7 +13,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 import { processMatchPayout } from "./escrow";
-import { endGameOnChain } from "../utils/solana";
+import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -248,13 +248,14 @@ function calculatePnl(pos: DbPosition, currentPrice: number): number {
 }
 
 /**
- * Retry loop for matches that settled in Firebase but failed on-chain.
- * Runs every 30 seconds, picks up matches with onChainSettled === false.
+ * Retry loop for matches that settled in Firebase but failed on-chain,
+ * and for matches whose refund failed after on-chain settlement.
+ * Runs every 30 seconds.
  */
 export function startOnChainRetryLoop(): void {
   setInterval(async () => {
     try {
-      // Check completed/tied/forfeited matches that failed on-chain.
+      // ── Part 1: Retry on-chain settlement for unsettled matches ──
       for (const status of ["completed", "tied", "forfeited"] as const) {
         const matches = await getMatchesByStatus(status);
         for (const { id, data: match } of matches) {
@@ -263,9 +264,28 @@ export function startOnChainRetryLoop(): void {
           // Don't retry too frequently — skip if settled less than 30s ago.
           if (match.settledAt && Date.now() - match.settledAt < 30_000) continue;
 
-          console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status})...`);
-
           try {
+            // Check on-chain status FIRST to avoid calling end_game on
+            // a game that was already settled (would fail with GameNotActive).
+            const onChainGame = await fetchGameAccount(BigInt(match.onChainGameId));
+
+            if (onChainGame && onChainGame.status !== GameStatus.Active) {
+              // Already settled on-chain — just mark Firebase and trigger payout.
+              console.log(`[Settlement] Match ${id} already settled on-chain (status=${onChainGame.status}) — syncing Firebase`);
+              await updateMatch(id, { onChainSettled: true });
+
+              const updatedMatch = await getMatch(id);
+              if (updatedMatch) {
+                processMatchPayout(id, updatedMatch).catch((err) => {
+                  console.error(`[Settlement] Payout failed for match ${id}:`, err);
+                });
+              }
+              continue;
+            }
+
+            // Game is still Active on-chain — retry end_game.
+            console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status})...`);
+
             const isForfeit = status === "forfeited";
             const p1PnlBps = Math.round((match.player1Roi || 0) * 10000);
             const p2PnlBps = Math.round((match.player2Roi || 0) * 10000);
@@ -281,7 +301,6 @@ export function startOnChainRetryLoop(): void {
             await updateMatch(id, { onChainSettled: true });
             console.log(`[Settlement] On-chain retry succeeded for match ${id}`);
 
-            // Now trigger payout.
             const updatedMatch = await getMatch(id);
             if (updatedMatch) {
               processMatchPayout(id, updatedMatch).catch((err) => {
@@ -293,12 +312,53 @@ export function startOnChainRetryLoop(): void {
           }
         }
       }
+
+      // ── Part 2: Retry failed refunds (ties and cancelled matches) ──
+      await retryFailedRefunds();
     } catch (err) {
       console.error("[Settlement] Retry loop error:", err);
     }
   }, 30_000);
 
   console.log("[Settlement] On-chain retry loop started (30s interval)");
+}
+
+/**
+ * Retry refunds for tied/cancelled matches where the refund failed.
+ * Picks up matches with escrowState === "refund_failed".
+ */
+async function retryFailedRefunds(): Promise<void> {
+  for (const status of ["tied", "cancelled"] as const) {
+    const matches = await getMatchesByStatus(status);
+    for (const { id, data: match } of matches) {
+      if (match.escrowState !== "refund_failed") continue;
+      if (!match.onChainGameId) continue;
+
+      console.log(`[Settlement] Retrying refund for match ${id} (${status})...`);
+
+      try {
+        const refundSig = await refundEscrowOnChain(
+          match.onChainGameId,
+          match.player1,
+          match.player2
+        );
+        await updateMatch(id, {
+          escrowState: "refunded",
+          refundSignatures: { refund: refundSig },
+        });
+
+        broadcastToMatch(id, {
+          type: "escrow_refunded",
+          matchId: id,
+          signature: refundSig,
+        });
+
+        console.log(`[Settlement] Refund retry succeeded for match ${id} | sig: ${refundSig}`);
+      } catch (err) {
+        console.error(`[Settlement] Refund retry still failing for match ${id}:`, err);
+      }
+    }
+  }
 }
 
 async function updatePlayerStats(

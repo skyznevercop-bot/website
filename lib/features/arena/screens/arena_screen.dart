@@ -1468,6 +1468,17 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _visible = true);
     });
+    // If no result after 15s, force local winner determination as fallback.
+    _startPendingTimeout();
+  }
+
+  void _startPendingTimeout() {
+    Future.delayed(const Duration(seconds: 15), () {
+      if (!mounted) return;
+      if (_hasResult) return; // Backend already sent the result.
+      // Re-call endMatch with no params to trigger local winner resolution.
+      ref.read(tradingProvider.notifier).endMatch();
+    });
   }
 
   bool get _hasResult =>
@@ -1517,10 +1528,15 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
 
       if (mounted) setState(() => _claimTx = txSig);
     } catch (e) {
-      if (mounted) setState(() => _claimError = e.toString());
-    } finally {
-      if (mounted) setState(() => _claiming = false);
+      if (mounted) {
+        setState(() {
+          _claimError = e.toString();
+          _claiming = false; // Allow retry on error.
+        });
+      }
+      return;
     }
+    if (mounted) setState(() => _claiming = false);
   }
 
   @override

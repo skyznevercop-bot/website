@@ -19,7 +19,6 @@ import {
   getPositions,
   updatePosition,
   getMatch,
-  DbPosition,
 } from "../services/firebase";
 import { settleByForfeit } from "../services/settlement";
 
@@ -225,6 +224,15 @@ async function handleMessage(
         size: number;
         leverage: number;
       };
+
+      // Validate match is active before allowing position creation.
+      const matchData = await getMatch(matchId);
+      if (!matchData || matchData.status !== "active") {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Match is not active" })
+        );
+        return;
+      }
 
       // Input validation.
       if (typeof size !== "number" || size < 1 || size > DEMO_BALANCE) {

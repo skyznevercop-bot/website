@@ -200,6 +200,12 @@ export async function processMatchPayout(
     return;
   }
 
+  // Guard: skip if payout already processed (prevents double-call race).
+  if (match.escrowState === "payout_sent" || match.escrowState === "refunded") {
+    console.log(`[Escrow] Match ${matchId} already processed (${match.escrowState}) — skipping`);
+    return;
+  }
+
   const gameId = match.onChainGameId;
 
   if (match.status === "completed" && match.winner) {
@@ -237,6 +243,7 @@ export async function processMatchPayout(
       console.log(`[Escrow] Tie refund for match ${matchId} | sig: ${refundSig}`);
     } catch (err) {
       console.error(`[Escrow] Tie refund failed for match ${matchId}:`, err);
+      await updateMatch(matchId, { escrowState: "refund_failed" });
     }
   } else if (match.status === "forfeited" && match.winner) {
     // Forfeit: same as win — winner claims from frontend.
