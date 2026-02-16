@@ -11,6 +11,7 @@ import {
   GameStatus,
   cancelPendingGameOnChain,
   refundEscrowOnChain,
+  closeGameOnChain,
 } from "../utils/solana";
 import { broadcastToMatch, broadcastToUser } from "../ws/rooms";
 
@@ -241,6 +242,9 @@ export async function processMatchPayout(
       });
 
       console.log(`[Escrow] Tie refund for match ${matchId} | sig: ${refundSig}`);
+
+      // Close the game account to reclaim rent.
+      tryCloseGame(gameId, matchId);
     } catch (err) {
       console.error(`[Escrow] Tie refund failed for match ${matchId}:`, err);
       await updateMatch(matchId, { escrowState: "refund_failed" });
@@ -262,6 +266,19 @@ export async function processMatchPayout(
       `[Escrow] Match ${matchId} forfeited on-chain | Winner ${match.winner} can claim`
     );
   }
+}
+
+/**
+ * Try to close a game account to reclaim rent. Fire-and-forget.
+ */
+function tryCloseGame(gameId: number, matchId: string): void {
+  closeGameOnChain(gameId)
+    .then(() => {
+      console.log(`[Escrow] Game ${gameId} closed (match ${matchId}) — rent reclaimed`);
+    })
+    .catch((err) => {
+      console.warn(`[Escrow] Failed to close game ${gameId} (match ${matchId}):`, err);
+    });
 }
 
 /**
@@ -304,6 +321,9 @@ export async function checkDepositTimeouts(): Promise<void> {
         broadcastToUser(match.player1, cancelMsg);
         broadcastToUser(match.player2, cancelMsg);
         console.log(`[Escrow] Match ${id} cancelled: no deposits`);
+
+        // Close the game account to reclaim rent.
+        tryCloseGame(gameId, id);
       } else {
         // One deposited — refund on-chain.
         const depositor = p1Deposited ? match.player1 : match.player2;
@@ -333,6 +353,9 @@ export async function checkDepositTimeouts(): Promise<void> {
         console.log(
           `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Refunded ${depositor} on-chain | sig: ${refundSig}`
         );
+
+        // Close the game account to reclaim rent.
+        tryCloseGame(gameId, id);
       }
     } catch (err) {
       console.error(`[Escrow] Timeout handling failed for match ${id}:`, err);

@@ -136,6 +136,7 @@ export interface DbMatch {
   onChainGameId?: number;
   onChainSettled?: boolean;
   onChainRetries?: number;
+  gameClosed?: boolean;
 }
 
 export async function createMatch(data: DbMatch): Promise<string> {

@@ -32,4 +32,8 @@ pub enum SolFightError {
     NotRefundable,
     #[msg("Game must be Settled or Forfeited for claim.")]
     NotClaimable,
+    #[msg("Escrow token account must be empty before closing the game.")]
+    EscrowNotEmpty,
+    #[msg("Game must be fully settled before it can be closed.")]
+    GameNotSettled,
 }

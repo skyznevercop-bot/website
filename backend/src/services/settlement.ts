@@ -13,7 +13,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 import { processMatchPayout } from "./escrow";
-import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists } from "../utils/solana";
+import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists, closeGameOnChain } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -344,6 +344,9 @@ export function startOnChainRetryLoop(): void {
 
       // ── Part 2: Retry failed refunds (ties and cancelled matches) ──
       await retryFailedRefunds();
+
+      // ── Part 3: Close fully-settled game accounts to reclaim rent ──
+      await closeSettledGames();
     } catch (err) {
       console.error("[Settlement] Retry loop error:", err);
     }
@@ -385,6 +388,48 @@ async function retryFailedRefunds(): Promise<void> {
         console.log(`[Settlement] Refund retry succeeded for match ${id} | sig: ${refundSig}`);
       } catch (err) {
         console.error(`[Settlement] Refund retry still failing for match ${id}:`, err);
+      }
+    }
+  }
+}
+
+/**
+ * Close game accounts for fully-settled matches to reclaim rent.
+ * Targets games where escrow is already empty (payout claimed or refunded).
+ */
+async function closeSettledGames(): Promise<void> {
+  for (const status of ["completed", "tied", "forfeited", "cancelled"] as const) {
+    const matches = await getMatchesByStatus(status);
+    for (const { id, data: match } of matches) {
+      if (!match.onChainGameId) continue;
+      if (match.gameClosed) continue; // Already closed.
+
+      // Only close games where escrow funds have been fully disbursed.
+      const closableStates = ["payout_sent", "refunded", "partial_refund"];
+      if (!match.escrowState || !closableStates.includes(match.escrowState)) continue;
+
+      // For wins/forfeits, verify the escrow is actually empty on-chain
+      // (winner may not have claimed yet).
+      try {
+        const game = await fetchGameAccount(BigInt(match.onChainGameId));
+        if (!game) {
+          // Game PDA already closed — just mark it.
+          await updateMatch(id, { gameClosed: true });
+          continue;
+        }
+
+        // Check if escrow token account is empty by reading on-chain.
+        // close_game will fail with EscrowNotEmpty if funds remain,
+        // so we just attempt it and handle the error gracefully.
+        await closeGameOnChain(match.onChainGameId);
+        await updateMatch(id, { gameClosed: true });
+        console.log(`[Settlement] Game ${match.onChainGameId} closed (match ${id}) — rent reclaimed`);
+      } catch (err) {
+        // Expected to fail if winner hasn't claimed yet — silently skip.
+        const errMsg = String(err);
+        if (!errMsg.includes("EscrowNotEmpty")) {
+          console.warn(`[Settlement] Failed to close game ${match.onChainGameId} (match ${id}):`, err);
+        }
       }
     }
   }

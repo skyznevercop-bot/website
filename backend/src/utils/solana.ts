@@ -482,3 +482,46 @@ export async function refundEscrowOnChain(
   console.log(`[Solana] refund_escrow: gameId=${gameId} | sig: ${sig}`);
   return sig;
 }
+
+/**
+ * Close a fully-settled game account on-chain to reclaim rent.
+ * Escrow token account must be empty (all funds claimed/refunded).
+ * Authority only.
+ */
+export async function closeGameOnChain(gameId: number): Promise<string> {
+  const connection = getConnection();
+  const authority = getAuthorityKeypair();
+  const programId = getProgramId();
+  const usdcMint = getUsdcMint();
+
+  const bigGameId = BigInt(gameId);
+  const [platformPda] = getPlatformPDA();
+  const [gamePda] = getGamePDA(bigGameId);
+  const escrowTokenAccount = await getAssociatedTokenAddress(
+    usdcMint,
+    gamePda,
+    true
+  );
+
+  const data = anchorDiscriminator("close_game");
+
+  const ix = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: platformPda, isSigner: false, isWritable: false },
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data,
+  });
+
+  const tx = new Transaction().add(ix);
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+    commitment: "confirmed",
+  });
+
+  console.log(`[Solana] close_game: gameId=${gameId} | rent reclaimed | sig: ${sig}`);
+  return sig;
+}

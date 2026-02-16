@@ -63,4 +63,10 @@ pub mod solfight {
     pub fn cancel_pending_game(ctx: Context<CancelPendingGame>) -> Result<()> {
         instructions::cancel_pending_game::handler(ctx)
     }
+
+    /// Close a fully-settled game account to reclaim rent. Authority only.
+    /// Escrow token account must be empty (all funds claimed/refunded).
+    pub fn close_game(ctx: Context<CloseGame>) -> Result<()> {
+        instructions::close_game::handler(ctx)
+    }
 }
