@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1461,6 +1463,7 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
   bool _claiming = false;
   String? _claimTx;
   String? _claimError;
+  Timer? _pollTimer;
 
   @override
   void initState() {
@@ -1468,17 +1471,56 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) setState(() => _visible = true);
     });
-    // If no result after 15s, force local winner determination as fallback.
-    _startPendingTimeout();
+    // Poll the backend for the match result if we don't have it yet.
+    _startResultPolling();
   }
 
-  void _startPendingTimeout() {
-    Future.delayed(const Duration(seconds: 15), () {
-      if (!mounted) return;
-      if (_hasResult) return; // Backend already sent the result.
-      // Re-call endMatch with no params to trigger local winner resolution.
-      ref.read(tradingProvider.notifier).endMatch();
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Poll the backend every 2s for the match result.
+  /// This is far more reliable than depending solely on WebSocket messages.
+  void _startResultPolling() {
+    // Try immediately after a short delay (give WS a chance first).
+    Future.delayed(const Duration(seconds: 2), () => _fetchResult());
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _fetchResult();
     });
+  }
+
+  Future<void> _fetchResult() async {
+    if (!mounted) return;
+    if (_hasResult) {
+      _pollTimer?.cancel();
+      return;
+    }
+
+    final matchId = widget.state.matchId;
+    if (matchId == null) return;
+
+    try {
+      final data = await ApiClient.instance.get('/match/$matchId');
+      if (!mounted || _hasResult) return;
+
+      final status = data['status'] as String?;
+      if (status == 'completed' || status == 'forfeited') {
+        final winner = data['winner'] as String?;
+        ref.read(tradingProvider.notifier).endMatch(
+              winner: winner,
+              isTie: false,
+              isForfeit: status == 'forfeited',
+            );
+        _pollTimer?.cancel();
+      } else if (status == 'tied') {
+        ref.read(tradingProvider.notifier).endMatch(isTie: true);
+        _pollTimer?.cancel();
+      }
+    } catch (_) {
+      // API call failed — will retry on next poll.
+    }
   }
 
   bool get _hasResult =>
