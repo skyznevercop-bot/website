@@ -6,7 +6,7 @@ import { rateLimit } from "./middleware/rate-limit";
 import { setupWebSocket } from "./ws/handler";
 import { startMatchmakingLoop } from "./services/matchmaking";
 import { startPriceOracle } from "./services/price-oracle";
-import { startSettlementLoop } from "./services/settlement";
+import { startSettlementLoop, startOnChainRetryLoop } from "./services/settlement";
 import { startDepositTimeoutLoop } from "./services/escrow";
 
 // Routes
@@ -49,6 +49,7 @@ setupWebSocket(server);
 startMatchmakingLoop();
 startPriceOracle();
 startSettlementLoop();
+startOnChainRetryLoop();
 startDepositTimeoutLoop();
 
 // Start server
@@ -64,6 +65,7 @@ server.listen(config.port, () => {
   │    ✓ Matchmaking (500ms FIFO)           │
   │    ✓ Price Oracle (3s fetch, 1s push)   │
   │    ✓ Settlement (5s check)              │
+  │    ✓ On-chain Retry (30s)               │
   │    ✓ Escrow Deposit Monitor (5s)        │
   │    ✓ Firebase Realtime Database         │
   └─────────────────────────────────────────┘

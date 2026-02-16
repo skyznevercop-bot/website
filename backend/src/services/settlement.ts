@@ -2,6 +2,7 @@ import { config } from "../config";
 import {
   matchesRef,
   getMatch,
+  getMatchesByStatus,
   getPositions,
   updatePosition,
   updateMatch,
@@ -63,25 +64,14 @@ export async function settleByForfeit(
   const winner =
     disconnectedPlayer === match.player1 ? match.player2 : match.player1;
 
-  // Settle on-chain first.
-  let onChainSettled = false;
-  if (match.onChainGameId) {
-    try {
-      await endGameOnChain(match.onChainGameId, winner, 0, 0, true);
-      onChainSettled = true;
-    } catch (err) {
-      console.error(`[Settlement] On-chain end_game failed for forfeit in match ${matchId}:`, err);
-      console.warn(`[Settlement] Proceeding with Firebase-only settlement for forfeit in match ${matchId}`);
-    }
-  }
-
+  // ── Step 1: Update Firebase + broadcast IMMEDIATELY ──
   await updateMatch(matchId, {
     status: "forfeited",
     winner,
     player1Roi: 0,
     player2Roi: 0,
     settledAt: Date.now(),
-    onChainSettled,
+    onChainSettled: false,
   });
 
   await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
@@ -100,24 +90,15 @@ export async function settleByForfeit(
     `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer} disconnected | Winner: ${winner}`
   );
 
-  // Trigger payout only if on-chain settlement succeeded.
-  if (onChainSettled) {
-    const updatedMatch = await getMatch(matchId);
-    if (updatedMatch) {
-      processMatchPayout(matchId, updatedMatch).catch((err) => {
-        console.error(`[Settlement] Forfeit payout failed for match ${matchId}:`, err);
-      });
-    }
-  } else {
-    console.warn(
-      `[Settlement] Skipping forfeit payout for match ${matchId} — on-chain settlement pending`
-    );
+  // ── Step 2: Settle on-chain asynchronously (retry loop picks up failures) ──
+  if (match.onChainGameId) {
+    settleOnChainAsync(matchId, match.onChainGameId, winner, 0, 0);
   }
 }
 
 /**
- * Settle a single match: calculate ROI, determine winner, update stats,
- * then call end_game on-chain.
+ * Settle a single match: calculate ROI, determine winner, broadcast
+ * result immediately, then settle on-chain asynchronously.
  */
 async function settleMatch(
   matchId: string,
@@ -178,33 +159,15 @@ async function settleMatch(
     winner = p1Roi > p2Roi ? player1 : player2;
   }
 
-  // Settle on-chain. PnL values are sent as basis points of the bet.
-  let onChainSettled = false;
-  if (onChainGameId) {
-    try {
-      const p1PnlBps = Math.round(p1Roi * 10000);
-      const p2PnlBps = Math.round(p2Roi * 10000);
-      await endGameOnChain(
-        onChainGameId,
-        winner || null,
-        p1PnlBps,
-        p2PnlBps,
-        false
-      );
-      onChainSettled = true;
-    } catch (err) {
-      console.error(`[Settlement] On-chain end_game failed for match ${matchId}:`, err);
-      console.warn(`[Settlement] Proceeding with Firebase-only settlement for match ${matchId}`);
-    }
-  }
-
+  // ── Step 1: Update Firebase + broadcast result IMMEDIATELY ──
+  // Users see the result right away, regardless of on-chain outcome.
   await updateMatch(matchId, {
     status,
     winner,
     player1Roi: p1Roi,
     player2Roi: p2Roi,
     settledAt: Date.now(),
-    onChainSettled,
+    onChainSettled: false,
   });
 
   await updatePlayerStats(player1, player2, winner, betAmount, isTie);
@@ -223,20 +186,57 @@ async function settleMatch(
     `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner}`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
   );
 
-  // Trigger payout only if on-chain settlement succeeded.
-  // If on-chain failed, the game is still Active and claim/refund is impossible.
-  if (onChainSettled) {
-    const updatedMatch = await getMatch(matchId);
-    if (updatedMatch) {
-      processMatchPayout(matchId, updatedMatch).catch((err) => {
-        console.error(`[Settlement] Payout failed for match ${matchId}:`, err);
-      });
-    }
-  } else {
-    console.warn(
-      `[Settlement] Skipping payout for match ${matchId} — on-chain settlement pending`
-    );
+  // ── Step 2: Settle on-chain asynchronously (don't block the result) ──
+  if (onChainGameId) {
+    settleOnChainAsync(matchId, onChainGameId, winner, p1Roi, p2Roi);
   }
+}
+
+/**
+ * Settle on-chain in the background with a timeout.
+ * If it fails, the retry loop will pick it up later.
+ */
+function settleOnChainAsync(
+  matchId: string,
+  onChainGameId: number,
+  winner: string | undefined | null,
+  p1Roi: number,
+  p2Roi: number
+): void {
+  const TIMEOUT_MS = 15_000; // 15-second timeout
+
+  const onChainPromise = (async () => {
+    const p1PnlBps = Math.round(p1Roi * 10000);
+    const p2PnlBps = Math.round(p2Roi * 10000);
+    await endGameOnChain(
+      onChainGameId,
+      winner || null,
+      p1PnlBps,
+      p2PnlBps,
+      false
+    );
+  })();
+
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("On-chain settlement timed out")), TIMEOUT_MS)
+  );
+
+  Promise.race([onChainPromise, timeoutPromise])
+    .then(async () => {
+      await updateMatch(matchId, { onChainSettled: true });
+      console.log(`[Settlement] On-chain settled for match ${matchId}`);
+
+      const updatedMatch = await getMatch(matchId);
+      if (updatedMatch) {
+        processMatchPayout(matchId, updatedMatch).catch((err) => {
+          console.error(`[Settlement] Payout failed for match ${matchId}:`, err);
+        });
+      }
+    })
+    .catch((err) => {
+      console.error(`[Settlement] On-chain end_game failed for match ${matchId}:`, err);
+      console.warn(`[Settlement] Retry loop will pick up match ${matchId}`);
+    });
 }
 
 function calculatePnl(pos: DbPosition, currentPrice: number): number {
@@ -245,6 +245,60 @@ function calculatePnl(pos: DbPosition, currentPrice: number): number {
     ? exitPrice - pos.entryPrice
     : pos.entryPrice - exitPrice;
   return (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+}
+
+/**
+ * Retry loop for matches that settled in Firebase but failed on-chain.
+ * Runs every 30 seconds, picks up matches with onChainSettled === false.
+ */
+export function startOnChainRetryLoop(): void {
+  setInterval(async () => {
+    try {
+      // Check completed/tied/forfeited matches that failed on-chain.
+      for (const status of ["completed", "tied", "forfeited"] as const) {
+        const matches = await getMatchesByStatus(status);
+        for (const { id, data: match } of matches) {
+          if (match.onChainSettled) continue;
+          if (!match.onChainGameId) continue;
+          // Don't retry too frequently — skip if settled less than 30s ago.
+          if (match.settledAt && Date.now() - match.settledAt < 30_000) continue;
+
+          console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status})...`);
+
+          try {
+            const isForfeit = status === "forfeited";
+            const p1PnlBps = Math.round((match.player1Roi || 0) * 10000);
+            const p2PnlBps = Math.round((match.player2Roi || 0) * 10000);
+
+            await endGameOnChain(
+              match.onChainGameId,
+              match.winner || null,
+              p1PnlBps,
+              p2PnlBps,
+              isForfeit
+            );
+
+            await updateMatch(id, { onChainSettled: true });
+            console.log(`[Settlement] On-chain retry succeeded for match ${id}`);
+
+            // Now trigger payout.
+            const updatedMatch = await getMatch(id);
+            if (updatedMatch) {
+              processMatchPayout(id, updatedMatch).catch((err) => {
+                console.error(`[Settlement] Payout failed on retry for match ${id}:`, err);
+              });
+            }
+          } catch (err) {
+            console.error(`[Settlement] On-chain retry still failing for match ${id}:`, err);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[Settlement] Retry loop error:", err);
+    }
+  }, 30_000);
+
+  console.log("[Settlement] On-chain retry loop started (30s interval)");
 }
 
 async function updatePlayerStats(
