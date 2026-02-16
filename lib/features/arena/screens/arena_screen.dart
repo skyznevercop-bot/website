@@ -1464,6 +1464,7 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
   String? _claimTx;
   String? _claimError;
   Timer? _pollTimer;
+  int _pollCount = 0;
 
   @override
   void initState() {
@@ -1472,7 +1473,7 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
       if (mounted) setState(() => _visible = true);
     });
     // Poll the backend for the match result if we don't have it yet.
-    _startResultPolling();
+    if (!_hasResult) _startResultPolling();
   }
 
   @override
@@ -1495,6 +1496,16 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
     if (!mounted) return;
     if (_hasResult) {
       _pollTimer?.cancel();
+      return;
+    }
+
+    _pollCount++;
+
+    // Safety net: after ~30s of polling with no result, default to tie
+    // so the overlay doesn't stay stuck forever.
+    if (_pollCount > 10) {
+      _pollTimer?.cancel();
+      ref.read(tradingProvider.notifier).endMatch(isTie: true);
       return;
     }
 

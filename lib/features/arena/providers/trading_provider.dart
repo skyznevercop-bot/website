@@ -546,11 +546,9 @@ class TradingNotifier extends Notifier<TradingState> {
         } else {
           resolvedWinner = oppAddress;
         }
-      } else {
-        // Missing address data — default to tie so the overlay doesn't get stuck.
-        // The backend API poll will correct this with the real result.
-        resolvedIsTie = true;
       }
+      // If addresses are missing, leave unresolved — the overlay's
+      // API poll will fetch the real result from the backend.
     }
 
     state = state.copyWith(
