@@ -129,9 +129,18 @@ export async function confirmDeposit(
   broadcastToUser(match.player1, depositNotification);
   broadcastToUser(match.player2, depositNotification);
 
-  // Check if the program auto-activated the match (both deposited → Active).
-  if (game.playerOneDeposited && game.playerTwoDeposited && game.status === GameStatus.Active) {
-    return await activateMatch(matchId, match, game);
+  // Re-read Firebase so we see the updated deposit flags after our write.
+  const updatedMatch = (await getMatch(matchId)) ?? match;
+
+  // Check if both players have deposited and the on-chain game is Active.
+  // Use Firebase flags as fallback for when the on-chain RPC lags behind
+  // and hasn't yet reflected the OTHER player's deposit.
+  const bothOnChain = game.playerOneDeposited && game.playerTwoDeposited;
+  const bothFirebase =
+    !!updatedMatch.player1DepositVerified && !!updatedMatch.player2DepositVerified;
+
+  if ((bothOnChain || bothFirebase) && game.status === GameStatus.Active) {
+    return await activateMatch(matchId, updatedMatch, game);
   }
 
   return {
@@ -145,7 +154,7 @@ export async function confirmDeposit(
  * Activate a match using a Firebase transaction for atomicity.
  * The on-chain program already set the game to Active; this syncs Firebase.
  */
-async function activateMatch(
+export async function activateMatch(
   matchId: string,
   match: DbMatch,
   game: { startTime: bigint; endTime: bigint }

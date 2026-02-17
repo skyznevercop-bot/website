@@ -12,7 +12,7 @@ import {
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
-import { processMatchPayout } from "./escrow";
+import { processMatchPayout, activateMatch } from "./escrow";
 import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists, closeGameOnChain } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
@@ -45,7 +45,43 @@ export function startSettlementLoop(): void {
     }
   }, 5000);
 
-  console.log("[Settlement] Started — checking every 5s");
+  // Recovery loop: find matches stuck in awaiting_deposits where both
+  // deposits are verified in Firebase but activateMatch was never called
+  // (caused by RPC lag when the second deposit was confirmed).
+  setInterval(async () => {
+    try {
+      await recoverStuckDeposits();
+    } catch (err) {
+      console.error("[Settlement] Stuck-deposit recovery error:", err);
+    }
+  }, 30_000);
+
+  console.log("[Settlement] Started — checking every 5s (recovery every 30s)");
+}
+
+/**
+ * Find matches stuck in `awaiting_deposits` where both Firebase deposit
+ * flags are true and the on-chain game is Active — then activate them.
+ * This recovers matches where RPC lag caused activateMatch() to be skipped.
+ */
+async function recoverStuckDeposits(): Promise<void> {
+  const awaitingMatches = await getMatchesByStatus("awaiting_deposits");
+
+  for (const { id, data: match } of awaitingMatches) {
+    // Only attempt if Firebase already recorded both deposits.
+    if (!match.player1DepositVerified || !match.player2DepositVerified) continue;
+    if (!match.onChainGameId) continue;
+
+    const game = await fetchGameAccount(BigInt(match.onChainGameId));
+    if (!game || game.status !== GameStatus.Active) continue;
+
+    console.log(`[Settlement] Recovering stuck match ${id} — both deposits verified, activating`);
+    try {
+      await activateMatch(id, match, game);
+    } catch (err) {
+      console.error(`[Settlement] Recovery failed for match ${id}:`, err);
+    }
+  }
 }
 
 /**
