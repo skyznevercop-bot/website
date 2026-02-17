@@ -183,6 +183,8 @@ export interface DbPosition {
   exitPrice?: number;
   size: number;
   leverage: number;
+  sl?: number;
+  tp?: number;
   pnl?: number;
   openedAt: number;
   closedAt?: number;
@@ -191,8 +193,13 @@ export interface DbPosition {
 
 export async function createPosition(
   matchId: string,
-  data: DbPosition
+  data: DbPosition,
+  positionId?: string
 ): Promise<string> {
+  if (positionId) {
+    await positionsRef.child(matchId).child(positionId).set(data);
+    return positionId;
+  }
   const ref = positionsRef.child(matchId).push();
   await ref.set(data);
   return ref.key!;

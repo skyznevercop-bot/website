@@ -103,6 +103,76 @@ export function setupWebSocket(server: HttpServer): void {
     }
   }, 3000);
 
+  // Server-side SL/TP/liquidation monitor — runs every 1 second.
+  setInterval(async () => {
+    const matchIds = getActiveMatchIds();
+    if (matchIds.length === 0) return;
+
+    const prices = getLatestPrices();
+    const priceMap: Record<string, number> = {
+      BTC: prices.btc,
+      ETH: prices.eth,
+      SOL: prices.sol,
+    };
+
+    for (const matchId of matchIds) {
+      const match = await getMatch(matchId);
+      if (!match || match.status !== "active") continue;
+
+      const positions = await getPositions(matchId);
+
+      for (const pos of positions) {
+        if (pos.closedAt) continue;
+
+        const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
+
+        // Liquidation: player loses 90% of margin (mirrors frontend formula).
+        const liquidationPrice = pos.isLong
+          ? pos.entryPrice * (1 - 0.9 / pos.leverage)
+          : pos.entryPrice * (1 + 0.9 / pos.leverage);
+
+        let closeReason: string | null = null;
+        let exitPrice = currentPrice;
+
+        if (pos.isLong ? currentPrice <= liquidationPrice : currentPrice >= liquidationPrice) {
+          closeReason = "liquidation";
+          exitPrice = liquidationPrice;
+        } else if (pos.sl != null) {
+          const slHit = pos.isLong ? currentPrice <= pos.sl : currentPrice >= pos.sl;
+          if (slHit) { closeReason = "sl"; exitPrice = pos.sl; }
+        }
+        if (closeReason === null && pos.tp != null) {
+          const tpHit = pos.isLong ? currentPrice >= pos.tp : currentPrice <= pos.tp;
+          if (tpHit) { closeReason = "tp"; exitPrice = pos.tp; }
+        }
+
+        if (closeReason === null) continue;
+
+        const priceDiff = pos.isLong
+          ? exitPrice - pos.entryPrice
+          : pos.entryPrice - exitPrice;
+        const pnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+
+        await updatePosition(matchId, pos.id, {
+          exitPrice,
+          pnl,
+          closedAt: Date.now(),
+          closeReason,
+        });
+
+        broadcastToUser(pos.playerAddress, {
+          type: "position_closed",
+          positionId: pos.id,
+          exitPrice,
+          pnl,
+          closeReason,
+        });
+
+        broadcastOpponentUpdate(matchId, pos.playerAddress).catch(() => {});
+      }
+    }
+  }, 1000);
+
   console.log("[WS] WebSocket server started on /ws");
 }
 
@@ -217,12 +287,15 @@ async function handleMessage(
     }
 
     case "open_position": {
-      const { matchId, asset, isLong, size, leverage } = data as {
+      const { matchId, asset, isLong, size, leverage, sl, tp, positionId: localPositionId } = data as {
         matchId: string;
         asset: string;
         isLong: boolean;
         size: number;
         leverage: number;
+        sl?: number;
+        tp?: number;
+        positionId?: string;
       };
 
       // Validate match is active before allowing position creation.
@@ -255,6 +328,18 @@ async function handleMessage(
         return;
       }
 
+      // Server-side balance check: reject if open margin would exceed demo balance.
+      const openPositions = await getPositions(matchId, ws.userAddress);
+      const usedMargin = openPositions
+        .filter((p) => !p.closedAt)
+        .reduce((sum, p) => sum + p.size, 0);
+      if (size > DEMO_BALANCE - usedMargin) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Insufficient balance" })
+        );
+        return;
+      }
+
       const prices = getLatestPrices();
       const priceMap: Record<string, number> = {
         BTC: prices.btc,
@@ -269,15 +354,21 @@ async function handleMessage(
         return;
       }
 
-      const positionId = await createPosition(matchId, {
-        playerAddress: ws.userAddress,
-        assetSymbol: asset,
-        isLong,
-        entryPrice,
-        size,
-        leverage,
-        openedAt: Date.now(),
-      });
+      const positionId = await createPosition(
+        matchId,
+        {
+          playerAddress: ws.userAddress,
+          assetSymbol: asset,
+          isLong,
+          entryPrice,
+          size,
+          leverage,
+          ...(sl != null && { sl }),
+          ...(tp != null && { tp }),
+          openedAt: Date.now(),
+        },
+        localPositionId
+      );
 
       ws.send(
         JSON.stringify({
@@ -386,12 +477,20 @@ async function handleMessage(
 }
 
 /**
- * Calculate and broadcast opponent update to the match room.
+ * Calculate a player's stats and send them only to their opponent.
+ * Uses broadcastToUser so each player only sees their opponent's data.
  */
 async function broadcastOpponentUpdate(
   matchId: string,
   playerAddress: string
 ): Promise<void> {
+  const match = await getMatch(matchId);
+  if (!match) return;
+
+  // Identify the opponent (the player who should receive these stats).
+  const opponentAddress =
+    match.player1 === playerAddress ? match.player2 : match.player1;
+
   const positions = await getPositions(matchId, playerAddress);
 
   const prices = getLatestPrices();
@@ -418,7 +517,8 @@ async function broadcastOpponentUpdate(
     }
   }
 
-  broadcastToMatch(matchId, {
+  // Send to opponent only — never back to the player themselves.
+  broadcastToUser(opponentAddress, {
     type: "opponent_update",
     player: playerAddress,
     equity: DEMO_BALANCE + totalPnl,

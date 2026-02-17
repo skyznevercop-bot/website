@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
-import '../../wallet/providers/wallet_provider.dart';
 import '../models/trading_models.dart';
 import 'price_feed_provider.dart';
 
@@ -252,6 +251,31 @@ class TradingNotifier extends Notifier<TradingState> {
         );
         break;
 
+      case 'position_closed':
+        // Server closed a position (SL/TP/liquidation triggered server-side).
+        final closedId = data['positionId'] as String?;
+        final exitPx = (data['exitPrice'] as num?)?.toDouble();
+        final serverPnl = (data['pnl'] as num?)?.toDouble();
+        final reason = data['closeReason'] as String? ?? 'sl';
+        if (closedId != null && exitPx != null) {
+          final now = DateTime.now();
+          double balanceReturn = 0;
+          final updated = state.positions.map((p) {
+            if (p.id == closedId && p.isOpen) {
+              p.exitPrice = exitPx;
+              p.closedAt = now;
+              p.closeReason = reason;
+              balanceReturn = p.size + (serverPnl ?? p.pnl(exitPx));
+            }
+            return p;
+          }).toList();
+          state = state.copyWith(
+            positions: updated,
+            balance: state.balance + balanceReturn,
+          );
+        }
+        break;
+
       case 'match_end':
         endMatch(
           winner: data['winner'] as String?,
@@ -383,11 +407,12 @@ class TradingNotifier extends Notifier<TradingState> {
       balance: state.balance - size,
     );
 
-    // Report to server.
+    // Report to server — include the local ID so Firebase uses the same key.
     if (state.matchId != null) {
       _api.wsSend({
         'type': 'open_position',
         'matchId': state.matchId,
+        'positionId': position.id,
         'asset': assetSymbol,
         'isLong': isLong,
         'size': size,
@@ -524,32 +549,11 @@ class TradingNotifier extends Notifier<TradingState> {
 
     final myFinalBalance = state.balance + balanceReturn;
 
-    // If no winner was provided (timer expired locally), determine winner
-    // by comparing final balances. Whoever has the higher balance wins.
-    String? resolvedWinner = winner;
-    bool resolvedIsTie = isTie ?? false;
+    // Never determine winner locally — the server is authoritative.
+    // The overlay's WebSocket listener or API poll will set matchWinner/matchIsTie.
+    final String? resolvedWinner = winner;
+    final bool resolvedIsTie = isTie ?? false;
     final bool resolvedIsForfeit = isForfeit ?? false;
-
-    if (resolvedWinner == null && !resolvedIsTie && !resolvedIsForfeit) {
-      final myAddress = ref.read(walletProvider).address;
-      final oppAddress = state.opponentAddress;
-      final myEquity = myFinalBalance;
-      final oppEquity = state.opponentEquity;
-
-      if (myAddress != null && oppAddress != null) {
-        final diff = (myEquity - oppEquity).abs();
-        // Tie if balances are within 0.01% of initial balance.
-        if (diff <= state.initialBalance * 0.0001) {
-          resolvedIsTie = true;
-        } else if (myEquity > oppEquity) {
-          resolvedWinner = myAddress;
-        } else {
-          resolvedWinner = oppAddress;
-        }
-      }
-      // If addresses are missing, leave unresolved — the overlay's
-      // API poll will fetch the real result from the backend.
-    }
 
     state = state.copyWith(
       positions: updatedPositions,
