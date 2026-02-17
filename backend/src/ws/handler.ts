@@ -30,7 +30,7 @@ interface AuthenticatedSocket extends WebSocket {
   currentMatchId?: string;
 }
 
-/** Active forfeit timers: matchId_playerAddress → timeout handle. */
+/** Active forfeit timers: "matchId|playerAddress" → timeout handle. */
 const forfeitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export { broadcastToUser };
@@ -181,7 +181,7 @@ export function setupWebSocket(server: HttpServer): void {
  * If they don't reconnect within the grace period, the match is forfeited.
  */
 function startForfeitTimer(matchId: string, playerAddress: string): void {
-  const key = `${matchId}_${playerAddress}`;
+  const key = `${matchId}|${playerAddress}`;
 
   // Don't start duplicate timers.
   if (forfeitTimers.has(key)) return;
@@ -219,25 +219,32 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
 }
 
 /**
- * Cancel all forfeit timers for a player (e.g., on reconnect).
+ * Cancel ALL forfeit timers for a player across every match (used on new WS connect).
  */
 function cancelForfeitTimersForPlayer(playerAddress: string): void {
   for (const [key, timer] of forfeitTimers) {
-    if (key.endsWith(`_${playerAddress}`)) {
+    const [matchId, addr] = key.split("|");
+    if (addr === playerAddress) {
       clearTimeout(timer);
       forfeitTimers.delete(key);
-
-      const matchId = key.split("_").slice(0, -1).join("_");
-      console.log(
-        `[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`
-      );
-
-      // Notify the match that the player reconnected.
-      broadcastToMatch(matchId, {
-        type: "opponent_reconnected",
-        player: playerAddress,
-      });
+      console.log(`[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`);
+      broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
     }
+  }
+}
+
+/**
+ * Cancel the forfeit timer for a specific match+player (used on join_match).
+ * Scoped to one match to prevent cross-match exploit.
+ */
+function cancelForfeitTimerForMatch(matchId: string, playerAddress: string): void {
+  const key = `${matchId}|${playerAddress}`;
+  const timer = forfeitTimers.get(key);
+  if (timer) {
+    clearTimeout(timer);
+    forfeitTimers.delete(key);
+    console.log(`[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`);
+    broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
   }
 }
 
@@ -276,8 +283,10 @@ async function handleMessage(
       ws.currentMatchId = matchId;
       joinMatchRoom(matchId, ws);
 
-      // Cancel any pending forfeit timer for this player/match.
-      cancelForfeitTimersForPlayer(ws.userAddress);
+      // Cancel the forfeit timer scoped to THIS match only.
+      // (cancelForfeitTimersForPlayer is reserved for new WS connections
+      //  where all timers for the player should be cleared.)
+      cancelForfeitTimerForMatch(matchId, ws.userAddress);
 
       // Send current prices immediately.
       ws.send(
@@ -298,11 +307,17 @@ async function handleMessage(
         positionId?: string;
       };
 
-      // Validate match is active before allowing position creation.
+      // Validate match is active and the sender is a player in it.
       const matchData = await getMatch(matchId);
       if (!matchData || matchData.status !== "active") {
         ws.send(
           JSON.stringify({ type: "error", message: "Match is not active" })
+        );
+        return;
+      }
+      if (ws.userAddress !== matchData.player1 && ws.userAddress !== matchData.player2) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Not a player in this match" })
         );
         return;
       }
@@ -324,6 +339,14 @@ async function handleMessage(
       if (!validAssets.includes(asset)) {
         ws.send(
           JSON.stringify({ type: "error", message: "Unknown asset" })
+        );
+        return;
+      }
+
+      // Sanitize client-provided position ID: only alphanumeric, underscore, hyphen.
+      if (localPositionId != null && !/^[a-zA-Z0-9_-]{1,64}$/.test(localPositionId)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Invalid position ID format" })
         );
         return;
       }
@@ -352,6 +375,30 @@ async function handleMessage(
           JSON.stringify({ type: "error", message: "Price unavailable" })
         );
         return;
+      }
+
+      // Validate SL/TP direction against entry price.
+      if (sl != null) {
+        if (typeof sl !== "number" || sl <= 0) {
+          ws.send(JSON.stringify({ type: "error", message: "Invalid stop loss" }));
+          return;
+        }
+        const slValid = isLong ? sl < entryPrice : sl > entryPrice;
+        if (!slValid) {
+          ws.send(JSON.stringify({ type: "error", message: "SL must be below entry for longs, above for shorts" }));
+          return;
+        }
+      }
+      if (tp != null) {
+        if (typeof tp !== "number" || tp <= 0) {
+          ws.send(JSON.stringify({ type: "error", message: "Invalid take profit" }));
+          return;
+        }
+        const tpValid = isLong ? tp > entryPrice : tp < entryPrice;
+        if (!tpValid) {
+          ws.send(JSON.stringify({ type: "error", message: "TP must be above entry for longs, below for shorts" }));
+          return;
+        }
       }
 
       const positionId = await createPosition(
@@ -394,6 +441,21 @@ async function handleMessage(
         matchId: string;
         positionId: string;
       };
+
+      // Verify match is still active before allowing closure.
+      const closeMatchData = await getMatch(matchId);
+      if (!closeMatchData || closeMatchData.status !== "active") {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Match is not active" })
+        );
+        return;
+      }
+      if (ws.userAddress !== closeMatchData.player1 && ws.userAddress !== closeMatchData.player2) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Not a player in this match" })
+        );
+        return;
+      }
 
       const positions = await getPositions(matchId, ws.userAddress);
       const position = positions.find(

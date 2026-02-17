@@ -40,6 +40,9 @@ router.post("/auth/verify", async (req, res) => {
     return;
   }
 
+  // Clear nonce immediately (single-use regardless of outcome) to prevent replay.
+  await noncesRef.child(address).remove();
+
   // Verify the signature.
   const message = `Sign this message to verify your wallet: ${nonce}`;
   const valid = verifyWalletSignature(address, signature, message);
@@ -48,9 +51,6 @@ router.post("/auth/verify", async (req, res) => {
     res.status(401).json({ error: "Invalid signature" });
     return;
   }
-
-  // Clear nonce (single-use) and issue token.
-  await noncesRef.child(address).remove();
 
   const token = issueToken(address);
   res.json({ token, address });
