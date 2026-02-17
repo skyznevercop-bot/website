@@ -36,7 +36,6 @@ class WalletNotifier extends Notifier<WalletState> {
 
       // 2. Try backend auth — gracefully fall back if backend is unreachable.
       String? gamerTag;
-      double balance = 0;
       bool backendAvailable = false;
 
       try {
@@ -71,11 +70,6 @@ class WalletNotifier extends Notifier<WalletState> {
         final userResponse = await _api.get('/user/$address');
         gamerTag = userResponse['gamerTag'] as String?;
 
-        // Fetch balance.
-        final balanceResponse = await _api.get('/portfolio/balance');
-        balance =
-            (balanceResponse['platformBalance'] as num).toDouble();
-
         backendAvailable = true;
       } catch (_) {
         // Backend unreachable — wallet-only mode.
@@ -84,17 +78,18 @@ class WalletNotifier extends Notifier<WalletState> {
 
       _backendConnected = backendAvailable;
 
-      // Always use on-chain USDC balance (backend platformBalance is 0
-      // until custodial accounting is implemented).
-      final onChainBalance = await _fetchOnChainUsdcBalance(address);
-      balance = onChainBalance;
-
+      // Mark as connected immediately — don't block on the on-chain balance fetch.
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
         address: address,
-        usdcBalance: balance,
+        usdcBalance: 0,
         gamerTag: gamerTag,
       );
+
+      // Fetch on-chain USDC balance in the background and update when ready.
+      _fetchOnChainUsdcBalance(address).then((onChainBalance) {
+        state = state.copyWith(usdcBalance: onChainBalance);
+      }).catchError((_) {});
     } on WalletException catch (e) {
       state = state.copyWith(
         status: WalletConnectionStatus.error,
@@ -195,7 +190,7 @@ class WalletNotifier extends Notifier<WalletState> {
             {'encoding': 'jsonParsed'},
           ],
         }),
-      ).timeout(const Duration(seconds: 10));
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode != 200) return null;
 

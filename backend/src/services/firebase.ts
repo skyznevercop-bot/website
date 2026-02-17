@@ -136,6 +136,7 @@ export interface DbMatch {
   onChainGameId?: number;
   onChainSettled?: boolean;
   onChainRetries?: number;
+  profileMissingCount?: number;
   gameClosed?: boolean;
 }
 

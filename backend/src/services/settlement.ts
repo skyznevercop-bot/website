@@ -284,23 +284,37 @@ export function startOnChainRetryLoop(): void {
             }
 
             // Game is still Active on-chain — check if we CAN settle it.
-            // end_game requires both player profile PDAs to exist.
-            const p1HasProfile = await playerProfileExists(match.player1);
-            const p2HasProfile = await playerProfileExists(match.player2);
+            // end_game requires both player profile PDAs to exist on-chain.
+            // NOTE: The backend cannot create profiles on behalf of players
+            // (create_profile requires the player as a Signer). The fix is
+            // FIX 1 in the deposit flow which makes profile creation mandatory.
+            // For already-stuck matches we keep checking indefinitely using a
+            // SEPARATE counter so the main tx-failure cap isn't consumed.
+            const [p1HasProfile, p2HasProfile] = await Promise.all([
+              playerProfileExists(match.player1),
+              playerProfileExists(match.player2),
+            ]);
 
             if (!p1HasProfile || !p2HasProfile) {
-              // Can't settle — player profiles don't exist. Stop wasting SOL.
-              const retries = (match.onChainRetries || 0) + 1;
-              await updateMatch(id, { onChainRetries: retries });
-              if (retries <= 1) {
+              const missingCount = (match.profileMissingCount || 0) + 1;
+              await updateMatch(id, { profileMissingCount: missingCount });
+              // Log on first miss and every 10th miss to avoid log spam.
+              if (missingCount === 1 || missingCount % 10 === 0) {
+                const missing = [
+                  !p1HasProfile ? match.player1.slice(0, 8) + "…" : null,
+                  !p2HasProfile ? match.player2.slice(0, 8) + "…" : null,
+                ].filter(Boolean).join(", ");
                 console.warn(
-                  `[Settlement] Match ${id}: missing player profiles (p1=${p1HasProfile}, p2=${p2HasProfile}) — skipping on-chain retry`
+                  `[Settlement] Match ${id}: missing profile(s) for [${missing}]` +
+                  ` — cannot call end_game (check #${missingCount}).` +
+                  ` Players must create on-chain profiles to unblock settlement.`
                 );
               }
+              // Keep cycling — if players create their profiles we'll catch it.
               continue;
             }
 
-            // Cap retries to avoid infinite SOL drain.
+            // Cap transaction-failure retries to avoid infinite SOL drain.
             const retries = match.onChainRetries || 0;
             if (retries >= 10) {
               if (retries === 10) {

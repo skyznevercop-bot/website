@@ -9,7 +9,7 @@ import {
   getUser,
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
-import { confirmDeposit } from "../services/escrow";
+import { confirmDeposit, processMatchPayout } from "../services/escrow";
 import {
   getGamePdaAndEscrow,
   getPlatformPDA,
@@ -17,6 +17,8 @@ import {
   GameStatus,
   playerProfileExists,
   getPlayerProfilePDA,
+  endGameOnChain,
+  getAuthorityKeypair,
 } from "../utils/solana";
 import { PublicKey } from "@solana/web3.js";
 import { config } from "../config";
@@ -341,5 +343,146 @@ router.get("/profile/:address", async (req, res) => {
     res.status(500).json({ error: "Failed to check profile" });
   }
 });
+
+/**
+ * POST /api/match/:id/retry-settlement — Admin: manually re-trigger on-chain
+ * settlement for a stuck match (tied/completed/forfeited with onChainSettled=false).
+ *
+ * Auth: caller must be the platform authority (their JWT address must match).
+ */
+router.post(
+  "/:id/retry-settlement",
+  requireAuth,
+  async (req: AuthRequest, res) => {
+    // Only the platform authority may call this.
+    const authorityPubkey = getAuthorityKeypair().publicKey.toBase58();
+    if (req.userAddress !== authorityPubkey) {
+      res.status(403).json({ error: "Authority only" });
+      return;
+    }
+
+    const matchId = req.params.id;
+    const match = await getMatch(matchId);
+    if (!match) {
+      res.status(404).json({ error: "Match not found" });
+      return;
+    }
+
+    const settledStatuses = ["tied", "completed", "forfeited"];
+    if (!settledStatuses.includes(match.status)) {
+      res.status(400).json({
+        error: `Match is '${match.status}', not in a settled state`,
+      });
+      return;
+    }
+
+    if (match.onChainSettled) {
+      res.status(400).json({
+        error: "Match is already marked onChainSettled=true",
+        hint: "If payout is still stuck, check processMatchPayout manually.",
+      });
+      return;
+    }
+
+    if (!match.onChainGameId) {
+      res.status(400).json({ error: "No onChainGameId for this match" });
+      return;
+    }
+
+    // Check player profiles.
+    const [p1HasProfile, p2HasProfile] = await Promise.all([
+      playerProfileExists(match.player1),
+      playerProfileExists(match.player2),
+    ]);
+
+    if (!p1HasProfile || !p2HasProfile) {
+      const missing = [
+        !p1HasProfile ? match.player1 : null,
+        !p2HasProfile ? match.player2 : null,
+      ].filter(Boolean);
+
+      res.status(422).json({
+        error: "Missing on-chain player profile(s) — cannot call end_game",
+        missingProfiles: missing,
+        hint:
+          "The affected player(s) must visit the app and complete profile " +
+          "creation before settlement can proceed. The retry loop will " +
+          "automatically detect this and settle the match once profiles exist.",
+      });
+      return;
+    }
+
+    // Check current on-chain game status.
+    const onChainGame = await fetchGameAccount(BigInt(match.onChainGameId));
+    if (!onChainGame) {
+      res.status(400).json({ error: "On-chain game account not found" });
+      return;
+    }
+
+    const statusLabel: Record<number, string> = {
+      [GameStatus.Active]: "Active",
+      [GameStatus.Settled]: "Settled",
+      [GameStatus.Tied]: "Tied",
+      [GameStatus.Forfeited]: "Forfeited",
+      [GameStatus.Cancelled]: "Cancelled",
+      [GameStatus.Pending]: "Pending",
+    };
+
+    if (onChainGame.status !== GameStatus.Active) {
+      // Already settled — just sync Firebase and trigger payout.
+      console.log(
+        `[Admin] Match ${matchId} already on-chain status=${statusLabel[onChainGame.status]} — syncing`
+      );
+      await updateMatch(matchId, { onChainSettled: true });
+      try {
+        await processMatchPayout(matchId, match);
+      } catch (err) {
+        res.status(500).json({
+          error: "Firebase synced but payout failed",
+          detail: String(err),
+        });
+        return;
+      }
+      res.json({
+        success: true,
+        action: "synced",
+        onChainStatus: statusLabel[onChainGame.status],
+      });
+      return;
+    }
+
+    // Game is Active — call end_game.
+    try {
+      const isForfeit = match.status === "forfeited";
+      const p1PnlBps = Math.round((match.player1Roi || 0) * 10000);
+      const p2PnlBps = Math.round((match.player2Roi || 0) * 10000);
+
+      const sig = await endGameOnChain(
+        match.onChainGameId,
+        match.winner || null,
+        p1PnlBps,
+        p2PnlBps,
+        isForfeit
+      );
+
+      await updateMatch(matchId, {
+        onChainSettled: true,
+        onChainRetries: (match.onChainRetries || 0) + 1,
+      });
+
+      console.log(`[Admin] end_game succeeded for match ${matchId} | sig: ${sig}`);
+
+      await processMatchPayout(matchId, match);
+
+      res.json({ success: true, action: "settled", signature: sig });
+    } catch (err) {
+      console.error(`[Admin] retry-settlement failed for match ${matchId}:`, err);
+      res.status(500).json({
+        error: "end_game transaction failed",
+        detail: String(err),
+      });
+    }
+  }
+);
 
 export default router;

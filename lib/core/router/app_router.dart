@@ -29,7 +29,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               matchId: qp['matchId'],
               opponentAddress: qp['opp'],
               opponentGamerTag: qp['oppTag'],
-              startTime: int.tryParse(qp['st'] ?? ''),
+              endTime: int.tryParse(qp['et'] ?? ''),
             ),
           );
         },

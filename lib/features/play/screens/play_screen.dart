@@ -260,20 +260,24 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
-          void navigateToArena() {
+          void navigateToArena({int? endTime}) {
             Navigator.of(ctx).pop();
+            final params = <String, String>{
+              'matchId': match.matchId,
+              'd': durationSec.toString(),
+              'bet': match.bet.toString(),
+              'opp': match.opponentAddress,
+              'oppTag': match.opponentGamerTag,
+            };
+            // Prefer server endTime (shared clock); fall back to local startTime.
+            if (endTime != null) {
+              params['et'] = endTime.toString();
+            } else {
+              params['st'] = now.toString();
+            }
             context.go(
-              Uri(
-                path: AppConstants.arenaRoute,
-                queryParameters: {
-                  'matchId': match.matchId,
-                  'd': durationSec.toString(),
-                  'bet': match.bet.toString(),
-                  'opp': match.opponentAddress,
-                  'oppTag': match.opponentGamerTag,
-                  'st': now.toString(),
-                },
-              ).toString(),
+              Uri(path: AppConstants.arenaRoute, queryParameters: params)
+                  .toString(),
             );
           }
 
@@ -292,13 +296,13 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               pollTimer?.cancel();
             }
 
-            void onMatchActivated() {
+            void onMatchActivated({int? endTime}) {
               if (resolved) return;
               resolved = true;
               cleanup();
               setDialogState(() => depositState = 'confirmed');
               Future.delayed(const Duration(milliseconds: 800), () {
-                if (ctx.mounted) navigateToArena();
+                if (ctx.mounted) navigateToArena(endTime: endTime);
               });
             }
 
@@ -329,7 +333,8 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               final type = data['type'] as String?;
               if (type == 'match_activated' &&
                   data['matchId'] == match.matchId) {
-                onMatchActivated();
+                onMatchActivated(
+                    endTime: (data['endTime'] as num?)?.toInt());
               } else if (type == 'match_cancelled' &&
                   data['matchId'] == match.matchId) {
                 onMatchCancelled(data);
@@ -337,8 +342,12 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             });
 
             try {
-              // Step 0: Ensure player has an on-chain profile (needed for settlement).
-              try {
+              // Step 0: Ensure player has an on-chain profile.
+              // REQUIRED for settlement: end_game needs both player profile PDAs.
+              // If the profile doesn't exist here, tie refunds will be stuck
+              // on-chain. Do NOT silently swallow failures — propagate to the
+              // outer catch so the user sees the error and can retry.
+              {
                 final api = ApiClient.instance;
                 final address = wallet.address!;
                 final profileCheck = await api.get('/match/profile/$address');
@@ -351,10 +360,6 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                     gamerTag: gamerTag,
                   );
                 }
-              } catch (e) {
-                // Non-fatal: profile creation failure shouldn't block deposit.
-                // Backend settlement will fall back to Firebase-only.
-                debugPrint('[PlayScreen] Profile creation skipped: $e');
               }
 
               // Step 1: Deposit to on-chain escrow via program instruction.
@@ -393,7 +398,8 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                     try {
                       final m = await api.get('/match/${match.matchId}');
                       if (m['status'] == 'active') {
-                        onMatchActivated();
+                        onMatchActivated(
+                            endTime: (m['endTime'] as num?)?.toInt());
                       }
                     } catch (_) {}
                   },

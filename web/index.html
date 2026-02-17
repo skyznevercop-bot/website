@@ -111,6 +111,9 @@
       }
     }
 
+    // Retry counters for zero-dimension containers.
+    window._lwChartAttempts = {};
+
     // Create a new lightweight-chart in containerId for binanceSymbol (e.g. 'BTCUSDT').
     window._createLWChart = function(containerId, binanceSymbol) {
       window._destroyLWChart(containerId);
@@ -121,9 +124,22 @@
         return;
       }
 
+      // Retry if container has zero dimensions (Flutter widget not yet laid out).
+      if (container.clientWidth === 0) {
+        var attempts = (window._lwChartAttempts[containerId] || 0);
+        if (attempts < 10) {
+          window._lwChartAttempts[containerId] = attempts + 1;
+          setTimeout(function() { window._createLWChart(containerId, binanceSymbol); }, 150);
+          return;
+        }
+        // After 10 retries, proceed anyway and let ResizeObserver fix the size.
+        console.warn('[LWChart] container still 0-width after retries, creating anyway');
+      }
+      window._lwChartAttempts[containerId] = 0;
+
       var chart = LightweightCharts.createChart(container, {
-        width:  container.clientWidth,
-        height: container.clientHeight,
+        width:  container.clientWidth  || 600,
+        height: container.clientHeight || 400,
         layout: {
           background: { color: '#131722' },
           textColor:  '#D1D4DC',

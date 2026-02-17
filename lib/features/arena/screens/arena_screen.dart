@@ -64,7 +64,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
   final String? matchId;
   final String? opponentAddress;
   final String? opponentGamerTag;
-  final int? startTime;
+  final int? endTime;
 
   const ArenaScreen({
     super.key,
@@ -73,7 +73,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
     this.matchId,
     this.opponentAddress,
     this.opponentGamerTag,
-    this.startTime,
+    this.endTime,
   });
 
   @override
@@ -88,11 +88,12 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       int remaining = widget.durationSeconds;
-      if (widget.startTime != null) {
-        final elapsed =
-            (DateTime.now().millisecondsSinceEpoch - widget.startTime!) ~/ 1000;
+      if (widget.endTime != null) {
+        // Use authoritative server endTime so both players share the same clock.
         remaining =
-            (widget.durationSeconds - elapsed).clamp(0, widget.durationSeconds);
+            ((widget.endTime! - DateTime.now().millisecondsSinceEpoch) / 1000)
+                .round()
+                .clamp(0, widget.durationSeconds);
       }
 
       final arenaUri = Uri(
@@ -104,7 +105,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           if (widget.opponentAddress != null) 'opp': widget.opponentAddress!,
           if (widget.opponentGamerTag != null)
             'oppTag': widget.opponentGamerTag!,
-          if (widget.startTime != null) 'st': widget.startTime.toString(),
+          if (widget.endTime != null) 'et': widget.endTime.toString(),
         },
       ).toString();
 

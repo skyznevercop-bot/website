@@ -466,11 +466,14 @@ class TradingNotifier extends Notifier<TradingState> {
       final match = result['match'];
       if (match == null) return;
 
+      // BUG 2 fix: only show the banner for genuinely active matches.
+      final matchStatus = match['status'] as String?;
+      if (matchStatus != 'active') return;
+
       final matchId = match['matchId'] as String;
       final betAmount = (match['betAmount'] as num?)?.toDouble() ?? 1.0;
       final oppAddress = match['opponentAddress'] as String?;
       final oppTag = match['opponentGamerTag'] as String?;
-      final startTime = match['startTime'] as int?;
       final endTime = match['endTime'] as int?;
       final duration = match['duration'] as String? ?? '15m';
 
@@ -482,17 +485,12 @@ class TradingNotifier extends Notifier<TradingState> {
         durationSeconds = m.group(2) == 'h' ? value * 3600 : value * 60;
       }
 
-      // Calculate remaining time.
+      // Calculate remaining time using server endTime (shared clock).
       int remaining = durationSeconds;
-      int? startTimeMs = startTime;
       if (endTime != null) {
         remaining = ((endTime - DateTime.now().millisecondsSinceEpoch) / 1000)
             .round()
             .clamp(0, durationSeconds);
-      } else if (startTime != null) {
-        final elapsed =
-            (DateTime.now().millisecondsSinceEpoch - startTime) ~/ 1000;
-        remaining = (durationSeconds - elapsed).clamp(0, durationSeconds);
       }
 
       // Build the arena route for navigation.
@@ -504,7 +502,7 @@ class TradingNotifier extends Notifier<TradingState> {
           'matchId': matchId,
           if (oppAddress != null) 'opp': oppAddress,
           if (oppTag != null) 'oppTag': oppTag,
-          if (startTimeMs != null) 'st': startTimeMs.toString(),
+          if (endTime != null) 'et': endTime.toString(),
         },
       ).toString();
 
