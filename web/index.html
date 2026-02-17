@@ -130,8 +130,15 @@
         if (window._lwChartSessions[containerId] !== session) return;
 
         var container = document.getElementById(containerId);
+
+        // Retry if element not yet inserted into the DOM (Flutter platform view
+        // insertion is asynchronous and may lag behind addPostFrameCallback).
         if (!container) {
-          console.warn('[LWChart] container not found:', containerId);
+          if (attempt < 15) {
+            setTimeout(function() { tryCreate(attempt + 1); }, 150);
+            return;
+          }
+          console.warn('[LWChart] container not found after retries:', containerId);
           return;
         }
 
