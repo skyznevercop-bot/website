@@ -132,6 +132,8 @@ class ApiClient {
 
     _ws!.onopen = ((web.Event e) {
       _reconnectAttempts = 0;
+      // Notify listeners so they can re-join match rooms after a reconnect.
+      _wsController.add({'type': 'ws_connected'});
     }).toJS;
 
     _ws!.onmessage = ((web.MessageEvent event) {

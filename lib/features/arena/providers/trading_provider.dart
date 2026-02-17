@@ -231,6 +231,14 @@ class TradingNotifier extends Notifier<TradingState> {
 
   void _handleWsEvent(Map<String, dynamic> data) {
     switch (data['type']) {
+      case 'ws_connected':
+        // WebSocket reconnected (network blip, not a full page refresh).
+        // Re-join the match room so the backend sends prices + match_snapshot.
+        if (state.matchActive && state.matchId != null) {
+          _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
+        }
+        break;
+
       case 'price_update':
         final prices = <String, double>{};
         if (data['btc'] != null) prices['BTC'] = (data['btc'] as num).toDouble();
@@ -292,10 +300,62 @@ class TradingNotifier extends Notifier<TradingState> {
         }
         break;
 
+      case 'match_snapshot':
+        // Backend sends this after join_match to restore UI state after a
+        // page refresh or WS reconnect.
+        _applySnapshot(data);
+        break;
+
       case 'chat_message':
         // Handled by MatchChatNotifier's own wsStream subscription.
         break;
     }
+  }
+
+  /// Restore positions and balance from a backend snapshot.
+  /// Also advances [_positionCounter] to avoid ID collisions with new positions.
+  void _applySnapshot(Map<String, dynamic> data) {
+    if (!state.matchActive) return;
+
+    final rawList = data['positions'] as List<dynamic>? ?? [];
+    final snapshotBalance = (data['balance'] as num?)?.toDouble();
+
+    final positions = rawList.map<Position>((raw) {
+      final p = raw as Map<String, dynamic>;
+      return Position(
+        id:          p['id'] as String,
+        assetSymbol: p['assetSymbol'] as String,
+        isLong:      p['isLong'] as bool,
+        entryPrice:  (p['entryPrice'] as num).toDouble(),
+        size:        (p['size'] as num).toDouble(),
+        leverage:    (p['leverage'] as num).toDouble(),
+        openedAt:    p['openedAt'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(p['openedAt'] as int)
+            : DateTime.now(),
+        stopLoss:    (p['stopLoss'] as num?)?.toDouble(),
+        takeProfit:  (p['takeProfit'] as num?)?.toDouble(),
+        exitPrice:   (p['exitPrice'] as num?)?.toDouble(),
+        closedAt:    p['closedAt'] != null
+            ? DateTime.fromMillisecondsSinceEpoch(p['closedAt'] as int)
+            : null,
+        closeReason: p['closeReason'] as String?,
+      );
+    }).toList();
+
+    // Advance counter past any restored IDs (e.g. pos_3) so new positions
+    // get unique IDs and don't collide with existing Firebase records.
+    for (final p in positions) {
+      final m = RegExp(r'^pos_(\d+)$').firstMatch(p.id);
+      if (m != null) {
+        final n = int.tryParse(m.group(1)!) ?? 0;
+        if (n > _positionCounter) _positionCounter = n;
+      }
+    }
+
+    state = state.copyWith(
+      positions: positions,
+      balance: snapshotBalance ?? state.balance,
+    );
   }
 
   /// Called externally when price feed updates.

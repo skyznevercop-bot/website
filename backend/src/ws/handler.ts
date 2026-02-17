@@ -292,6 +292,38 @@ async function handleMessage(
       ws.send(
         JSON.stringify({ type: "price_update", ...getLatestPrices() })
       );
+
+      // Send a position snapshot so the client can restore its UI after a
+      // page refresh or WS reconnect without losing open positions / balance.
+      const snapMatch = await getMatch(matchId);
+      if (snapMatch && snapMatch.status === "active") {
+        const snapPositions = await getPositions(matchId, ws.userAddress);
+
+        // Recompute balance: demo balance minus the margin locked in open positions.
+        let balance = DEMO_BALANCE;
+        for (const pos of snapPositions) {
+          if (!pos.closedAt) balance -= pos.size;
+        }
+
+        ws.send(JSON.stringify({
+          type: "match_snapshot",
+          positions: snapPositions.map(pos => ({
+            id:          pos.id,
+            assetSymbol: pos.assetSymbol,
+            isLong:      pos.isLong,
+            entryPrice:  pos.entryPrice,
+            size:        pos.size,
+            leverage:    pos.leverage,
+            stopLoss:    pos.sl   ?? null,
+            takeProfit:  pos.tp   ?? null,
+            openedAt:    pos.openedAt,
+            exitPrice:   pos.exitPrice  ?? null,
+            closedAt:    pos.closedAt   ?? null,
+            closeReason: pos.closeReason ?? null,
+          })),
+          balance,
+        }));
+      }
       break;
     }
 

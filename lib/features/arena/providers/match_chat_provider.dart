@@ -35,8 +35,15 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
     _wsSub?.cancel();
     _wsSub = _api.wsStream
         .where((d) =>
-            d['type'] == 'chat_message' && d['matchId'] == _matchId)
-        .listen(_onReceive);
+            (d['type'] == 'chat_message' && d['matchId'] == _matchId) ||
+            d['type'] == 'match_snapshot')
+        .listen((d) {
+          if (d['type'] == 'match_snapshot') {
+            _onSnapshot(d);
+          } else {
+            _onReceive(d);
+          }
+        });
 
     // System message
     state = [
@@ -44,6 +51,27 @@ class MatchChatNotifier extends Notifier<List<ChatMessage>> {
         id: 'sys_start',
         senderTag: '',
         content: 'Match started — good luck!',
+        timestamp: DateTime.now(),
+        isSystem: true,
+      ),
+    ];
+  }
+
+  /// Called when a match_snapshot is received (page refresh / WS reconnect).
+  /// If there are open positions, the player rejoined mid-match.
+  void _onSnapshot(Map<String, dynamic> data) {
+    final positions = data['positions'] as List<dynamic>? ?? [];
+    final hasOpenPositions =
+        positions.any((p) => (p as Map<String, dynamic>)['closedAt'] == null);
+    if (!hasOpenPositions) return;
+
+    _msgCounter++;
+    state = [
+      ...state,
+      ChatMessage(
+        id: 'sys_rejoin_$_msgCounter',
+        senderTag: '',
+        content: 'You rejoined the match — positions restored.',
         timestamp: DateTime.now(),
         isSystem: true,
       ),
