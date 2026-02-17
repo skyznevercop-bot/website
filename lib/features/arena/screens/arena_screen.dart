@@ -180,10 +180,8 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           child: Column(
             children: [
               _AssetMarketBar(state: state),
-              Expanded(
-                child: TradingViewChart(
-                  tvSymbol: state.selectedAsset.tvSymbol,
-                ),
+              const Expanded(
+                child: LWChart(),
               ),
               Container(height: 1, color: AppTheme.border),
               SizedBox(
@@ -217,7 +215,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
         _AssetMarketBar(state: state),
         Expanded(
           flex: 5,
-          child: TradingViewChart(tvSymbol: state.selectedAsset.tvSymbol),
+          child: const LWChart(),
         ),
         Container(height: 1, color: AppTheme.border),
         Expanded(

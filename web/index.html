@@ -79,58 +79,209 @@
     });
   </script>
 
-  <!-- TradingView Widget Library -->
-  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+  <!-- lightweight-charts (MIT license, no attribution required) -->
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
   <script>
-    // Global chart management for Dart JS interop.
-    window._tvWidgets = {};
+    // ── lightweight-charts management ────────────────────────────────────────
+    // State per containerId: { chart, series, currentCandle, positionLines }
+    window._lwCharts = {};
 
-    window._createTVChart = function(containerId, symbol, theme) {
-      // Destroy existing widget if any.
-      window._destroyTVChart(containerId);
+    // Binance 1m klines REST endpoint (CORS-friendly, no key needed).
+    var _KLINES_BASE = 'https://api.binance.com/api/v3/klines';
+
+    // Fetch historical 1m candles and seed the chart series.
+    async function _fetchCandles(symbol, series) {
+      try {
+        var url = _KLINES_BASE + '?symbol=' + symbol + '&interval=1m&limit=300';
+        var resp = await fetch(url);
+        if (!resp.ok) return;
+        var data = await resp.json();
+        var candles = data.map(function(k) {
+          return {
+            time: Math.floor(k[0] / 1000), // open time in seconds
+            open:  parseFloat(k[1]),
+            high:  parseFloat(k[2]),
+            low:   parseFloat(k[3]),
+            close: parseFloat(k[4]),
+          };
+        });
+        series.setData(candles);
+      } catch(e) {
+        console.warn('[LWChart] klines fetch failed:', e);
+      }
+    }
+
+    // Create a new lightweight-chart in containerId for binanceSymbol (e.g. 'BTCUSDT').
+    window._createLWChart = function(containerId, binanceSymbol) {
+      window._destroyLWChart(containerId);
 
       var container = document.getElementById(containerId);
       if (!container) {
-        console.warn('TradingView: container not found:', containerId);
+        console.warn('[LWChart] container not found:', containerId);
         return;
       }
-      container.innerHTML = '';
 
-      try {
-        var widget = new TradingView.widget({
-          container_id: containerId,
-          autosize: true,
-          symbol: symbol || 'BINANCE:BTCUSDT',
-          interval: '5',
-          timezone: 'Etc/UTC',
-          theme: theme || 'dark',
-          style: '1',
-          locale: 'en',
-          toolbar_bg: '#131722',
-          enable_publishing: false,
-          allow_symbol_change: true,
-          hide_top_toolbar: false,
-          hide_legend: false,
-          hide_side_toolbar: false,
-          save_image: false,
-          calendar: false,
-          hide_volume: false,
-          withdateranges: true,
-          details: false
-        });
-        window._tvWidgets[containerId] = widget;
-      } catch(e) {
-        console.error('TradingView widget error:', e);
-      }
+      var chart = LightweightCharts.createChart(container, {
+        width:  container.clientWidth,
+        height: container.clientHeight,
+        layout: {
+          background: { color: '#131722' },
+          textColor:  '#D1D4DC',
+        },
+        grid: {
+          vertLines:   { color: 'rgba(255,255,255,0.06)' },
+          horzLines:   { color: 'rgba(255,255,255,0.06)' },
+        },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#2A2E39', autoScale: true },
+        timeScale: {
+          borderColor:        '#2A2E39',
+          timeVisible:        true,
+          secondsVisible:     false,
+          rightOffset:        5,
+          fixLeftEdge:        false,
+          lockVisibleTimeRangeOnResize: true,
+        },
+      });
+
+      // Auto-resize with ResizeObserver.
+      var ro = new ResizeObserver(function() {
+        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      });
+      ro.observe(container);
+
+      var series = chart.addCandlestickSeries({
+        upColor:         '#26a69a',
+        downColor:       '#ef5350',
+        borderUpColor:   '#26a69a',
+        borderDownColor: '#ef5350',
+        wickUpColor:     '#26a69a',
+        wickDownColor:   '#ef5350',
+      });
+
+      window._lwCharts[containerId] = {
+        chart:         chart,
+        series:        series,
+        symbol:        binanceSymbol || 'BTCUSDT',
+        currentCandle: null,
+        positionLines: {}, // positionId -> [priceLine, ...]
+        ro:            ro,
+      };
+
+      _fetchCandles(binanceSymbol || 'BTCUSDT', series);
     };
 
-    window._destroyTVChart = function(containerId) {
-      if (window._tvWidgets[containerId]) {
-        try { window._tvWidgets[containerId].remove(); } catch(e) {}
-        delete window._tvWidgets[containerId];
-      }
+    // Destroy chart and clean up.
+    window._destroyLWChart = function(containerId) {
+      var state = window._lwCharts[containerId];
+      if (!state) return;
+      try { state.ro && state.ro.disconnect(); } catch(e) {}
+      try { state.chart.remove(); } catch(e) {}
+      delete window._lwCharts[containerId];
       var container = document.getElementById(containerId);
       if (container) container.innerHTML = '';
+    };
+
+    // Switch to a different symbol — clears data and fetches new history.
+    window._setLWChartSymbol = function(containerId, binanceSymbol) {
+      var state = window._lwCharts[containerId];
+      if (!state) return;
+      if (state.symbol === binanceSymbol) return;
+      state.symbol        = binanceSymbol;
+      state.currentCandle = null;
+      state.positionLines = {};
+      _fetchCandles(binanceSymbol, state.series);
+    };
+
+    // Update the live (current) candle from a price tick.
+    // Builds 1-minute candles: when the tick's minute changes, a new candle starts.
+    window._updateLWChartTick = function(containerId, price, timestampMs) {
+      var state = window._lwCharts[containerId];
+      if (!state || !price || price <= 0) return;
+
+      var tSec   = Math.floor(timestampMs / 1000);
+      var minute = Math.floor(tSec / 60) * 60; // floor to minute boundary
+
+      var c = state.currentCandle;
+      if (!c || minute > c.time) {
+        // New minute — finalise previous candle and start a fresh one.
+        if (c) state.series.update(c);
+        c = { time: minute, open: price, high: price, low: price, close: price };
+        state.currentCandle = c;
+      } else {
+        c.close = price;
+        if (price > c.high) c.high = price;
+        if (price < c.low)  c.low  = price;
+      }
+      state.series.update(c);
+    };
+
+    // Draw entry / SL / TP price lines for a position.
+    // Pass slPrice=0 or tpPrice=0 to omit those lines.
+    window._addPositionLine = function(containerId, positionId, entryPrice, slPrice, tpPrice, isLong) {
+      var state = window._lwCharts[containerId];
+      if (!state) return;
+
+      var lines = [];
+      var entryColor = isLong ? '#26a69a' : '#ef5350';
+
+      lines.push(state.series.createPriceLine({
+        price:            entryPrice,
+        color:            entryColor,
+        lineWidth:        2,
+        lineStyle:        LightweightCharts.LineStyle.Solid,
+        axisLabelVisible: true,
+        title:            'Entry',
+      }));
+
+      if (slPrice && slPrice > 0) {
+        lines.push(state.series.createPriceLine({
+          price:            slPrice,
+          color:            '#ef5350',
+          lineWidth:        1,
+          lineStyle:        LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title:            'SL',
+        }));
+      }
+
+      if (tpPrice && tpPrice > 0) {
+        lines.push(state.series.createPriceLine({
+          price:            tpPrice,
+          color:            '#26a69a',
+          lineWidth:        1,
+          lineStyle:        LightweightCharts.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title:            'TP',
+        }));
+      }
+
+      state.positionLines[positionId] = lines;
+    };
+
+    // Remove all price lines for a specific position.
+    window._removePositionLine = function(containerId, positionId) {
+      var state = window._lwCharts[containerId];
+      if (!state) return;
+      var lines = state.positionLines[positionId];
+      if (!lines) return;
+      lines.forEach(function(line) {
+        try { state.series.removePriceLine(line); } catch(e) {}
+      });
+      delete state.positionLines[positionId];
+    };
+
+    // Remove all position lines from the chart.
+    window._removeAllPositionLines = function(containerId) {
+      var state = window._lwCharts[containerId];
+      if (!state) return;
+      Object.keys(state.positionLines).forEach(function(pid) {
+        var lines = state.positionLines[pid];
+        if (lines) lines.forEach(function(line) {
+          try { state.series.removePriceLine(line); } catch(e) {}
+        });
+      });
+      state.positionLines = {};
     };
   </script>
 
