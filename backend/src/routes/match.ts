@@ -5,6 +5,7 @@ import {
   getPositions,
   createPosition,
   matchesRef,
+  updateMatch,
   getUser,
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
@@ -62,6 +63,24 @@ router.get("/active/list", async (_req, res) => {
   res.json({ matches });
 });
 
+// Staleness thresholds for auto-cancellation.
+const ACTIVE_STALE_MS = 5 * 60 * 1000;    // 5 min past endTime
+const DEPOSIT_STALE_MS = 2 * 60 * 1000;   // 2 min past depositDeadline
+
+/** Returns true if the match is stale and should be cancelled. */
+function isStaleMatch(m: Record<string, unknown>): boolean {
+  const now = Date.now();
+  if (m.status === "active") {
+    const endTime = m.endTime as number | undefined;
+    return !!endTime && now > endTime + ACTIVE_STALE_MS;
+  }
+  if (m.status === "awaiting_deposits") {
+    const deadline = m.depositDeadline as number | undefined;
+    return !!deadline && now > deadline + DEPOSIT_STALE_MS;
+  }
+  return false;
+}
+
 /** GET /api/match/active/:address — Get a player's active (or awaiting_deposits) match. */
 router.get("/active/:address", async (req, res) => {
   const { address } = req.params;
@@ -95,6 +114,18 @@ router.get("/active/:address", async (req, res) => {
   }
 
   const m = foundData as Record<string, unknown>;
+
+  // Auto-cancel if the match is stale (settlement failed / timed out).
+  if (isStaleMatch(m)) {
+    console.log(
+      `[Match] Auto-cancelling stale match ${foundId} (status=${m.status}, ` +
+        `endTime=${m.endTime}, depositDeadline=${m.depositDeadline})`
+    );
+    await updateMatch(foundId, { status: "cancelled", escrowState: "refunded" });
+    res.json({ match: null });
+    return;
+  }
+
   const isPlayer1 = m.player1 === address;
   const oppAddress = isPlayer1 ? m.player2 as string : m.player1 as string;
   const oppUser = await getUser(oppAddress);
