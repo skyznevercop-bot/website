@@ -125,7 +125,9 @@
       }
 
       // Retry if container has zero dimensions (Flutter widget not yet laid out).
-      if (container.clientWidth === 0) {
+      // Check both width AND height — a container can have non-zero width but
+      // zero height when the parent Expanded hasn't finished its layout pass.
+      if (container.clientWidth === 0 || container.clientHeight === 0) {
         var attempts = (window._lwChartAttempts[containerId] || 0);
         if (attempts < 10) {
           window._lwChartAttempts[containerId] = attempts + 1;
@@ -133,13 +135,13 @@
           return;
         }
         // After 10 retries, proceed anyway and let ResizeObserver fix the size.
-        console.warn('[LWChart] container still 0-width after retries, creating anyway');
+        console.warn('[LWChart] container still 0-size after retries, creating anyway');
       }
       window._lwChartAttempts[containerId] = 0;
 
       var chart = LightweightCharts.createChart(container, {
-        width:  container.clientWidth  || 600,
-        height: container.clientHeight || 400,
+        width:  container.clientWidth  || 800,
+        height: container.clientHeight || 500,
         layout: {
           background: { color: '#131722' },
           textColor:  '#D1D4DC',
@@ -160,11 +162,21 @@
         },
       });
 
-      // Auto-resize with ResizeObserver.
+      // Auto-resize with ResizeObserver — corrects size once the Flutter
+      // platform-view iframe finishes its layout pass.
       var ro = new ResizeObserver(function() {
-        chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        }
       });
       ro.observe(container);
+      // Fire an immediate resize in case the container already has its final
+      // dimensions by the time we get here (avoids waiting for first mutation).
+      setTimeout(function() {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        }
+      }, 50);
 
       var series = chart.addCandlestickSeries({
         upColor:         '#26a69a',

@@ -84,8 +84,12 @@ class _LWChartState extends ConsumerState<LWChart> {
         ..style.backgroundColor = '#131722';
     });
 
-    // Wait for the div to be inserted into the DOM before calling JS.
-    _initTimer = Timer(const Duration(milliseconds: 300), _initChart);
+    // Wait for the first frame (Flutter layout complete), then give the
+    // browser a short window to size the platform-view iframe before
+    // calling JS. This replaces the unreliable fixed-duration timer.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initTimer = Timer(const Duration(milliseconds: 150), _initChart);
+    });
   }
 
   void _initChart() {
