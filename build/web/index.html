@@ -111,92 +111,101 @@
       }
     }
 
-    // Retry counters for zero-dimension containers.
-    window._lwChartAttempts = {};
+    // Session tokens: incremented each time _createLWChart is called for a
+    // container, so that pending retry timeouts from old calls can detect they
+    // are stale and bail out instead of creating a duplicate chart.
+    window._lwChartSessions = {};
 
     // Create a new lightweight-chart in containerId for binanceSymbol (e.g. 'BTCUSDT').
     window._createLWChart = function(containerId, binanceSymbol) {
       window._destroyLWChart(containerId);
 
-      var container = document.getElementById(containerId);
-      if (!container) {
-        console.warn('[LWChart] container not found:', containerId);
-        return;
-      }
+      // Bump session so any in-flight retries from previous calls are invalidated.
+      var session = (window._lwChartSessions[containerId] || 0) + 1;
+      window._lwChartSessions[containerId] = session;
 
-      // Retry if container has zero dimensions (Flutter widget not yet laid out).
-      // Check both width AND height — a container can have non-zero width but
-      // zero height when the parent Expanded hasn't finished its layout pass.
-      if (container.clientWidth === 0 || container.clientHeight === 0) {
-        var attempts = (window._lwChartAttempts[containerId] || 0);
-        if (attempts < 10) {
-          window._lwChartAttempts[containerId] = attempts + 1;
-          setTimeout(function() { window._createLWChart(containerId, binanceSymbol); }, 150);
+      // Internal retry function — does NOT call _destroyLWChart or bump session.
+      function tryCreate(attempt) {
+        // A newer _createLWChart call has come in — abort this retry chain.
+        if (window._lwChartSessions[containerId] !== session) return;
+
+        var container = document.getElementById(containerId);
+        if (!container) {
+          console.warn('[LWChart] container not found:', containerId);
           return;
         }
-        // After 10 retries, proceed anyway and let ResizeObserver fix the size.
-        console.warn('[LWChart] container still 0-size after retries, creating anyway');
-      }
-      window._lwChartAttempts[containerId] = 0;
 
-      var chart = LightweightCharts.createChart(container, {
-        width:  container.clientWidth  || 800,
-        height: container.clientHeight || 500,
-        layout: {
-          background: { color: '#131722' },
-          textColor:  '#D1D4DC',
-        },
-        grid: {
-          vertLines:   { color: 'rgba(255,255,255,0.06)' },
-          horzLines:   { color: 'rgba(255,255,255,0.06)' },
-        },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        rightPriceScale: { borderColor: '#2A2E39', autoScale: true },
-        timeScale: {
-          borderColor:        '#2A2E39',
-          timeVisible:        true,
-          secondsVisible:     false,
-          rightOffset:        5,
-          fixLeftEdge:        false,
-          lockVisibleTimeRangeOnResize: true,
-        },
-      });
-
-      // Auto-resize with ResizeObserver — corrects size once the Flutter
-      // platform-view iframe finishes its layout pass.
-      var ro = new ResizeObserver(function() {
-        if (container.clientWidth > 0 && container.clientHeight > 0) {
-          chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+        // Retry while container has zero dimensions (Flutter not yet laid out).
+        // Check both width AND height — a container can have non-zero width but
+        // zero height when the parent Expanded hasn't finished its layout pass.
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
+          if (attempt < 15) {
+            setTimeout(function() { tryCreate(attempt + 1); }, 150);
+            return;
+          }
+          console.warn('[LWChart] container still 0-size after retries, creating anyway');
         }
-      });
-      ro.observe(container);
-      // Fire an immediate resize in case the container already has its final
-      // dimensions by the time we get here (avoids waiting for first mutation).
-      setTimeout(function() {
-        if (container.clientWidth > 0 && container.clientHeight > 0) {
-          chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
-        }
-      }, 50);
 
-      var series = chart.addCandlestickSeries({
-        upColor:         '#26a69a',
-        downColor:       '#ef5350',
-        borderUpColor:   '#26a69a',
-        borderDownColor: '#ef5350',
-        wickUpColor:     '#26a69a',
-        wickDownColor:   '#ef5350',
-      });
+        var chart = LightweightCharts.createChart(container, {
+          width:  container.clientWidth  || 800,
+          height: container.clientHeight || 500,
+          layout: {
+            background: { color: '#131722' },
+            textColor:  '#D1D4DC',
+          },
+          grid: {
+            vertLines:   { color: 'rgba(255,255,255,0.06)' },
+            horzLines:   { color: 'rgba(255,255,255,0.06)' },
+          },
+          crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+          rightPriceScale: { borderColor: '#2A2E39', autoScale: true },
+          timeScale: {
+            borderColor:        '#2A2E39',
+            timeVisible:        true,
+            secondsVisible:     false,
+            rightOffset:        5,
+            fixLeftEdge:        false,
+            lockVisibleTimeRangeOnResize: true,
+          },
+        });
 
-      window._lwCharts[containerId] = {
-        chart:         chart,
-        series:        series,
-        symbol:        binanceSymbol || 'BTCUSDT',
-        currentCandle: null,
-        positionLines: {}, // positionId -> [priceLine, ...]
-        ro:            ro,
-      };
+        // Auto-resize: ResizeObserver handles future size changes, plus an
+        // immediate 50ms probe to correct the initial size once the Flutter
+        // platform-view iframe finishes its layout pass.
+        var ro = new ResizeObserver(function() {
+          if (container.clientWidth > 0 && container.clientHeight > 0) {
+            chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+          }
+        });
+        ro.observe(container);
+        setTimeout(function() {
+          if (container.clientWidth > 0 && container.clientHeight > 0) {
+            chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+          }
+        }, 50);
 
-      _fetchCandles(binanceSymbol || 'BTCUSDT', series);
+        var series = chart.addCandlestickSeries({
+          upColor:         '#26a69a',
+          downColor:       '#ef5350',
+          borderUpColor:   '#26a69a',
+          borderDownColor: '#ef5350',
+          wickUpColor:     '#26a69a',
+          wickDownColor:   '#ef5350',
+        });
+
+        window._lwCharts[containerId] = {
+          chart:         chart,
+          series:        series,
+          symbol:        binanceSymbol || 'BTCUSDT',
+          currentCandle: null,
+          positionLines: {}, // positionId -> [priceLine, ...]
+          ro:            ro,
+        };
+
+        _fetchCandles(binanceSymbol || 'BTCUSDT', series);
+      } // end tryCreate
+
+      tryCreate(0);
     };
 
     // Destroy chart and clean up.
