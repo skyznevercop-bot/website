@@ -268,9 +268,7 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
                                   portfolio.matchHistory[i].opponent,
                               duration:
                                   portfolio.matchHistory[i].duration,
-                              result: portfolio.matchHistory[i].isWin
-                                  ? 'WIN'
-                                  : 'LOSS',
+                              result: portfolio.matchHistory[i].result,
                               pnl: _formatPnlDollar(
                                   portfolio.matchHistory[i].pnl),
                             ),
@@ -906,6 +904,13 @@ class _HistoryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isWin = result == 'WIN';
+    final isTie = result == 'TIE';
+
+    final Color badgeColor = isWin
+        ? AppTheme.success
+        : isTie
+            ? AppTheme.warning
+            : AppTheme.error;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -916,8 +921,7 @@ class _HistoryRow extends StatelessWidget {
             width: 48,
             padding: const EdgeInsets.symmetric(vertical: 4),
             decoration: BoxDecoration(
-              color: (isWin ? AppTheme.success : AppTheme.error)
-                  .withValues(alpha: 0.1),
+              color: badgeColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Center(
@@ -926,7 +930,7 @@ class _HistoryRow extends StatelessWidget {
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: isWin ? AppTheme.success : AppTheme.error,
+                  color: badgeColor,
                 ),
               ),
             ),
@@ -963,7 +967,7 @@ class _HistoryRow extends StatelessWidget {
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: isWin ? AppTheme.success : AppTheme.error,
+              color: badgeColor,
             ),
           ),
         ],
@@ -983,30 +987,8 @@ class _TransactionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDeposit = tx.type == TransactionType.deposit;
-    final color = isDeposit ? AppTheme.solanaGreen : AppTheme.error;
-    final icon = isDeposit
-        ? Icons.arrow_downward_rounded
-        : Icons.arrow_upward_rounded;
-    final label = isDeposit ? 'Deposit' : 'Withdrawal';
-    final sign = isDeposit ? '+' : '-';
-
-    Color statusColor;
-    String statusLabel;
-    switch (tx.status) {
-      case TransactionStatus.confirmed:
-        statusColor = AppTheme.success;
-        statusLabel = 'Confirmed';
-        break;
-      case TransactionStatus.failed:
-        statusColor = AppTheme.error;
-        statusLabel = 'Failed';
-        break;
-      case TransactionStatus.pending:
-        statusColor = AppTheme.warning;
-        statusLabel = 'Pending';
-        break;
-    }
+    final (Color color, IconData icon, String label, String sign) =
+        _txStyle(tx.type);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -1049,24 +1031,6 @@ class _TransactionRow extends StatelessWidget {
             ),
           ),
 
-          // Status badge
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              statusLabel,
-              style: GoogleFonts.inter(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: statusColor,
-              ),
-            ),
-          ),
-          const SizedBox(width: 14),
-
           // Amount
           Text(
             '$sign\$${tx.amount.toStringAsFixed(2)}',
@@ -1079,5 +1043,24 @@ class _TransactionRow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static (Color, IconData, String, String) _txStyle(TransactionType type) {
+    switch (type) {
+      case TransactionType.deposit:
+        return (AppTheme.solanaGreen, Icons.arrow_downward_rounded, 'Deposit', '+');
+      case TransactionType.withdraw:
+        return (AppTheme.error, Icons.arrow_upward_rounded, 'Withdrawal', '-');
+      case TransactionType.matchWin:
+        return (AppTheme.success, Icons.emoji_events_rounded, 'Match Win', '+');
+      case TransactionType.matchLoss:
+        return (AppTheme.error, Icons.trending_down_rounded, 'Match Loss', '-');
+      case TransactionType.matchTie:
+        return (AppTheme.warning, Icons.handshake_rounded, 'Match Tie', '');
+      case TransactionType.matchFreeze:
+        return (AppTheme.solanaPurpleLight, Icons.lock_rounded, 'Bet Locked', '-');
+      case TransactionType.matchUnfreeze:
+        return (AppTheme.solanaPurpleLight, Icons.lock_open_rounded, 'Bet Unlocked', '+');
+    }
   }
 }

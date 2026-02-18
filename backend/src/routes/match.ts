@@ -8,6 +8,7 @@ import {
   getUser,
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
+import { config } from "../config";
 
 const router = Router();
 
@@ -87,7 +88,7 @@ router.get("/active/:address", async (req, res) => {
   });
 });
 
-/** GET /api/match/history/:address — Get match history for a user. */
+/** GET /api/match/history/:address — Get match history for a user (enriched). */
 router.get("/history/:address", async (req, res) => {
   const { address } = req.params;
 
@@ -96,7 +97,7 @@ router.get("/history/:address", async (req, res) => {
     matchesRef.orderByChild("player2").equalTo(address).once("value"),
   ]);
 
-  const matches: Array<Record<string, unknown>> = [];
+  const rawMatches: Array<Record<string, unknown> & { id: string }> = [];
   const seen = new Set<string>();
   const settledStatuses = new Set(["completed", "tied", "forfeited"]);
 
@@ -106,21 +107,65 @@ router.get("/history/:address", async (req, res) => {
         const m = child.val();
         if (!seen.has(child.key!) && settledStatuses.has(m.status)) {
           seen.add(child.key!);
-          matches.push({ id: child.key, ...m });
+          rawMatches.push({ id: child.key!, ...m });
         }
       });
     }
   }
 
-  matches.sort((a, b) => ((b.settledAt as number) || 0) - ((a.settledAt as number) || 0));
+  rawMatches.sort((a, b) => ((b.settledAt as number) || 0) - ((a.settledAt as number) || 0));
 
   const page = parseInt(req.query.page as string) || 1;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
   const start = (page - 1) * limit;
+  const pageMatches = rawMatches.slice(start, start + limit);
+
+  // Batch-fetch opponent gamer tags.
+  const opponentAddresses = pageMatches.map((m) =>
+    m.player1 === address ? (m.player2 as string) : (m.player1 as string)
+  );
+  const uniqueOpponents = [...new Set(opponentAddresses)];
+  const opponentUsers = await Promise.all(uniqueOpponents.map((a) => getUser(a)));
+  const tagMap = new Map<string, string>();
+  uniqueOpponents.forEach((a, i) => {
+    tagMap.set(a, opponentUsers[i]?.gamerTag || a.slice(0, 8));
+  });
+
+  // Enrich each match with result, PnL, and opponent info.
+  const rake = config.rakePercent;
+  const enriched = pageMatches.map((m) => {
+    const oppAddr = m.player1 === address ? (m.player2 as string) : (m.player1 as string);
+    const betAmount = (m.betAmount as number) || 0;
+
+    let result: "WIN" | "LOSS" | "TIE";
+    let pnl: number;
+
+    if (m.status === "tied") {
+      result = "TIE";
+      pnl = 0;
+    } else if (m.winner === address) {
+      result = "WIN";
+      pnl = betAmount * (1 - rake); // net winnings after rake
+    } else {
+      result = "LOSS";
+      pnl = -betAmount;
+    }
+
+    return {
+      id: m.id,
+      opponentAddress: oppAddr,
+      opponentGamerTag: tagMap.get(oppAddr) || oppAddr.slice(0, 8),
+      duration: m.duration as string,
+      betAmount,
+      result,
+      pnl,
+      settledAt: m.settledAt as number,
+    };
+  });
 
   res.json({
-    matches: matches.slice(start, start + limit),
-    total: matches.length,
+    matches: enriched,
+    total: rawMatches.length,
     page,
     limit,
   });

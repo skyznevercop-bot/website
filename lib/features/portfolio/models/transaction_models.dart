@@ -1,10 +1,18 @@
 /// Type of portfolio transaction.
-enum TransactionType { deposit, withdraw }
+enum TransactionType {
+  deposit,
+  withdraw,
+  matchWin,
+  matchLoss,
+  matchTie,
+  matchFreeze,
+  matchUnfreeze,
+}
 
 /// Status of a transaction.
 enum TransactionStatus { pending, confirmed, failed }
 
-/// A single deposit or withdrawal transaction.
+/// A single balance transaction (deposit, withdrawal, or match-related).
 class Transaction {
   final String id;
   final TransactionType type;
@@ -12,6 +20,7 @@ class Transaction {
   final String address;
   final TransactionStatus status;
   final String? signature;
+  final String? matchId;
   final DateTime createdAt;
 
   const Transaction({
@@ -19,8 +28,9 @@ class Transaction {
     required this.type,
     required this.amount,
     required this.address,
-    this.status = TransactionStatus.pending,
+    this.status = TransactionStatus.confirmed,
     this.signature,
+    this.matchId,
     required this.createdAt,
   });
 
@@ -31,6 +41,7 @@ class Transaction {
     String? address,
     TransactionStatus? status,
     String? signature,
+    String? matchId,
     DateTime? createdAt,
   }) {
     return Transaction(
@@ -40,6 +51,7 @@ class Transaction {
       address: address ?? this.address,
       status: status ?? this.status,
       signature: signature ?? this.signature,
+      matchId: matchId ?? this.matchId,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -50,18 +62,23 @@ class MatchResult {
   final String id;
   final String opponent;
   final String duration;
-  final bool isWin;
+  final String result; // "WIN", "LOSS", "TIE"
   final double pnl;
+  final double betAmount;
   final DateTime completedAt;
 
   const MatchResult({
     required this.id,
     required this.opponent,
     required this.duration,
-    required this.isWin,
+    required this.result,
     required this.pnl,
+    this.betAmount = 0,
     required this.completedAt,
   });
+
+  bool get isWin => result == 'WIN';
+  bool get isTie => result == 'TIE';
 }
 
 /// State of the portfolio feature (transaction history + withdraw/deposit state).

@@ -26,13 +26,12 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
         final tx = json as Map<String, dynamic>;
         return Transaction(
           id: tx['id'] as String? ?? '',
-          type: tx['type'] == 'deposit'
-              ? TransactionType.deposit
-              : TransactionType.withdraw,
+          type: _parseTransactionType(tx['type'] as String? ?? 'deposit'),
           amount: (tx['amount'] as num).toDouble(),
           address: tx['userAddress'] as String? ?? '',
-          status: _parseStatus(tx['status'] as String? ?? 'pending'),
+          status: TransactionStatus.confirmed,
           signature: tx['txSignature'] as String?,
+          matchId: tx['matchId'] as String?,
           createdAt: tx['timestamp'] != null
               ? DateTime.fromMillisecondsSinceEpoch(tx['timestamp'] as int)
               : DateTime.now(),
@@ -43,14 +42,24 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     } catch (_) {}
   }
 
-  static TransactionStatus _parseStatus(String status) {
-    switch (status) {
-      case 'confirmed':
-        return TransactionStatus.confirmed;
-      case 'failed':
-        return TransactionStatus.failed;
+  static TransactionType _parseTransactionType(String type) {
+    switch (type) {
+      case 'deposit':
+        return TransactionType.deposit;
+      case 'withdraw':
+        return TransactionType.withdraw;
+      case 'match_win':
+        return TransactionType.matchWin;
+      case 'match_loss':
+        return TransactionType.matchLoss;
+      case 'match_tie':
+        return TransactionType.matchTie;
+      case 'match_freeze':
+        return TransactionType.matchFreeze;
+      case 'match_unfreeze':
+        return TransactionType.matchUnfreeze;
       default:
-        return TransactionStatus.pending;
+        return TransactionType.deposit;
     }
   }
 
@@ -156,9 +165,12 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
 
   /// Fetch completed match history from the backend.
   Future<void> fetchMatchHistory() async {
+    final wallet = ref.read(walletProvider);
+    if (wallet.address == null) return;
+
     state = state.copyWith(isLoadingHistory: true);
     try {
-      final response = await _api.get('/portfolio/match-history');
+      final response = await _api.get('/match/history/${wallet.address}');
       final matchesJson = response['matches'] as List<dynamic>? ?? [];
       final matches = matchesJson.map((json) {
         final m = json as Map<String, dynamic>;
@@ -166,10 +178,11 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
           id: m['id'] as String? ?? '',
           opponent: m['opponentGamerTag'] as String? ?? 'Unknown',
           duration: m['duration'] as String? ?? '',
-          isWin: m['result'] == 'WIN',
+          result: m['result'] as String? ?? 'LOSS',
           pnl: (m['pnl'] as num?)?.toDouble() ?? 0,
-          completedAt: m['completedAt'] != null
-              ? DateTime.parse(m['completedAt'] as String)
+          betAmount: (m['betAmount'] as num?)?.toDouble() ?? 0,
+          completedAt: m['settledAt'] != null
+              ? DateTime.fromMillisecondsSinceEpoch(m['settledAt'] as int)
               : DateTime.now(),
         );
       }).toList();
