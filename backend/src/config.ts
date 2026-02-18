@@ -34,5 +34,5 @@ export const config = {
   treasuryAddress:
     process.env.TREASURY_ADDRESS || "",
   rakePercent: 0.10, // 10% rake (informational; enforced on-chain via fee_bps=1000)
-  depositTimeoutMs: 60_000, // 60 seconds for both players to deposit
+  depositTimeoutMs: 300_000, // 5 minutes for both players to deposit
 } as const;
