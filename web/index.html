@@ -90,11 +90,16 @@
     var _KLINES_BASE = 'https://api.binance.com/api/v3/klines';
 
     // Fetch historical 1m candles and seed the chart series.
-    async function _fetchCandles(symbol, series) {
+    // chart is passed so we can scrollToRealTime() after data loads
+    // (or after failure, so live ticks are always visible).
+    async function _fetchCandles(symbol, series, chart) {
       try {
         var url = _KLINES_BASE + '?symbol=' + symbol + '&interval=1m&limit=300';
         var resp = await fetch(url);
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          if (chart) chart.timeScale().scrollToRealTime();
+          return;
+        }
         var data = await resp.json();
         var candles = data.map(function(k) {
           return {
@@ -106,8 +111,10 @@
           };
         });
         series.setData(candles);
+        if (chart) chart.timeScale().scrollToRealTime();
       } catch(e) {
         console.warn('[LWChart] klines fetch failed:', e);
+        if (chart) chart.timeScale().scrollToRealTime();
       }
     }
 
@@ -209,7 +216,7 @@
           ro:            ro,
         };
 
-        _fetchCandles(binanceSymbol || 'BTCUSDT', series);
+        _fetchCandles(binanceSymbol || 'BTCUSDT', series, chart);
       } // end tryCreate
 
       tryCreate(0);
@@ -234,7 +241,7 @@
       state.symbol        = binanceSymbol;
       state.currentCandle = null;
       state.positionLines = {};
-      _fetchCandles(binanceSymbol, state.series);
+      _fetchCandles(binanceSymbol, state.series, state.chart);
     };
 
     // Update the live (current) candle from a price tick.

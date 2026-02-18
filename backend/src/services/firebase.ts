@@ -174,6 +174,21 @@ export async function getMatchesByStatus(
   return results;
 }
 
+/**
+ * Find an awaiting_deposits match for a given player address.
+ * Used to re-send match_found on WS reconnect.
+ */
+export async function getAwaitingDepositMatchForPlayer(
+  address: string
+): Promise<{ id: string; data: DbMatch } | null> {
+  const matches = await getMatchesByStatus("awaiting_deposits");
+  return (
+    matches.find(
+      ({ data }) => data.player1 === address || data.player2 === address
+    ) ?? null
+  );
+}
+
 // ── Position helpers ──────────────────────────────────────────────
 
 export interface DbPosition {

@@ -19,8 +19,11 @@ import {
   getPositions,
   updatePosition,
   getMatch,
+  getAwaitingDepositMatchForPlayer,
 } from "../services/firebase";
 import { settleByForfeit } from "../services/settlement";
+import { getGamePdaAndEscrow } from "../utils/solana";
+import { getUser } from "../services/firebase";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const FORFEIT_GRACE_MS = 30_000; // 30 seconds
@@ -57,6 +60,10 @@ export function setupWebSocket(server: HttpServer): void {
 
       // Cancel any pending forfeit timer for this player.
       cancelForfeitTimersForPlayer(payload.address);
+
+      // Re-send match_found if this player has an awaiting_deposits match.
+      // This recovers the deposit dialog after a page refresh or reconnect.
+      sendPendingMatchRecovery(payload.address, ws).catch(() => {});
     } catch {
       ws.close(4001, "Invalid authentication token");
       return;
@@ -249,6 +256,53 @@ function cancelForfeitTimerForMatch(matchId: string, playerAddress: string): voi
     console.log(`[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`);
     broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
   }
+}
+
+/**
+ * If the reconnecting player has an awaiting_deposits match, re-send
+ * match_found so they can resume the deposit dialog after a page refresh.
+ */
+async function sendPendingMatchRecovery(
+  address: string,
+  ws: AuthenticatedSocket
+): Promise<void> {
+  const pending = await getAwaitingDepositMatchForPlayer(address);
+  if (!pending || !pending.data.onChainGameId) return;
+
+  const match = pending.data;
+  const opponentAddress = match.player1 === address ? match.player2 : match.player1;
+
+  let gamePdaStr: string | undefined;
+  let escrowTokenAccountStr: string | undefined;
+  try {
+    const { gamePda, escrowTokenAccount } = await getGamePdaAndEscrow(
+      BigInt(match.onChainGameId!)
+    );
+    gamePdaStr = gamePda.toBase58();
+    escrowTokenAccountStr = escrowTokenAccount.toBase58();
+  } catch {
+    // If PDA derivation fails, still send what we have — deposit may still work.
+  }
+
+  const [opponentUser] = await Promise.all([getUser(opponentAddress)]);
+
+  ws.send(
+    JSON.stringify({
+      type: "match_found",
+      matchId: pending.id,
+      opponent: {
+        address: opponentAddress,
+        gamerTag: opponentUser?.gamerTag ?? opponentAddress.slice(0, 8),
+      },
+      duration: match.duration,
+      bet: match.betAmount,
+      onChainGameId: match.onChainGameId,
+      gamePda: gamePdaStr,
+      escrowTokenAccount: escrowTokenAccountStr,
+    })
+  );
+
+  console.log(`[WS] Sent match_found recovery to ${address} for match ${pending.id}`);
 }
 
 async function handleMessage(
