@@ -12,6 +12,8 @@ import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
 import '../models/transaction_models.dart';
 import '../providers/portfolio_provider.dart';
+import '../widgets/deposit_modal.dart';
+import '../widgets/withdraw_modal.dart';
 
 /// Portfolio screen — wallet balance, open positions, match history, PnL chart.
 class PortfolioScreen extends ConsumerStatefulWidget {
@@ -122,7 +124,8 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
             Padding(
               padding: Responsive.horizontalPadding(context),
               child: _PortfolioHero(
-                balance: wallet.usdcBalance ?? 0,
+                platformBalance: wallet.platformBalance,
+                frozenBalance: wallet.frozenBalance,
                 isMobile: isMobile,
                 inPlay: trading.matchActive
                     ? (TradingState.demoBalance - trading.balance).abs()
@@ -131,6 +134,8 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
                 wins: queue.userWins,
                 losses: queue.userLosses,
                 winRate: queue.userWinRate,
+                onDeposit: () => showDepositModal(context),
+                onWithdraw: () => showWithdrawModal(context),
               ),
             ),
             const SizedBox(height: 32),
@@ -369,17 +374,23 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _PortfolioHero extends StatelessWidget {
-  final double balance;
+  final double platformBalance;
+  final double frozenBalance;
   final bool isMobile;
   final double inPlay;
   final double totalPnl;
   final int wins;
   final int losses;
   final int winRate;
+  final VoidCallback onDeposit;
+  final VoidCallback onWithdraw;
 
   const _PortfolioHero({
-    required this.balance,
+    required this.platformBalance,
     required this.isMobile,
+    required this.onDeposit,
+    required this.onWithdraw,
+    this.frozenBalance = 0,
     this.inPlay = 0,
     this.totalPnl = 0,
     this.wins = 0,
@@ -500,7 +511,7 @@ class _PortfolioHero extends StatelessWidget {
 
                 // Big balance
                 Text(
-                  '\$${balance.toStringAsFixed(2)}',
+                  '\$${platformBalance.toStringAsFixed(2)}',
                   style: GoogleFonts.inter(
                     fontSize: isMobile ? 36 : 48,
                     fontWeight: FontWeight.w800,
@@ -510,13 +521,60 @@ class _PortfolioHero extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  'USDC Balance',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.45),
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      'Platform Balance',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white.withValues(alpha: 0.45),
+                      ),
+                    ),
+                    if (frozenBalance > 0) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.warning.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '\$${frozenBalance.toStringAsFixed(2)} in play',
+                          style: GoogleFonts.inter(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.warning,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // ── Deposit / Withdraw buttons ──
+                Row(
+                  children: [
+                    Expanded(
+                      child: _HeroButton(
+                        label: 'Deposit',
+                        icon: Icons.arrow_downward_rounded,
+                        color: AppTheme.solanaGreen,
+                        onTap: onDeposit,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _HeroButton(
+                        label: 'Withdraw',
+                        icon: Icons.arrow_upward_rounded,
+                        color: AppTheme.solanaPurpleLight,
+                        onTap: onWithdraw,
+                      ),
+                    ),
+                  ],
                 ),
 
                 SizedBox(height: isMobile ? 24 : 28),
@@ -652,6 +710,58 @@ class _HeroStat extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Hero Button (Deposit / Withdraw)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _HeroButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _HeroButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: GoogleFonts.inter(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
