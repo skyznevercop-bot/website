@@ -102,12 +102,23 @@ export function setupWebSocket(server: HttpServer): void {
     });
   });
 
-  // Broadcast opponent updates for all active matches every 3 seconds.
+  // Broadcast prices + opponent updates for all active matches every 3 seconds.
+  // Price broadcast ensures the chart has data even if Binance/CoinGecko are
+  // unavailable from the client's network.
   setInterval(async () => {
     const matchIds = getActiveMatchIds();
+    if (matchIds.length === 0) return;
+
+    const prices = getLatestPrices();
+    const priceMsg = JSON.stringify({ type: "price_update", ...prices });
+
     for (const matchId of matchIds) {
       const match = await getMatch(matchId);
       if (!match || match.status !== "active") continue;
+
+      // Broadcast prices to both players in this match.
+      broadcastToMatch(matchId, JSON.parse(priceMsg));
+
       broadcastOpponentUpdate(matchId, match.player1).catch(() => {});
       broadcastOpponentUpdate(matchId, match.player2).catch(() => {});
     }

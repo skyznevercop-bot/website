@@ -245,7 +245,15 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   QueueDuration get _selected => AppConstants.durations[_selectedIndex];
 
   void _showMatchFoundDialog(BuildContext context, MatchFoundData match) {
-    final durationSec = _selected.length.inSeconds;
+    // Parse duration from the match data (e.g. "15m" → 900, "1h" → 3600).
+    // Do NOT use _selected.length: the picker may have changed since joining
+    // the queue, which would give the arena the wrong countdown timer.
+    int durationSec = _selected.length.inSeconds; // fallback
+    final durMatch = RegExp(r'^(\d+)(m|h)$').firstMatch(match.duration);
+    if (durMatch != null) {
+      final value = int.parse(durMatch.group(1)!);
+      durationSec = durMatch.group(2) == 'h' ? value * 3600 : value * 60;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     final wallet = ref.read(walletProvider);
     final walletName = wallet.walletType?.name ?? 'phantom';

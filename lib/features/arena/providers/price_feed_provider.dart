@@ -64,20 +64,20 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     // 4. Start polling as fallback — runs until WS is confirmed working.
     _startPolling();
 
-    // 5. Listen to backend WS if connected.
+    // 5. Always listen to backend WS price_update events.
+    // The backend broadcasts prices to match rooms every 3s, so this works
+    // even when Binance WS / CoinGecko are unavailable from the client.
     _backendWsSub?.cancel();
-    if (_api.isWsConnected) {
-      _backendWsSub = _api.wsStream
-          .where((d) => d['type'] == 'price_update')
-          .listen((data) {
-        for (final asset in TradingAsset.all) {
-          final key = asset.symbol.toLowerCase();
-          if (data[key] != null) {
-            _priceBuffer[asset.symbol] = (data[key] as num).toDouble();
-          }
+    _backendWsSub = _api.wsStream
+        .where((d) => d['type'] == 'price_update')
+        .listen((data) {
+      for (final asset in TradingAsset.all) {
+        final key = asset.symbol.toLowerCase();
+        if (data[key] != null) {
+          _priceBuffer[asset.symbol] = (data[key] as num).toDouble();
         }
-      });
-    }
+      }
+    });
   }
 
   void stop() {

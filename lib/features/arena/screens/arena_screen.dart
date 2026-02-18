@@ -1501,11 +1501,11 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
 
     _pollCount++;
 
-    // Safety net: after ~30s of polling with no result, default to tie
-    // so the overlay doesn't stay stuck forever.
-    if (_pollCount > 10) {
+    // Hard cap at 100 polls (~5 minutes) to prevent infinite polling.
+    // This should never trigger in practice — the backend settles within seconds.
+    // We intentionally do NOT default to tie here: the server result is authoritative.
+    if (_pollCount > 100) {
       _pollTimer?.cancel();
-      ref.read(tradingProvider.notifier).endMatch(isTie: true);
       return;
     }
 
