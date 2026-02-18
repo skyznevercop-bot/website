@@ -258,6 +258,35 @@ class SolanaWalletAdapter {
 
     return signature.toDart;
   }
+
+  // ── Deposit USDC to vault ────────────────────────────────
+
+  /// Build, sign, and send a USDC transfer to the platform vault.
+  /// Returns the transaction signature on success.
+  static Future<String> depositToVault({
+    required String walletName,
+    required String vaultAddress,
+    required double amount,
+    required String usdcMint,
+    required String rpcUrl,
+  }) async {
+    final promise = globalContext.callMethodVarArgs(
+      '_depositToVault'.toJS,
+      [
+        walletName.toJS,
+        vaultAddress.toJS,
+        amount.toJS,
+        usdcMint.toJS,
+        rpcUrl.toJS,
+      ],
+    ) as JSPromise;
+
+    final result = await promise.toDart;
+    if (result == null) {
+      throw WalletException('Deposit returned no signature');
+    }
+    return (result as JSString).toDart;
+  }
 }
 
 class WalletException implements Exception {

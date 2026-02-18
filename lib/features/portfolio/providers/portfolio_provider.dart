@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/config/environment.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/solana_wallet_adapter.dart';
 import '../../wallet/providers/wallet_provider.dart';
 import '../models/transaction_models.dart';
 
@@ -120,6 +122,70 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       state = state.copyWith(
         isWithdrawing: false,
         withdrawError: 'Withdrawal failed: ${e.toString()}',
+      );
+      return false;
+    }
+  }
+
+  /// One-click deposit: sign + send USDC transfer via wallet, then confirm with backend.
+  Future<bool> deposit(double amount) async {
+    if (state.isDepositing) return false;
+
+    final wallet = ref.read(walletProvider);
+    if (wallet.address == null || wallet.walletType == null) {
+      state = state.copyWith(depositError: 'Wallet not connected');
+      return false;
+    }
+    if (amount < 1) {
+      state = state.copyWith(depositError: 'Minimum deposit is 1 USDC');
+      return false;
+    }
+    if (amount > (wallet.usdcBalance ?? 0)) {
+      state = state.copyWith(depositError: 'Insufficient USDC in wallet');
+      return false;
+    }
+
+    state = state.copyWith(isDepositing: true, clearError: true);
+
+    try {
+      // 1. Get vault address from backend.
+      final vaultAddress = await getVaultAddress();
+      if (vaultAddress == null) {
+        state = state.copyWith(
+          isDepositing: false,
+          depositError: 'Could not load vault address',
+        );
+        return false;
+      }
+
+      // 2. Build + sign + send the SPL transfer (wallet popup).
+      final signature = await SolanaWalletAdapter.depositToVault(
+        walletName: wallet.walletType!.name,
+        vaultAddress: vaultAddress,
+        amount: amount,
+        usdcMint: Environment.usdcMint,
+        rpcUrl: Environment.solanaRpcUrl,
+      );
+
+      // 3. Confirm with backend to credit platform balance.
+      final confirmed = await confirmDeposit(signature);
+      if (!confirmed) return false;
+
+      // 4. Refresh balances.
+      ref.read(walletProvider.notifier).refreshBalance();
+      await fetchTransactions();
+
+      return true;
+    } on WalletException catch (e) {
+      state = state.copyWith(
+        isDepositing: false,
+        depositError: e.message,
+      );
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        isDepositing: false,
+        depositError: 'Deposit failed: ${e.toString()}',
       );
       return false;
     }

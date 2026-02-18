@@ -272,6 +272,77 @@
       return signature;
     };
 
+    // ── Deposit USDC to platform vault (plain SPL transfer) ──────────────
+    // Builds an SPL token transfer from user's USDC ATA to the platform vault ATA.
+    // Wallet popup appears for user approval. Returns the tx signature.
+    window._depositToVault = async function(walletName, vaultAddress, amount, usdcMint, rpcUrl) {
+      var PublicKey = solanaWeb3.PublicKey;
+      var Transaction = solanaWeb3.Transaction;
+      var TransactionInstruction = solanaWeb3.TransactionInstruction;
+
+      var provider = window._getWalletProvider(walletName);
+      if (!provider || !provider.publicKey) {
+        throw new Error(walletName + ' wallet not connected. Please reconnect.');
+      }
+
+      var rpc = await window._getRpcConnection(rpcUrl);
+      var connection = rpc.connection;
+      var bh = rpc.blockhash;
+
+      var sender = provider.publicKey;
+      var mint = new PublicKey(usdcMint);
+      var tokenProgramId = new PublicKey(TOKEN_PROGRAM_ID_STR);
+
+      // Derive ATAs.
+      var senderAta = window._deriveAta(sender, mint);
+      var vaultAta = new PublicKey(vaultAddress);
+
+      // Amount in token base units (USDC has 6 decimals).
+      var amountLamports = BigInt(Math.round(amount * 1e6));
+
+      // Build SPL token transfer instruction (opcode 3).
+      var data = new Uint8Array(9);
+      data[0] = 3; // Transfer instruction index
+      // Write amount as little-endian u64.
+      var lo = Number(amountLamports & BigInt(0xFFFFFFFF));
+      var hi = Number((amountLamports >> BigInt(32)) & BigInt(0xFFFFFFFF));
+      data[1] = lo & 0xFF; data[2] = (lo >> 8) & 0xFF;
+      data[3] = (lo >> 16) & 0xFF; data[4] = (lo >> 24) & 0xFF;
+      data[5] = hi & 0xFF; data[6] = (hi >> 8) & 0xFF;
+      data[7] = (hi >> 16) & 0xFF; data[8] = (hi >> 24) & 0xFF;
+
+      var ix = new TransactionInstruction({
+        programId: tokenProgramId,
+        keys: [
+          { pubkey: senderAta, isSigner: false, isWritable: true },
+          { pubkey: vaultAta, isSigner: false, isWritable: true },
+          { pubkey: sender, isSigner: true, isWritable: false },
+        ],
+        data: data,
+      });
+
+      var tx = new Transaction();
+      tx.add(ix);
+      tx.recentBlockhash = bh.blockhash;
+      tx.feePayer = sender;
+
+      var result = await provider.signAndSendTransaction(tx);
+      var signature = typeof result === 'string' ? result
+        : (result.signature ? result.signature : result.toString());
+
+      var confirmation = await connection.confirmTransaction({
+        signature: signature,
+        blockhash: bh.blockhash,
+        lastValidBlockHeight: bh.lastValidBlockHeight,
+      }, 'confirmed');
+
+      if (confirmation && confirmation.value && confirmation.value.err) {
+        throw new Error('Deposit transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+      }
+
+      return signature;
+    };
+
     // ── Claim Winnings (on-chain program instruction) ────────────────────
     // Winner calls claim_winnings to get their payout from the escrow.
     window._claimWinnings = async function(walletName, programId, gamePda, escrowTokenAccount, platformPda, treasuryAddress, usdcMint, rpcUrl) {
