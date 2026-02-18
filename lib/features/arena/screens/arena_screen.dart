@@ -1528,6 +1528,9 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
       } else if (status == 'tied') {
         ref.read(tradingProvider.notifier).endMatch(isTie: true);
         _pollTimer?.cancel();
+      } else if (status == 'cancelled') {
+        // Match was cancelled (deposit timeout / system error) — stop polling.
+        _pollTimer?.cancel();
       }
     } catch (_) {
       // API call failed — will retry on next poll.

@@ -18,6 +18,7 @@ import portfolioRoutes from "./routes/portfolio";
 import referralRoutes from "./routes/referral";
 import clanRoutes from "./routes/clan";
 import rpcProxyRoutes from "./routes/rpc-proxy";
+import klinesRoutes from "./routes/klines";
 
 const app = express();
 const server = createServer(app);
@@ -41,6 +42,7 @@ app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/clan", clanRoutes);
 app.use("/api/rpc-proxy", rpcProxyRoutes);
+app.use("/api/klines", klinesRoutes);
 
 // WebSocket
 setupWebSocket(server);

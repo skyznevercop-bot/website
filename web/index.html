@@ -86,36 +86,48 @@
     // State per containerId: { chart, series, currentCandle, positionLines }
     window._lwCharts = {};
 
-    // Binance 1m klines REST endpoint (CORS-friendly, no key needed).
-    var _KLINES_BASE = 'https://api.binance.com/api/v3/klines';
+    // Klines sources: backend proxy first (no browser CORS/geo issues),
+    // then direct Binance as fallback.
+    var _KLINES_SOURCES = [
+      'https://solfight-backend.onrender.com/api/klines',
+      'https://api.binance.com/api/v3/klines',
+    ];
 
     // Fetch historical 1m candles and seed the chart series.
-    // chart is passed so we can scrollToRealTime() after data loads
-    // (or after failure, so live ticks are always visible).
+    // Tries backend proxy first, then Binance directly.
     async function _fetchCandles(symbol, series, chart) {
-      try {
-        var url = _KLINES_BASE + '?symbol=' + symbol + '&interval=1m&limit=300';
-        var resp = await fetch(url);
-        if (!resp.ok) {
+      for (var si = 0; si < _KLINES_SOURCES.length; si++) {
+        try {
+          var base = _KLINES_SOURCES[si];
+          // Backend proxy: /api/klines/BTCUSDT?interval=1m&limit=300
+          // Binance direct: /api/v3/klines?symbol=BTCUSDT&interval=1m&limit=300
+          var url = base.indexOf('binance.com') !== -1
+            ? base + '?symbol=' + symbol + '&interval=1m&limit=300'
+            : base + '/' + symbol + '?interval=1m&limit=300';
+
+          var resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+          if (!resp.ok) continue;
+          var data = await resp.json();
+          if (!Array.isArray(data) || data.length === 0) continue;
+
+          var candles = data.map(function(k) {
+            return {
+              time:  Math.floor(k[0] / 1000),
+              open:  parseFloat(k[1]),
+              high:  parseFloat(k[2]),
+              low:   parseFloat(k[3]),
+              close: parseFloat(k[4]),
+            };
+          });
+          series.setData(candles);
           if (chart) chart.timeScale().scrollToRealTime();
-          return;
+          return; // success — stop trying sources
+        } catch(e) {
+          console.warn('[LWChart] klines source ' + si + ' failed:', e);
         }
-        var data = await resp.json();
-        var candles = data.map(function(k) {
-          return {
-            time: Math.floor(k[0] / 1000), // open time in seconds
-            open:  parseFloat(k[1]),
-            high:  parseFloat(k[2]),
-            low:   parseFloat(k[3]),
-            close: parseFloat(k[4]),
-          };
-        });
-        series.setData(candles);
-        if (chart) chart.timeScale().scrollToRealTime();
-      } catch(e) {
-        console.warn('[LWChart] klines fetch failed:', e);
-        if (chart) chart.timeScale().scrollToRealTime();
       }
+      // All sources failed — scroll to live edge so ticks are visible
+      if (chart) chart.timeScale().scrollToRealTime();
     }
 
     // Session tokens: incremented each time _createLWChart is called for a

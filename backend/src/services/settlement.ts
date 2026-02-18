@@ -18,6 +18,9 @@ import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, play
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
 
+/** Guard against concurrent settleMatch calls for the same matchId. */
+const _settling = new Set<string>();
+
 /**
  * Start the settlement loop — checks every 5 seconds for matches
  * past their end time that need to be settled.
@@ -137,6 +140,19 @@ export async function settleByForfeit(
  * result immediately, then settle on-chain asynchronously.
  */
 async function settleMatch(
+  matchId: string,
+  match: Record<string, unknown>
+): Promise<void> {
+  if (_settling.has(matchId)) return; // already being settled
+  _settling.add(matchId);
+  try {
+    await _doSettleMatch(matchId, match);
+  } finally {
+    _settling.delete(matchId);
+  }
+}
+
+async function _doSettleMatch(
   matchId: string,
   match: Record<string, unknown>
 ): Promise<void> {
