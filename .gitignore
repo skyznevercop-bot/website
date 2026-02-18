@@ -13,3 +13,7 @@ backend/.env
 backend/firebase-service-account.json
 backend/node_modules/
 backend/dist/
+
+# Solana / Anchor
+target/
+*-keypair.json

@@ -9,7 +9,7 @@ import '../providers/trading_provider.dart';
 import '../utils/arena_helpers.dart';
 
 // =============================================================================
-// Order Panel — "Arsenal" with quick-trade grid, risk indicator, and presets
+// Order Panel — "Arsenal" with risk indicator and presets
 // =============================================================================
 
 class OrderPanel extends ConsumerStatefulWidget {
@@ -35,9 +35,6 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
   late final AnimationController _priceFlashCtrl;
   double _lastPrice = 0;
   int _priceDirection = 0;
-
-  // Quick-trade execution feedback.
-  String? _quickTradeConfirm;
 
   @override
   void initState() {
@@ -102,27 +99,6 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
     setState(() => _showSlTp = false);
   }
 
-  void _executeQuickTrade(String symbol, bool isLong, double leverage) {
-    const quickSize = 10000.0;
-    if (quickSize > widget.state.balance) return;
-
-    ref.read(tradingProvider.notifier).openPosition(
-          assetSymbol: symbol,
-          isLong: isLong,
-          size: quickSize,
-          leverage: leverage,
-        );
-
-    // Brief visual confirmation.
-    setState(() {
-      _quickTradeConfirm =
-          '${isLong ? "LONG" : "SHORT"} $symbol ${leverage.toInt()}x';
-    });
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) setState(() => _quickTradeConfirm = null);
-    });
-  }
-
   bool _isPctActive(int pct, double balance) {
     if (balance <= 0) return false;
     final currentSize = double.tryParse(_sizeCtrl.text) ?? 0;
@@ -165,17 +141,6 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Quick Trade Grid ──
-                  if (matchActive) ...[
-                    _QuickTradeGrid(
-                      onTrade: _executeQuickTrade,
-                      confirmLabel: _quickTradeConfirm,
-                    ),
-                    const SizedBox(height: 14),
-                    const Divider(height: 1, color: AppTheme.border),
-                    const SizedBox(height: 14),
-                  ],
-
                   // ── Market order header + live price ──
                   Row(
                     children: [
@@ -492,177 +457,6 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// Quick Trade Grid — 2x3 one-tap preset trades
-// =============================================================================
-
-class _QuickTradeGrid extends StatelessWidget {
-  final void Function(String symbol, bool isLong, double leverage) onTrade;
-  final String? confirmLabel;
-
-  const _QuickTradeGrid({required this.onTrade, this.confirmLabel});
-
-  @override
-  Widget build(BuildContext context) {
-    // Show confirmation overlay briefly after executing.
-    if (confirmLabel != null) {
-      return Container(
-        height: 56,
-        decoration: BoxDecoration(
-          color: AppTheme.success.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
-        ),
-        child: Center(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.check_circle_rounded,
-                  size: 16, color: AppTheme.success),
-              const SizedBox(width: 6),
-              Text(
-                'OPENED $confirmLabel',
-                style: interStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.success,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('QUICK TRADE',
-            style: interStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.textTertiary,
-              letterSpacing: 1,
-            )),
-        const SizedBox(height: 6),
-        Row(
-          children: [
-            Expanded(
-                child: _QuickButton(
-              label: 'LONG BTC 10x',
-              isLong: true,
-              onTap: () => onTrade('BTC', true, 10),
-            )),
-            const SizedBox(width: 4),
-            Expanded(
-                child: _QuickButton(
-              label: 'SHORT BTC 10x',
-              isLong: false,
-              onTap: () => onTrade('BTC', false, 10),
-            )),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-                child: _QuickButton(
-              label: 'LONG ETH 25x',
-              isLong: true,
-              onTap: () => onTrade('ETH', true, 25),
-            )),
-            const SizedBox(width: 4),
-            Expanded(
-                child: _QuickButton(
-              label: 'SHORT ETH 25x',
-              isLong: false,
-              onTap: () => onTrade('ETH', false, 25),
-            )),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Expanded(
-                child: _QuickButton(
-              label: 'LONG SOL 50x',
-              isLong: true,
-              onTap: () => onTrade('SOL', true, 50),
-            )),
-            const SizedBox(width: 4),
-            Expanded(
-                child: _QuickButton(
-              label: 'SHORT SOL 50x',
-              isLong: false,
-              onTap: () => onTrade('SOL', false, 50),
-            )),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _QuickButton extends StatefulWidget {
-  final String label;
-  final bool isLong;
-  final VoidCallback onTap;
-
-  const _QuickButton({
-    required this.label,
-    required this.isLong,
-    required this.onTap,
-  });
-
-  @override
-  State<_QuickButton> createState() => _QuickButtonState();
-}
-
-class _QuickButtonState extends State<_QuickButton> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = widget.isLong ? AppTheme.success : AppTheme.error;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          height: Responsive.value<double>(context,
-              mobile: 32, desktop: 28),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? color.withValues(alpha: 0.15)
-                : color.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: _hovered
-                  ? color.withValues(alpha: 0.4)
-                  : color.withValues(alpha: 0.15),
-            ),
-          ),
-          child: Center(
-            child: Text(
-              widget.label,
-              style: interStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: color,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
