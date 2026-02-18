@@ -123,14 +123,49 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             value: 'copy_address',
           ),
           _buildMenuItem(
+            icon: Icons.pie_chart_rounded,
+            label: 'Portfolio',
+            value: 'portfolio',
+          ),
+          _buildMenuItem(
             icon: Icons.bar_chart_rounded,
             label: 'My Stats',
             value: 'stats',
           ),
-          _buildMenuItem(
-            icon: Icons.card_giftcard_rounded,
-            label: 'Referrals',
+          PopupMenuItem<String>(
             value: 'referrals',
+            child: Row(
+              children: [
+                Icon(Icons.card_giftcard_rounded,
+                    size: 18, color: AppTheme.textSecondary),
+                const SizedBox(width: 12),
+                Text(
+                  'Referrals',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'Soon',
+                    style: GoogleFonts.inter(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.solanaPurple,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
 
           const PopupMenuDivider(),
@@ -266,6 +301,9 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
         break;
       case 'referrals':
         context.go(AppConstants.referralRoute);
+        break;
+      case 'portfolio':
+        context.go(AppConstants.portfolioRoute);
         break;
       case 'stats':
         context.go(AppConstants.portfolioRoute);

@@ -66,17 +66,38 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Referral Program',
-                  style: GoogleFonts.inter(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary,
-                  ),
+                Row(
+                  children: [
+                    Text(
+                      'Referral Program',
+                      style: GoogleFonts.inter(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        gradient: AppTheme.purpleGradient,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'Coming Soon',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Invite friends and earn USDC rewards when they join and play.',
+                  'Invite friends and earn USDC rewards when they join and play. This feature is coming soon!',
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     color: AppTheme.textSecondary,
