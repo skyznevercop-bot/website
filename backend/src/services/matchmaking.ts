@@ -1,29 +1,37 @@
-import { queuesRef, createMatch as createDbMatch, getUser, updateMatch, DbMatch } from "./firebase";
+import { queuesRef, createMatch as createDbMatch, getUser, DbMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
-import { config } from "../config";
-import { startGameOnChain, getGamePdaAndEscrow } from "../utils/solana";
+import { freezeForMatch, unfreezeBalance } from "./balance";
 
 /** Guard against double-matching: addresses currently being matched. */
 const _matchingPlayers = new Set<string>();
 
 /**
  * Add a player to the FIFO matchmaking queue.
- * Queue key: "queues/{duration}_{bet}/{walletAddress}"
+ * Freezes their bet amount before adding to the queue.
+ * Returns false if insufficient balance.
  */
 export async function joinQueue(
   address: string,
   duration: string,
   bet: number
-): Promise<void> {
+): Promise<boolean> {
+  // Freeze the bet amount.
+  const frozen = await freezeForMatch(address, bet);
+  if (!frozen) {
+    return false;
+  }
+
   const queueKey = `${duration}_${bet}`;
   await queuesRef.child(queueKey).child(address).set({
     joinedAt: Date.now(),
   });
+
+  return true;
 }
 
 /**
- * Remove a player from the queue.
+ * Remove a player from the queue and unfreeze their bet.
  */
 export async function leaveQueue(
   address: string,
@@ -31,11 +39,17 @@ export async function leaveQueue(
   bet: number
 ): Promise<void> {
   const queueKey = `${duration}_${bet}`;
-  await queuesRef.child(queueKey).child(address).remove();
+
+  // Check if they're actually in this queue before unfreezing.
+  const snap = await queuesRef.child(queueKey).child(address).once("value");
+  if (snap.exists()) {
+    await queuesRef.child(queueKey).child(address).remove();
+    await unfreezeBalance(address, bet);
+  }
 }
 
 /**
- * Remove a player from ALL queues they may be in.
+ * Remove a player from ALL queues they may be in and unfreeze their balance.
  * Used on WS disconnect and as a safe fallback for leave_queue.
  */
 export async function removeFromAllQueues(address: string): Promise<void> {
@@ -43,15 +57,23 @@ export async function removeFromAllQueues(address: string): Promise<void> {
   if (!snap.exists()) return;
 
   const removals: Promise<void>[] = [];
+
   snap.forEach((queueChild) => {
     if (queueChild.hasChild(address)) {
-      removals.push(queuesRef.child(queueChild.key!).child(address).remove());
+      const queueKey = queueChild.key!;
+      const parts = queueKey.split("_");
+      const bet = parseFloat(parts[1]);
+
+      removals.push(
+        queuesRef.child(queueKey).child(address).remove()
+          .then(() => unfreezeBalance(address, bet))
+      );
     }
   });
 
   if (removals.length > 0) {
     await Promise.all(removals);
-    console.log(`[Matchmaking] Removed ${address} from ${removals.length} queue(s)`);
+    console.log(`[Matchmaking] Removed ${address} from ${removals.length} queue(s) — balance unfrozen`);
   }
 }
 
@@ -87,6 +109,7 @@ export async function getQueueStats(): Promise<
 /**
  * FIFO Matchmaking loop — runs every 500ms.
  * Pairs the two oldest players in each queue (first-come-first-served).
+ * NO on-chain calls — matching is instant.
  */
 export function startMatchmakingLoop(): void {
   setInterval(async () => {
@@ -111,8 +134,6 @@ export function startMatchmakingLoop(): void {
         entries.sort((a, b) => a.joinedAt - b.joinedAt);
 
         // Find the first pair where neither player is already being matched.
-        // This prevents double-matching when matchPair runs async across
-        // consecutive loop iterations.
         for (let i = 0; i < entries.length - 1; i++) {
           const p1 = entries[i].address;
           const p2 = entries[i + 1].address;
@@ -132,12 +153,12 @@ export function startMatchmakingLoop(): void {
     }
   }, 500);
 
-  console.log("[Matchmaking] Started — FIFO matching every 500ms");
+  console.log("[Matchmaking] Started — FIFO matching every 500ms (instant, no on-chain)");
 }
 
 /**
- * Create a match between two players and remove them from the queue.
- * Also creates the game on-chain so each match gets its own PDA-owned escrow.
+ * Create a match between two players — instant, no on-chain TX.
+ * Both players already have their bet frozen from joinQueue.
  */
 async function matchPair(
   queueKey: string,
@@ -150,11 +171,20 @@ async function matchPair(
     queuesRef.child(queueKey).child(player2).remove(),
   ]);
 
-  // Guard: if either player has disconnected since they joined the queue,
-  // abort without creating an on-chain game (saves SOL on rent + fees).
+  // Guard: if either player has disconnected, unfreeze their balance and abort.
   if (!isUserConnected(player1) || !isUserConnected(player2)) {
+    const disconnected = !isUserConnected(player1) ? player1 : player2;
+    const parts = queueKey.split("_");
+    const bet = parseFloat(parts[1]);
+
+    // Unfreeze both players.
+    await Promise.all([
+      unfreezeBalance(player1, bet),
+      unfreezeBalance(player2, bet),
+    ]);
+
     console.log(
-      `[Matchmaking] Aborted match: ${!isUserConnected(player1) ? player1 : player2} is offline`
+      `[Matchmaking] Aborted match: ${disconnected.slice(0, 8)}… is offline — balance unfrozen`
     );
     return;
   }
@@ -163,67 +193,32 @@ async function matchPair(
   const duration = parts[0];
   const bet = parseFloat(parts[1]);
 
+  const durationSeconds = parseDurationToSeconds(duration);
   const now = Date.now();
 
-  // Parse duration string (e.g. "5m", "1h") to seconds for on-chain.
-  const durationSeconds = parseDurationToSeconds(duration);
-
-  // Create Firebase match record.
+  // Create Firebase match record — starts immediately.
   const matchData: DbMatch = {
     player1,
     player2,
     duration,
     betAmount: bet,
-    status: "awaiting_deposits",
-    escrowState: "awaiting_deposits",
-    depositDeadline: now + config.depositTimeoutMs,
+    status: "active",
+    startTime: now,
+    endTime: now + durationSeconds * 1000,
   };
 
   const matchId = await createDbMatch(matchData);
-
-  // Create the game on-chain (creates Game PDA + escrow token account).
-  let onChainGameId: number | undefined;
-  let gamePdaStr: string | undefined;
-  let escrowTokenAccountStr: string | undefined;
-
-  try {
-    onChainGameId = await startGameOnChain(player1, player2, bet, durationSeconds);
-
-    // Derive the addresses to send to frontend.
-    const { gamePda, escrowTokenAccount } = await getGamePdaAndEscrow(
-      BigInt(onChainGameId)
-    );
-    gamePdaStr = gamePda.toBase58();
-    escrowTokenAccountStr = escrowTokenAccount.toBase58();
-
-    // Store on-chain game ID in Firebase.
-    await updateMatch(matchId, { onChainGameId });
-
-    console.log(
-      `[Matchmaking] Match created: ${matchId} | onChainGame=${onChainGameId} | ${player1} vs ${player2} | ${duration} | $${bet}`
-    );
-  } catch (err) {
-    console.error(`[Matchmaking] Failed to create on-chain game for match ${matchId}:`, err);
-    // Cancel the Firebase match — can't proceed without on-chain game.
-    await updateMatch(matchId, { status: "cancelled" });
-    broadcastToUser(player1, {
-      type: "match_cancelled",
-      matchId,
-      reason: "system_error",
-    });
-    broadcastToUser(player2, {
-      type: "match_cancelled",
-      matchId,
-      reason: "system_error",
-    });
-    return;
-  }
 
   const [p1User, p2User] = await Promise.all([
     getUser(player1),
     getUser(player2),
   ]);
 
+  console.log(
+    `[Matchmaking] Match created: ${matchId} | ${player1.slice(0, 8)}… vs ${player2.slice(0, 8)}… | ${duration} | $${bet} | INSTANT`
+  );
+
+  // Send match_found to both players — match is already active.
   broadcastToUser(player1, {
     type: "match_found",
     matchId,
@@ -232,10 +227,10 @@ async function matchPair(
       gamerTag: p2User?.gamerTag || player2.slice(0, 8),
     },
     duration,
+    durationSeconds,
     bet,
-    onChainGameId,
-    gamePda: gamePdaStr,
-    escrowTokenAccount: escrowTokenAccountStr,
+    startTime: now,
+    endTime: now + durationSeconds * 1000,
   });
 
   broadcastToUser(player2, {
@@ -246,10 +241,10 @@ async function matchPair(
       gamerTag: p1User?.gamerTag || player1.slice(0, 8),
     },
     duration,
+    durationSeconds,
     bet,
-    onChainGameId,
-    gamePda: gamePdaStr,
-    escrowTokenAccount: escrowTokenAccountStr,
+    startTime: now,
+    endTime: now + durationSeconds * 1000,
   });
 }
 

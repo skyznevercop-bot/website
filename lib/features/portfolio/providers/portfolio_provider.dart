@@ -20,20 +20,22 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
   /// Fetch transaction history from the backend.
   Future<void> fetchTransactions() async {
     try {
-      final response = await _api.get('/portfolio/transactions');
-      final txsJson = response['transactions'] as List<dynamic>;
+      final response = await _api.get('/balance/transactions');
+      final txsJson = response['transactions'] as List<dynamic>? ?? [];
       final transactions = txsJson.map((json) {
         final tx = json as Map<String, dynamic>;
         return Transaction(
-          id: tx['id'] as String,
-          type: tx['type'] == 'DEPOSIT'
+          id: tx['id'] as String? ?? '',
+          type: tx['type'] == 'deposit'
               ? TransactionType.deposit
               : TransactionType.withdraw,
           amount: (tx['amount'] as num).toDouble(),
-          address: tx['userAddress'] as String,
-          status: _parseStatus(tx['status'] as String),
-          signature: tx['signature'] as String?,
-          createdAt: DateTime.parse(tx['createdAt'] as String),
+          address: tx['userAddress'] as String? ?? '',
+          status: _parseStatus(tx['status'] as String? ?? 'pending'),
+          signature: tx['txSignature'] as String?,
+          createdAt: tx['timestamp'] != null
+              ? DateTime.fromMillisecondsSinceEpoch(tx['timestamp'] as int)
+              : DateTime.now(),
         );
       }).toList();
 
@@ -43,28 +45,28 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
 
   static TransactionStatus _parseStatus(String status) {
     switch (status) {
-      case 'CONFIRMED':
+      case 'confirmed':
         return TransactionStatus.confirmed;
-      case 'FAILED':
+      case 'failed':
         return TransactionStatus.failed;
       default:
         return TransactionStatus.pending;
     }
   }
 
-  /// Withdraw USDC via backend API.
+  /// Withdraw USDC via backend platform balance API.
   Future<bool> withdraw(double amount, String destinationAddress) async {
     if (state.isWithdrawing) return false;
 
     final wallet = ref.read(walletProvider);
-    final balance = wallet.usdcBalance ?? 0;
+    final balance = wallet.platformBalance;
 
     if (amount < 1) {
       state = state.copyWith(withdrawError: 'Minimum withdrawal is 1 USDC');
       return false;
     }
     if (amount > balance) {
-      state = state.copyWith(withdrawError: 'Insufficient balance');
+      state = state.copyWith(withdrawError: 'Insufficient platform balance');
       return false;
     }
     if (!isValidSolanaAddress(destinationAddress)) {
@@ -75,21 +77,24 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     state = state.copyWith(isWithdrawing: true, clearError: true);
 
     try {
-      final response = await _api.post('/portfolio/withdraw', {
+      final response = await _api.post('/balance/withdraw', {
         'amount': amount,
         'destinationAddress': destinationAddress,
       });
 
+      final sig = response['txSignature'] as String?;
       final tx = Transaction(
-        id: response['transactionId'] as String,
+        id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
         type: TransactionType.withdraw,
         amount: amount,
         address: destinationAddress,
         status: TransactionStatus.confirmed,
+        signature: sig,
         createdAt: DateTime.now(),
       );
 
-      ref.read(walletProvider.notifier).deductBalance(amount);
+      // Refresh platform balance from backend.
+      ref.read(walletProvider.notifier).refreshPlatformBalance();
 
       state = state.copyWith(
         isWithdrawing: false,
@@ -111,25 +116,42 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     }
   }
 
-  /// Notify backend of a deposit (after on-chain transfer).
-  Future<void> notifyDeposit(double amount, String signature) async {
+  /// Confirm a deposit with the backend (after on-chain USDC transfer to vault).
+  Future<bool> confirmDeposit(String txSignature) async {
+    state = state.copyWith(isDepositing: true, clearError: true);
     try {
-      await _api.post('/portfolio/deposit', {
-        'amount': amount,
-        'signature': signature,
+      await _api.post('/balance/deposit', {
+        'txSignature': txSignature,
       });
 
-      final tx = Transaction(
-        id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
-        type: TransactionType.deposit,
-        amount: amount,
-        address: '',
-        status: TransactionStatus.pending,
-        signature: signature,
-        createdAt: DateTime.now(),
+      // Refresh platform balance from backend.
+      ref.read(walletProvider.notifier).refreshPlatformBalance();
+
+      state = state.copyWith(isDepositing: false);
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        isDepositing: false,
+        depositError: e.message,
       );
-      state = state.copyWith(transactions: [tx, ...state.transactions]);
-    } catch (_) {}
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        isDepositing: false,
+        depositError: 'Deposit confirmation failed: ${e.toString()}',
+      );
+      return false;
+    }
+  }
+
+  /// Get the platform vault address for deposits.
+  Future<String?> getVaultAddress() async {
+    try {
+      final response = await _api.get('/balance/vault');
+      return response['vaultAddress'] as String?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Fetch completed match history from the backend.

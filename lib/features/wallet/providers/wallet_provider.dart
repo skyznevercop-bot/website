@@ -17,6 +17,7 @@ class WalletNotifier extends Notifier<WalletState> {
   WalletState build() => const WalletState();
 
   final _api = ApiClient.instance;
+  StreamSubscription<Map<String, dynamic>>? _wsSubscription;
 
   /// Connect to a wallet provider via JS interop.
   /// Attempts backend auth (JWT) if available; falls back to wallet-only mode.
@@ -66,6 +67,21 @@ class WalletNotifier extends Notifier<WalletState> {
         // Connect WebSocket with the JWT.
         _api.connectWebSocket();
 
+        // Listen for balance_update events from backend.
+        _wsSubscription?.cancel();
+        _wsSubscription = _api.wsStream.listen((data) {
+          if (data['type'] == 'balance_update') {
+            final bal = (data['balance'] as num?)?.toDouble();
+            final frozen = (data['frozenBalance'] as num?)?.toDouble();
+            if (bal != null) {
+              state = state.copyWith(
+                platformBalance: bal,
+                frozenBalance: frozen ?? state.frozenBalance,
+              );
+            }
+          }
+        });
+
         // Fetch user profile from backend.
         final userResponse = await _api.get('/user/$address');
         gamerTag = userResponse['gamerTag'] as String?;
@@ -78,7 +94,7 @@ class WalletNotifier extends Notifier<WalletState> {
 
       _backendConnected = backendAvailable;
 
-      // Mark as connected immediately — don't block on the on-chain balance fetch.
+      // Mark as connected immediately — don't block on balance fetches.
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
         address: address,
@@ -86,10 +102,15 @@ class WalletNotifier extends Notifier<WalletState> {
         gamerTag: gamerTag,
       );
 
-      // Fetch on-chain USDC balance in the background and update when ready.
+      // Fetch on-chain USDC balance in the background.
       _fetchOnChainUsdcBalance(address).then((onChainBalance) {
         state = state.copyWith(usdcBalance: onChainBalance);
       }).catchError((_) {});
+
+      // Fetch platform balance from backend.
+      if (backendAvailable) {
+        _fetchPlatformBalance().catchError((_) {});
+      }
     } on WalletException catch (e) {
       state = state.copyWith(
         status: WalletConnectionStatus.error,
@@ -113,6 +134,8 @@ class WalletNotifier extends Notifier<WalletState> {
     if (walletName != null) {
       await SolanaWalletAdapter.disconnect(walletName);
     }
+    _wsSubscription?.cancel();
+    _wsSubscription = null;
     _api.disconnectWebSocket();
     await _api.clearToken();
     state = const WalletState();
@@ -147,15 +170,35 @@ class WalletNotifier extends Notifier<WalletState> {
     state = state.copyWith(usdcBalance: current + amount);
   }
 
-  /// Refresh USDC balance from on-chain (always uses on-chain for now).
+  /// Refresh both on-chain and platform balances.
   Future<void> refreshBalance() async {
     if (!state.isConnected || state.address == null) return;
     try {
       final balance = await _fetchOnChainUsdcBalance(state.address!);
       state = state.copyWith(usdcBalance: balance);
-    } catch (_) {
-      // Silently fail, keep existing balance.
+    } catch (_) {}
+    if (_backendConnected) {
+      await _fetchPlatformBalance();
     }
+  }
+
+  /// Fetch platform balance from backend and update state.
+  Future<void> _fetchPlatformBalance() async {
+    try {
+      final response = await _api.get('/balance');
+      final balance = (response['balance'] as num?)?.toDouble() ?? 0;
+      final frozen = (response['frozenBalance'] as num?)?.toDouble() ?? 0;
+      state = state.copyWith(
+        platformBalance: balance,
+        frozenBalance: frozen,
+      );
+    } catch (_) {}
+  }
+
+  /// Refresh only the platform balance (called after deposit/withdraw).
+  Future<void> refreshPlatformBalance() async {
+    if (!_backendConnected) return;
+    await _fetchPlatformBalance();
   }
 
   /// Fetch USDC SPL token balance directly from Solana RPC via Dart HTTP.

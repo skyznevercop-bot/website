@@ -58,6 +58,11 @@ export interface DbUser {
   gamesPlayed: number;
   createdAt: number;
   clanId?: string | null;
+  // Platform balance fields
+  balance?: number;
+  frozenBalance?: number;
+  totalDeposited?: number;
+  totalWithdrawn?: number;
 }
 
 export async function getUser(address: string): Promise<DbUser | null> {
@@ -97,8 +102,6 @@ export interface DbMatch {
   duration: string;
   betAmount: number;
   status:
-    | "pending"
-    | "awaiting_deposits"
     | "active"
     | "completed"
     | "cancelled"
@@ -108,36 +111,19 @@ export interface DbMatch {
   player1Roi?: number;
   player2Roi?: number;
 
-  // Deposit tracking
-  player1DepositSignature?: string;
-  player2DepositSignature?: string;
-  player1DepositVerified?: boolean;
-  player2DepositVerified?: boolean;
-  depositDeadline?: number;
-
-  // Payout tracking
-  payoutSignature?: string;
-  payoutAmount?: number;
-  rakeAmount?: number;
-  refundSignatures?: Record<string, string>;
-  escrowState?:
-    | "awaiting_deposits"
-    | "deposits_received"
-    | "payout_sent"
-    | "refunded"
-    | "partial_refund"
-    | "refund_failed"
-    | "settlement_pending";
-
-  escrowSignature?: string;
   startTime?: number;
   endTime?: number;
   settledAt?: number;
+
+  // Balance settlement tracking (crash recovery)
+  balancesSettled?: boolean;
+  p1BalanceSettled?: boolean;
+  p2BalanceSettled?: boolean;
+
+  // On-chain audit trail (background recorder)
   onChainGameId?: number;
-  onChainSettled?: boolean;
-  onChainRetries?: number;
-  profileMissingCount?: number;
-  gameClosed?: boolean;
+  onChainRecorded?: boolean;
+  onChainRecorderRetries?: number;
 }
 
 export async function createMatch(data: DbMatch): Promise<string> {
@@ -172,21 +158,6 @@ export async function getMatchesByStatus(
     });
   }
   return results;
-}
-
-/**
- * Find an awaiting_deposits match for a given player address.
- * Used to re-send match_found on WS reconnect.
- */
-export async function getAwaitingDepositMatchForPlayer(
-  address: string
-): Promise<{ id: string; data: DbMatch } | null> {
-  const matches = await getMatchesByStatus("awaiting_deposits");
-  return (
-    matches.find(
-      ({ data }) => data.player1 === address || data.player2 === address
-    ) ?? null
-  );
 }
 
 // ── Position helpers ──────────────────────────────────────────────

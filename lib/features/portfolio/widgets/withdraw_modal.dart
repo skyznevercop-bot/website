@@ -56,9 +56,9 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
       return;
     }
 
-    final balance = ref.read(walletProvider).usdcBalance ?? 0;
+    final balance = ref.read(walletProvider).platformBalance;
     if (amount > balance) {
-      setState(() => _localError = 'Insufficient balance');
+      setState(() => _localError = 'Insufficient platform balance');
       return;
     }
 
@@ -87,7 +87,7 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
   }
 
   void _fillMax() {
-    final balance = ref.read(walletProvider).usdcBalance ?? 0;
+    final balance = ref.read(walletProvider).platformBalance;
     _amountController.text = balance.toStringAsFixed(2);
   }
 
@@ -208,7 +208,7 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
                   ),
                   const Spacer(),
                   Text(
-                    'Balance: \$${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'}',
+                    'Balance: \$${wallet.platformBalance.toStringAsFixed(2)}',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       color: AppTheme.textTertiary,

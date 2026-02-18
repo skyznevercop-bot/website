@@ -6,15 +6,15 @@ import { rateLimit } from "./middleware/rate-limit";
 import { setupWebSocket } from "./ws/handler";
 import { startMatchmakingLoop } from "./services/matchmaking";
 import { startPriceOracle } from "./services/price-oracle";
-import { startSettlementLoop, startOnChainRetryLoop } from "./services/settlement";
-import { startDepositTimeoutLoop } from "./services/escrow";
+import { startSettlementLoop } from "./services/settlement";
+import { startOnChainRecorderLoop } from "./services/on-chain-recorder";
 
 // Routes
 import userRoutes from "./routes/user";
 import queueRoutes from "./routes/queue";
 import matchRoutes from "./routes/match";
+import balanceRoutes from "./routes/balance";
 import leaderboardRoutes from "./routes/leaderboard";
-import portfolioRoutes from "./routes/portfolio";
 import referralRoutes from "./routes/referral";
 import clanRoutes from "./routes/clan";
 import rpcProxyRoutes from "./routes/rpc-proxy";
@@ -37,8 +37,8 @@ app.get("/health", (_req, res) => {
 app.use("/api", userRoutes);
 app.use("/api/queue", queueRoutes);
 app.use("/api/match", matchRoutes);
+app.use("/api", balanceRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
-app.use("/api/portfolio", portfolioRoutes);
 app.use("/api/referral", referralRoutes);
 app.use("/api/clan", clanRoutes);
 app.use("/api/rpc-proxy", rpcProxyRoutes);
@@ -47,35 +47,39 @@ app.use("/api/klines", klinesRoutes);
 // WebSocket
 setupWebSocket(server);
 
-// Start background services
-startMatchmakingLoop();
-startPriceOracle();
-startSettlementLoop();
-startOnChainRetryLoop();
-startDepositTimeoutLoop();
+// Start background services (only 3 loops vs the old 5)
+startMatchmakingLoop();       // 500ms — FIFO matching (instant, no on-chain)
+startPriceOracle();           // SSE streaming + 1s broadcast
+startSettlementLoop();        // 5s — check for ended matches
+startOnChainRecorderLoop();   // 60s — background audit trail (non-critical)
 
 // Start server
 server.listen(config.port, () => {
   console.log(`
   ┌─────────────────────────────────────────┐
-  │           SolFight Backend              │
+  │         SolArena Backend v2             │
+  │         "Deposit Once, Play Instantly"  │
   │                                         │
   │  REST API:  http://localhost:${config.port}      │
   │  WebSocket: ws://localhost:${config.port}/ws     │
   │                                         │
   │  Services:                              │
-  │    ✓ Matchmaking (500ms FIFO)           │
-  │    ✓ Price Oracle (3s fetch, 1s push)   │
-  │    ✓ Settlement (5s check)              │
-  │    ✓ On-chain Retry (30s)               │
-  │    ✓ Escrow Deposit Monitor (5s)        │
+  │    ✓ Matchmaking (500ms FIFO, instant)  │
+  │    ✓ Price Oracle (Pyth SSE + fallback) │
+  │    ✓ Settlement (5s check, instant pay) │
+  │    ✓ On-Chain Recorder (60s audit)      │
   │    ✓ Firebase Realtime Database         │
+  │                                         │
+  │  Removed (no longer needed):            │
+  │    ✗ Escrow Deposit Monitor             │
+  │    ✗ On-chain Retry Loop                │
+  │    ✗ Deposit Timeout Loop               │
   └─────────────────────────────────────────┘
   `);
 
   if (!config.authorityKeypair) {
     console.warn(
-      `\n  ⚠️  WARNING: AUTHORITY_KEYPAIR not set — escrow payouts will fail!\n`
+      `\n  ⚠️  WARNING: AUTHORITY_KEYPAIR not set — withdrawals and on-chain recording will fail!\n`
     );
   }
 });

@@ -6,6 +6,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
 
+/// Search phase for matchmaking animation states.
+enum SearchPhase {
+  idle,       // Not searching
+  scanning,   // In queue, searching for opponent
+  found,      // Match found, showing face-off
+}
+
 /// Queue state for matchmaking.
 class QueueState {
   /// Per-duration queue sizes (index matches AppConstants.durations).
@@ -27,6 +34,9 @@ class QueueState {
   /// Seconds spent waiting in queue.
   final int waitSeconds;
 
+  /// Current search phase for animation.
+  final SearchPhase searchPhase;
+
   /// When a match is found.
   final MatchFoundData? matchFound;
 
@@ -47,6 +57,7 @@ class QueueState {
     this.queueSizes = const [0, 0, 0, 0, 0],
     this.waitTimes = const ['--', '--', '--', '--', '--'],
     this.isInQueue = false,
+    this.searchPhase = SearchPhase.idle,
     this.queuedDurationIndex,
     this.queuedDurationLabel,
     this.queuedBet,
@@ -72,6 +83,7 @@ class QueueState {
     List<int>? queueSizes,
     List<String>? waitTimes,
     bool? isInQueue,
+    SearchPhase? searchPhase,
     int? queuedDurationIndex,
     String? queuedDurationLabel,
     double? queuedBet,
@@ -91,6 +103,7 @@ class QueueState {
       queueSizes: queueSizes ?? this.queueSizes,
       waitTimes: waitTimes ?? this.waitTimes,
       isInQueue: isInQueue ?? this.isInQueue,
+      searchPhase: searchPhase ?? this.searchPhase,
       queuedDurationIndex: clearQueuedDuration
           ? null
           : (queuedDurationIndex ?? this.queuedDurationIndex),
@@ -120,9 +133,8 @@ class MatchFoundData {
   final String opponentAddress;
   final String duration;
   final double bet;
-  final int? onChainGameId;
-  final String? gamePda;
-  final String? escrowTokenAccount;
+  final int? startTime;
+  final int? endTime;
 
   const MatchFoundData({
     required this.matchId,
@@ -130,9 +142,8 @@ class MatchFoundData {
     required this.opponentAddress,
     required this.duration,
     required this.bet,
-    this.onChainGameId,
-    this.gamePda,
-    this.escrowTokenAccount,
+    this.startTime,
+    this.endTime,
   });
 }
 
@@ -270,6 +281,7 @@ class QueueNotifier extends Notifier<QueueState> {
     _waitTimer?.cancel();
     state = state.copyWith(
       isInQueue: false,
+      searchPhase: SearchPhase.found,
       clearQueuedDuration: true,
       waitSeconds: 0,
       matchFound: MatchFoundData(
@@ -284,9 +296,8 @@ class QueueNotifier extends Notifier<QueueState> {
                 '',
         duration: data['duration'] as String? ?? '',
         bet: (data['bet'] as num?)?.toDouble() ?? 0,
-        onChainGameId: data['onChainGameId'] as int?,
-        gamePda: data['gamePda'] as String?,
-        escrowTokenAccount: data['escrowTokenAccount'] as String?,
+        startTime: (data['startTime'] as num?)?.toInt(),
+        endTime: (data['endTime'] as num?)?.toInt(),
       ),
     );
   }
@@ -301,6 +312,7 @@ class QueueNotifier extends Notifier<QueueState> {
 
     state = state.copyWith(
       isInQueue: true,
+      searchPhase: SearchPhase.scanning,
       queuedDurationIndex: durationIndex,
       queuedDurationLabel: durationLabel,
       queuedBet: betAmount,
@@ -334,6 +346,7 @@ class QueueNotifier extends Notifier<QueueState> {
 
     state = state.copyWith(
       isInQueue: false,
+      searchPhase: SearchPhase.idle,
       clearQueuedDuration: true,
       waitSeconds: 0,
     );
@@ -342,6 +355,11 @@ class QueueNotifier extends Notifier<QueueState> {
   /// Clear the match found data after navigating to arena.
   void clearMatchFound() {
     state = state.copyWith(clearMatchFound: true);
+  }
+
+  /// Reset search phase to idle (after navigation or cancel).
+  void resetSearchPhase() {
+    state = state.copyWith(searchPhase: SearchPhase.idle);
   }
 
   /// Fetch queue stats from the REST API.

@@ -11,7 +11,7 @@
     "https://api.binance.com/api/v3/klines",
   ];
 
-  // ── Fetch historical 1m candles ─────────────────────────────────────────
+  // ── Fetch historical candles ──────────────────────────────────────────
   // Retries up to 3 times with 10s gaps (handles Render cold-starts).
   async function fetchCandles(id, symbol, series, chart) {
     for (var attempt = 0; attempt < 3; attempt++) {
@@ -28,7 +28,7 @@
           var url =
             base.indexOf("binance.com") !== -1
               ? base + "?symbol=" + symbol + "&interval=1m&limit=300"
-              : base + "/" + symbol + "?limit=300";
+              : base + "/" + symbol + "?interval=1m&limit=300";
 
           var resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
           if (!resp.ok) continue;

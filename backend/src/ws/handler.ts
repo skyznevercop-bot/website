@@ -13,17 +13,17 @@ import {
   getActiveMatchIds,
 } from "./rooms";
 import { joinQueue, leaveQueue, removeFromAllQueues } from "../services/matchmaking";
+import { isValidDuration, isValidBet } from "../utils/validation";
 import { getLatestPrices } from "../services/price-oracle";
 import {
   createPosition,
   getPositions,
   updatePosition,
   getMatch,
-  getAwaitingDepositMatchForPlayer,
+  getUser,
 } from "../services/firebase";
 import { settleByForfeit } from "../services/settlement";
-import { getGamePdaAndEscrow } from "../utils/solana";
-import { getUser } from "../services/firebase";
+import { getBalance } from "../services/balance";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const FORFEIT_GRACE_MS = 30_000; // 30 seconds
@@ -64,9 +64,8 @@ export function setupWebSocket(server: HttpServer): void {
       // Cancel any pending forfeit timer for this player.
       cancelForfeitTimersForPlayer(payload.address);
 
-      // Re-send match_found if this player has an awaiting_deposits match.
-      // This recovers the deposit dialog after a page refresh or reconnect.
-      sendPendingMatchRecovery(payload.address, ws).catch(() => {});
+      // Send current balance on connect.
+      sendBalanceUpdate(payload.address, ws).catch(() => {});
     } catch {
       ws.close(4001, "Invalid authentication token");
       return;
@@ -89,7 +88,7 @@ export function setupWebSocket(server: HttpServer): void {
       if (ws.userAddress) {
         unregisterUserConnection(ws.userAddress, ws);
 
-        // Always clean up any queue entries for this player on disconnect.
+        // Clean up queue entries and unfreeze balance.
         removeFromAllQueues(ws.userAddress).catch(() => {});
 
         if (ws.currentMatchId) {
@@ -106,8 +105,6 @@ export function setupWebSocket(server: HttpServer): void {
   });
 
   // Broadcast prices + opponent updates for all active matches every 3 seconds.
-  // Price broadcast ensures the chart has data even if Binance/CoinGecko are
-  // unavailable from the client's network.
   setInterval(async () => {
     const matchIds = getActiveMatchIds();
     if (matchIds.length === 0) return;
@@ -119,7 +116,6 @@ export function setupWebSocket(server: HttpServer): void {
       const match = await getMatch(matchId);
       if (!match || match.status !== "active") continue;
 
-      // Broadcast prices to both players in this match.
       broadcastToMatch(matchId, JSON.parse(priceMsg));
 
       broadcastOpponentUpdate(matchId, match.player1).catch(() => {});
@@ -147,12 +143,11 @@ export function setupWebSocket(server: HttpServer): void {
 
       for (const pos of positions) {
         if (pos.closedAt) continue;
-        // Skip if another code path is already closing this position.
         if (_closingPositions.has(pos.id)) continue;
 
         const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
 
-        // Liquidation: player loses 90% of margin (mirrors frontend formula).
+        // Liquidation: player loses 90% of margin.
         const liquidationPrice = pos.isLong
           ? pos.entryPrice * (1 - 0.9 / pos.leverage)
           : pos.entryPrice * (1 + 0.9 / pos.leverage);
@@ -207,21 +202,16 @@ export function setupWebSocket(server: HttpServer): void {
   console.log("[WS] WebSocket server started on /ws");
 }
 
-/**
- * Start a 30-second forfeit timer for a disconnected player.
- * If they don't reconnect within the grace period, the match is forfeited.
- */
+// ── Forfeit Timers ────────────────────────────────────────────
+
 function startForfeitTimer(matchId: string, playerAddress: string): void {
   const key = `${matchId}|${playerAddress}`;
-
-  // Don't start duplicate timers.
   if (forfeitTimers.has(key)) return;
 
   console.log(
-    `[WS] Disconnect detected: ${playerAddress} in match ${matchId} — 30s grace period started`
+    `[WS] Disconnect detected: ${playerAddress.slice(0, 8)}… in match ${matchId} — 30s grace period`
   );
 
-  // Notify the opponent.
   broadcastToMatch(matchId, {
     type: "opponent_disconnected",
     player: playerAddress,
@@ -231,107 +221,52 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
   const timer = setTimeout(async () => {
     forfeitTimers.delete(key);
 
-    // Check if player reconnected during the grace period.
     if (isUserConnected(playerAddress)) {
-      console.log(
-        `[WS] Player ${playerAddress} reconnected — forfeit cancelled`
-      );
+      console.log(`[WS] Player ${playerAddress.slice(0, 8)}… reconnected — forfeit cancelled`);
       return;
     }
 
-    console.log(
-      `[WS] Forfeit triggered: ${playerAddress} in match ${matchId}`
-    );
-
+    console.log(`[WS] Forfeit triggered: ${playerAddress.slice(0, 8)}… in match ${matchId}`);
     await settleByForfeit(matchId, playerAddress);
   }, FORFEIT_GRACE_MS);
 
   forfeitTimers.set(key, timer);
 }
 
-/**
- * Cancel ALL forfeit timers for a player across every match (used on new WS connect).
- */
 function cancelForfeitTimersForPlayer(playerAddress: string): void {
   for (const [key, timer] of forfeitTimers) {
     const [matchId, addr] = key.split("|");
     if (addr === playerAddress) {
       clearTimeout(timer);
       forfeitTimers.delete(key);
-      console.log(`[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`);
+      console.log(`[WS] Forfeit timer cancelled for ${playerAddress.slice(0, 8)}… in match ${matchId}`);
       broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
     }
   }
 }
 
-/**
- * Cancel the forfeit timer for a specific match+player (used on join_match).
- * Scoped to one match to prevent cross-match exploit.
- */
 function cancelForfeitTimerForMatch(matchId: string, playerAddress: string): void {
   const key = `${matchId}|${playerAddress}`;
   const timer = forfeitTimers.get(key);
   if (timer) {
     clearTimeout(timer);
     forfeitTimers.delete(key);
-    console.log(`[WS] Forfeit timer cancelled for ${playerAddress} in match ${matchId}`);
+    console.log(`[WS] Forfeit timer cancelled for ${playerAddress.slice(0, 8)}… in match ${matchId}`);
     broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
   }
 }
 
-/**
- * If the reconnecting player has an awaiting_deposits match, re-send
- * match_found so they can resume the deposit dialog after a page refresh.
- */
-async function sendPendingMatchRecovery(
-  address: string,
-  ws: AuthenticatedSocket
-): Promise<void> {
-  const pending = await getAwaitingDepositMatchForPlayer(address);
-  if (!pending || !pending.data.onChainGameId) return;
+// ── Balance helper ────────────────────────────────────────────
 
-  // Don't recover stale matches — if the deposit deadline has passed
-  // the timeout loop will cancel it. Sending match_found for a dead
-  // match would drop the player into a broken deposit dialog.
-  if (pending.data.depositDeadline && Date.now() > pending.data.depositDeadline) {
-    return;
-  }
-
-  const match = pending.data;
-  const opponentAddress = match.player1 === address ? match.player2 : match.player1;
-
-  let gamePdaStr: string | undefined;
-  let escrowTokenAccountStr: string | undefined;
-  try {
-    const { gamePda, escrowTokenAccount } = await getGamePdaAndEscrow(
-      BigInt(match.onChainGameId!)
-    );
-    gamePdaStr = gamePda.toBase58();
-    escrowTokenAccountStr = escrowTokenAccount.toBase58();
-  } catch {
-    // If PDA derivation fails, still send what we have — deposit may still work.
-  }
-
-  const [opponentUser] = await Promise.all([getUser(opponentAddress)]);
-
-  ws.send(
-    JSON.stringify({
-      type: "match_found",
-      matchId: pending.id,
-      opponent: {
-        address: opponentAddress,
-        gamerTag: opponentUser?.gamerTag ?? opponentAddress.slice(0, 8),
-      },
-      duration: match.duration,
-      bet: match.betAmount,
-      onChainGameId: match.onChainGameId,
-      gamePda: gamePdaStr,
-      escrowTokenAccount: escrowTokenAccountStr,
-    })
-  );
-
-  console.log(`[WS] Sent match_found recovery to ${address} for match ${pending.id}`);
+async function sendBalanceUpdate(address: string, ws: WebSocket): Promise<void> {
+  const balanceInfo = await getBalance(address);
+  ws.send(JSON.stringify({
+    type: "balance_update",
+    ...balanceInfo,
+  }));
 }
+
+// ── Message Handler ──────────────────────────────────────────
 
 async function handleMessage(
   ws: AuthenticatedSocket,
@@ -342,40 +277,67 @@ async function handleMessage(
   switch (data.type) {
     case "join_queue": {
       const { duration, bet } = data as {
-        duration: string;
-        bet: number;
+        duration: unknown;
+        bet: unknown;
       };
-      await joinQueue(ws.userAddress, duration, bet);
+
+      if (!isValidDuration(duration) || !isValidBet(bet)) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid duration or bet amount" }));
+        return;
+      }
+
+      const success = await joinQueue(ws.userAddress, duration, bet);
+      if (!success) {
+        ws.send(JSON.stringify({
+          type: "error",
+          message: "Insufficient balance",
+        }));
+        return;
+      }
+
       ws.send(JSON.stringify({ type: "queue_joined", duration, bet }));
+
+      // Send updated balance (frozen amount changed).
+      sendBalanceUpdate(ws.userAddress, ws).catch(() => {});
       break;
     }
 
     case "leave_queue": {
       const { duration, bet } = data as {
-        duration?: string;
-        bet?: number;
+        duration?: unknown;
+        bet?: unknown;
       };
-      if (duration && bet != null) {
+      if (isValidDuration(duration) && isValidBet(bet)) {
         await leaveQueue(ws.userAddress, duration, bet);
       } else {
-        // Fallback: remove from all queues when duration/bet are missing.
         await removeFromAllQueues(ws.userAddress);
       }
       ws.send(JSON.stringify({ type: "queue_left" }));
+
+      // Send updated balance (unfrozen).
+      sendBalanceUpdate(ws.userAddress, ws).catch(() => {});
       break;
     }
 
     case "join_match": {
       const { matchId } = data as { matchId: string };
+
+      // Verify the user is actually a player in this match before joining.
+      // Without this check, any user could join a match room and trigger
+      // a forfeit on disconnect, force-settling the match.
+      const joinMatchData = await getMatch(matchId);
+      if (!joinMatchData ||
+          (ws.userAddress !== joinMatchData.player1 && ws.userAddress !== joinMatchData.player2)) {
+        ws.send(JSON.stringify({ type: "error", message: "Not a player in this match" }));
+        break;
+      }
+
       if (ws.currentMatchId) {
         leaveMatchRoom(ws.currentMatchId, ws);
       }
       ws.currentMatchId = matchId;
       joinMatchRoom(matchId, ws);
 
-      // Cancel the forfeit timer scoped to THIS match only.
-      // (cancelForfeitTimersForPlayer is reserved for new WS connections
-      //  where all timers for the player should be cleared.)
       cancelForfeitTimerForMatch(matchId, ws.userAddress);
 
       // Send current prices immediately.
@@ -383,22 +345,17 @@ async function handleMessage(
         JSON.stringify({ type: "price_update", ...getLatestPrices() })
       );
 
-      // Send a position snapshot so the client can restore its UI after a
-      // page refresh or WS reconnect without losing open positions / balance.
-      const snapMatch = await getMatch(matchId);
+      // Send a position snapshot for UI recovery after page refresh.
+      const snapMatch = joinMatchData;
       if (snapMatch && snapMatch.status === "active") {
         const snapPositions = await getPositions(matchId, ws.userAddress);
 
-        // Recompute balance:
-        //   DEMO_BALANCE − open margins + realized PnL from closed positions
-        // Mirrors the frontend formula: open() deducts size, close() returns size+pnl,
-        // so the net effect of a closed position on balance is just its pnl.
         let balance = DEMO_BALANCE;
         for (const pos of snapPositions) {
           if (!pos.closedAt) {
-            balance -= pos.size;          // open: margin is locked
+            balance -= pos.size;
           } else {
-            balance += (pos.pnl ?? 0);   // closed: net realized PnL
+            balance += (pos.pnl ?? 0);
           }
         }
 
@@ -422,9 +379,7 @@ async function handleMessage(
         }));
       }
 
-      // If the match is already settled (completed/tied/forfeited), re-send
-      // the result so the client shows the winner overlay even after a WS
-      // reconnect or page refresh that missed the original match_end broadcast.
+      // Re-send match_end if already settled (covers reconnect after match ended).
       if (snapMatch) {
         const settled = ["completed", "tied", "forfeited"];
         if (settled.includes(snapMatch.status)) {
@@ -458,94 +413,74 @@ async function handleMessage(
         positionId?: string;
       };
 
-      // Validate match is active and the sender is a player in it.
-      const matchData = await getMatch(matchId);
-      if (!matchData || matchData.status !== "active") {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Match is not active" })
-        );
-        return;
-      }
-      if (ws.userAddress !== matchData.player1 && ws.userAddress !== matchData.player2) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Not a player in this match" })
-        );
+      if (typeof isLong !== "boolean") {
+        ws.send(JSON.stringify({ type: "error", message: "isLong must be a boolean" }));
         return;
       }
 
-      // Input validation.
-      if (typeof size !== "number" || size < 1 || size > DEMO_BALANCE) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Invalid position size (1 – $1M)" })
-        );
+      const matchData = await getMatch(matchId);
+      if (!matchData || matchData.status !== "active") {
+        ws.send(JSON.stringify({ type: "error", message: "Match is not active" }));
         return;
       }
-      if (typeof leverage !== "number" || leverage < 1 || leverage > 100) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Invalid leverage (1x – 100x)" })
-        );
+      if (ws.userAddress !== matchData.player1 && ws.userAddress !== matchData.player2) {
+        ws.send(JSON.stringify({ type: "error", message: "Not a player in this match" }));
+        return;
+      }
+
+      if (typeof size !== "number" || !Number.isFinite(size) || size < 1 || size > DEMO_BALANCE) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid position size (1 – $1M)" }));
+        return;
+      }
+      if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > 100) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid leverage (1x – 100x)" }));
         return;
       }
       const validAssets = ["BTC", "ETH", "SOL"];
       if (!validAssets.includes(asset)) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Unknown asset" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Unknown asset" }));
         return;
       }
 
-      // Sanitize client-provided position ID: only alphanumeric, underscore, hyphen.
       if (localPositionId != null && !/^[a-zA-Z0-9_-]{1,64}$/.test(localPositionId)) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Invalid position ID format" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Invalid position ID format" }));
         return;
       }
 
-      // Idempotency: if the client re-sends with the same positionId (e.g.
-      // network retry), return the existing position instead of overwriting it.
+      // Idempotency check.
       if (localPositionId != null) {
         const existing = await getPositions(matchId, ws.userAddress);
         const dup = existing.find((p) => p.id === localPositionId);
         if (dup) {
-          ws.send(
-            JSON.stringify({
-              type: "position_opened",
-              position: {
-                id: dup.id,
-                asset: dup.assetSymbol,
-                isLong: dup.isLong,
-                entryPrice: dup.entryPrice,
-                size: dup.size,
-                leverage: dup.leverage,
-              },
-            })
-          );
+          ws.send(JSON.stringify({
+            type: "position_opened",
+            position: {
+              id: dup.id,
+              asset: dup.assetSymbol,
+              isLong: dup.isLong,
+              entryPrice: dup.entryPrice,
+              size: dup.size,
+              leverage: dup.leverage,
+            },
+          }));
           return;
         }
       }
 
-      // Server-side balance check: reject if open margin would exceed demo balance.
+      // Balance check.
       const openPositions = await getPositions(matchId, ws.userAddress);
       const usedMargin = openPositions
         .filter((p) => !p.closedAt)
         .reduce((sum, p) => sum + p.size, 0);
       if (size > DEMO_BALANCE - usedMargin) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Insufficient balance" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Insufficient balance" }));
         return;
       }
 
       const prices = getLatestPrices();
-
-      // Reject if prices are stale (>30s old) — protects against opening
-      // positions on outdated data when both price feeds are down.
       const PRICE_MAX_AGE_MS = 30_000;
       if (Date.now() - prices.timestamp > PRICE_MAX_AGE_MS) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" }));
         return;
       }
 
@@ -556,15 +491,13 @@ async function handleMessage(
       };
       const entryPrice = priceMap[asset];
       if (!entryPrice) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Price unavailable" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Price unavailable" }));
         return;
       }
 
-      // Validate SL/TP direction against entry price.
+      // Validate SL/TP direction.
       if (sl != null) {
-        if (typeof sl !== "number" || sl <= 0) {
+        if (typeof sl !== "number" || !Number.isFinite(sl) || sl <= 0) {
           ws.send(JSON.stringify({ type: "error", message: "Invalid stop loss" }));
           return;
         }
@@ -575,7 +508,7 @@ async function handleMessage(
         }
       }
       if (tp != null) {
-        if (typeof tp !== "number" || tp <= 0) {
+        if (typeof tp !== "number" || !Number.isFinite(tp) || tp <= 0) {
           ws.send(JSON.stringify({ type: "error", message: "Invalid take profit" }));
           return;
         }
@@ -602,21 +535,18 @@ async function handleMessage(
         localPositionId
       );
 
-      ws.send(
-        JSON.stringify({
-          type: "position_opened",
-          position: {
-            id: positionId,
-            asset,
-            isLong,
-            entryPrice,
-            size,
-            leverage,
-          },
-        })
-      );
+      ws.send(JSON.stringify({
+        type: "position_opened",
+        position: {
+          id: positionId,
+          asset,
+          isLong,
+          entryPrice,
+          size,
+          leverage,
+        },
+      }));
 
-      // Notify opponent of position count change.
       broadcastOpponentUpdate(matchId, ws.userAddress);
       break;
     }
@@ -627,18 +557,13 @@ async function handleMessage(
         positionId: string;
       };
 
-      // Verify match is still active before allowing closure.
       const closeMatchData = await getMatch(matchId);
       if (!closeMatchData || closeMatchData.status !== "active") {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Match is not active" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Match is not active" }));
         return;
       }
       if (ws.userAddress !== closeMatchData.player1 && ws.userAddress !== closeMatchData.player2) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Not a player in this match" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Not a player in this match" }));
         return;
       }
 
@@ -648,31 +573,21 @@ async function handleMessage(
       );
 
       if (!position) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Position not found" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Position not found" }));
         return;
       }
 
-      // Prevent double-close race with server-side SL/TP/liquidation check.
       if (_closingPositions.has(positionId)) {
-        ws.send(
-          JSON.stringify({ type: "error", message: "Position is already being closed" })
-        );
+        ws.send(JSON.stringify({ type: "error", message: "Position is already being closed" }));
         return;
       }
 
       _closingPositions.add(positionId);
       try {
         const prices = getLatestPrices();
-
-        // Reject manual close if prices are stale — prevents closing at
-        // a wildly outdated price when feeds are down.
         const CLOSE_PRICE_MAX_AGE_MS = 30_000;
         if (Date.now() - prices.timestamp > CLOSE_PRICE_MAX_AGE_MS) {
-          ws.send(
-            JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" })
-          );
+          ws.send(JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" }));
           return;
         }
 
@@ -681,13 +596,11 @@ async function handleMessage(
           ETH: prices.eth,
           SOL: prices.sol,
         };
-        const exitPrice =
-          priceMap[position.assetSymbol] || position.entryPrice;
+        const exitPrice = priceMap[position.assetSymbol] || position.entryPrice;
         const priceDiff = position.isLong
           ? exitPrice - position.entryPrice
           : position.entryPrice - exitPrice;
-        const pnl =
-          (priceDiff / position.entryPrice) * position.size * position.leverage;
+        const pnl = (priceDiff / position.entryPrice) * position.size * position.leverage;
 
         await updatePosition(matchId, positionId, {
           exitPrice,
@@ -696,14 +609,12 @@ async function handleMessage(
           closeReason: "manual",
         });
 
-        ws.send(
-          JSON.stringify({
-            type: "position_closed",
-            positionId,
-            exitPrice,
-            pnl,
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "position_closed",
+          positionId,
+          exitPrice,
+          pnl,
+        }));
 
         broadcastOpponentUpdate(matchId, ws.userAddress);
       } finally {
@@ -713,10 +624,9 @@ async function handleMessage(
     }
 
     case "chat_message": {
-      const { matchId, content, senderTag } = data as {
+      const { matchId, content } = data as {
         matchId: string;
         content: string;
-        senderTag: string;
       };
 
       if (
@@ -728,11 +638,14 @@ async function handleMessage(
         break;
       }
 
-      // Broadcast to the match room so the opponent receives it.
+      // Look up the server-side gamer tag to prevent spoofing.
+      const chatUser = await getUser(ws.userAddress!);
+      const serverTag = chatUser?.gamerTag || ws.userAddress!.slice(0, 8);
+
       broadcastToMatch(matchId, {
         type: "chat_message",
         matchId,
-        senderTag: senderTag || ws.userAddress,
+        senderTag: serverTag,
         content,
         sender: ws.userAddress,
         timestamp: Date.now(),
@@ -749,7 +662,6 @@ async function handleMessage(
 
 /**
  * Calculate a player's stats and send them only to their opponent.
- * Uses broadcastToUser so each player only sees their opponent's data.
  */
 async function broadcastOpponentUpdate(
   matchId: string,
@@ -758,7 +670,6 @@ async function broadcastOpponentUpdate(
   const match = await getMatch(matchId);
   if (!match) return;
 
-  // Identify the opponent (the player who should receive these stats).
   const opponentAddress =
     match.player1 === playerAddress ? match.player2 : match.player1;
 
@@ -788,7 +699,6 @@ async function broadcastOpponentUpdate(
     }
   }
 
-  // Send to opponent only — never back to the player themselves.
   broadcastToUser(opponentAddress, {
     type: "opponent_update",
     player: playerAddress,

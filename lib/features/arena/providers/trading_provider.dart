@@ -378,12 +378,9 @@ class TradingNotifier extends Notifier<TradingState> {
         );
         break;
 
-      case 'claim_available':
-        // Winner can now claim — update state if not already set.
-        final winner = data['winner'] as String?;
-        if (winner != null && state.matchWinner == null) {
-          state = state.copyWith(matchWinner: winner);
-        }
+      case 'balance_update':
+        // Backend sends updated platform balance after match settlement.
+        // Handled by wallet provider's WS listener — nothing to do here.
         break;
 
       case 'match_snapshot':
@@ -702,8 +699,8 @@ class TradingNotifier extends Notifier<TradingState> {
           'd': durationSeconds.toString(),
           'bet': betAmount.toString(),
           'matchId': matchId,
-          if (oppAddress != null) 'opp': oppAddress,
-          if (oppTag != null) 'oppTag': oppTag,
+          'opp': ?oppAddress,
+          'oppTag': ?oppTag,
           if (endTime != null) 'et': endTime.toString(),
         },
       ).toString();

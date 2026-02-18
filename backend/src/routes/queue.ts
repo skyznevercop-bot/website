@@ -1,25 +1,41 @@
 import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
 import { joinQueue, leaveQueue, getQueueStats } from "../services/matchmaking";
+import { VALID_DURATIONS, VALID_BETS, isValidDuration, isValidBet } from "../utils/validation";
 
 const router = Router();
 
-/** POST /api/queue/join — Join a matchmaking queue. */
+/** POST /api/queue/join — Join a matchmaking queue (freezes bet amount). */
 router.post("/join", requireAuth, async (req: AuthRequest, res) => {
   const { duration, bet } = req.body;
 
-  if (!duration || typeof bet !== "number" || bet <= 0) {
+  if (!isValidDuration(duration)) {
+    res.status(400).json({ error: `Invalid duration. Allowed: ${VALID_DURATIONS.join(", ")}` });
+    return;
+  }
+  if (!isValidBet(bet)) {
+    res.status(400).json({ error: `Invalid bet amount. Allowed: $${VALID_BETS.join(", $")}` });
+    return;
+  }
+
+  const success = await joinQueue(req.userAddress!, duration, bet);
+  if (!success) {
+    res.status(400).json({ error: "Insufficient balance" });
+    return;
+  }
+
+  res.json({ status: "queued", duration, bet });
+});
+
+/** DELETE /api/queue/leave — Leave a matchmaking queue (unfreezes bet). */
+router.delete("/leave", requireAuth, async (req: AuthRequest, res) => {
+  const { duration, bet } = req.body;
+
+  if (!isValidDuration(duration) || !isValidBet(bet)) {
     res.status(400).json({ error: "Invalid duration or bet amount" });
     return;
   }
 
-  await joinQueue(req.userAddress!, duration, bet);
-  res.json({ status: "queued", duration, bet });
-});
-
-/** DELETE /api/queue/leave — Leave a matchmaking queue. */
-router.delete("/leave", requireAuth, async (req: AuthRequest, res) => {
-  const { duration, bet } = req.body;
   await leaveQueue(req.userAddress!, duration, bet);
   res.json({ status: "left" });
 });
@@ -37,10 +53,6 @@ const DURATION_INDEX: Record<string, number> = {
 router.get("/stats", async (_req, res) => {
   const stats = await getQueueStats();
 
-  // Transform into the shape the frontend expects:
-  //   { index, size, avgWaitSeconds }
-  // Aggregate across bet amounts per duration so each duration index
-  // shows the total number of players searching.
   const byDuration = new Map<number, number>();
   for (const entry of stats) {
     const idx = DURATION_INDEX[entry.duration];
@@ -51,7 +63,7 @@ router.get("/stats", async (_req, res) => {
   const queues = Array.from(byDuration.entries()).map(([index, size]) => ({
     index,
     size,
-    avgWaitSeconds: null, // not tracked yet
+    avgWaitSeconds: null,
   }));
 
   res.json({ queues });

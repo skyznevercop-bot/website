@@ -1,8 +1,6 @@
 import { config } from "../config";
 import {
   matchesRef,
-  getMatch,
-  getMatchesByStatus,
   getPositions,
   updatePosition,
   updateMatch,
@@ -12,8 +10,7 @@ import {
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
-import { processMatchPayout, activateMatch } from "./escrow";
-import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists, closeGameOnChain, refundAndCloseOnChain } from "../utils/solana";
+import { settleMatchBalances } from "./balance";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -24,66 +21,87 @@ const _settling = new Set<string>();
 /**
  * Start the settlement loop — checks every 5 seconds for matches
  * past their end time that need to be settled.
+ *
+ * This is the ONLY background loop needed for settlement.
+ * No more deposit recovery, on-chain retry, refund retry, or game closing loops.
  */
 export function startSettlementLoop(): void {
   setInterval(async () => {
     try {
-      const snap = await matchesRef
+      // 1. Settle active matches that have ended.
+      const activeSnap = await matchesRef
         .orderByChild("status")
         .equalTo("active")
         .once("value");
 
-      if (!snap.exists()) return;
+      if (activeSnap.exists()) {
+        const now = Date.now();
+        activeSnap.forEach((child) => {
+          const match = child.val();
+          if (match.endTime && match.endTime <= now) {
+            void settleMatch(child.key!, match);
+          }
+        });
+      }
 
-      const now = Date.now();
+      // 2. Recovery: retry balance settlement for matches that were
+      //    marked completed/tied/forfeited but where balancesSettled is not true.
+      //    This handles the case where the server crashed between updating
+      //    the match status and completing the balance transfers.
+      for (const status of ["completed", "tied", "forfeited"] as const) {
+        const snap = await matchesRef
+          .orderByChild("status")
+          .equalTo(status)
+          .once("value");
 
-      snap.forEach((child) => {
-        const match = child.val();
-        if (match.endTime && match.endTime <= now) {
-          void settleMatch(child.key!, match);
-        }
-      });
+        if (!snap.exists()) continue;
+
+        snap.forEach((child) => {
+          const match = child.val();
+          if (match.balancesSettled) return; // Already done.
+          if (_settling.has(child.key!)) return; // Already in progress.
+
+          console.warn(`[Settlement] Recovery: retrying balance settlement for ${child.key!} (status=${status})`);
+          void retryBalanceSettlement(child.key!, match);
+        });
+      }
     } catch (err) {
       console.error("[Settlement] Error:", err);
     }
   }, 5000);
 
-  // Recovery loop: find matches stuck in awaiting_deposits where both
-  // deposits are verified in Firebase but activateMatch was never called
-  // (caused by RPC lag when the second deposit was confirmed).
-  setInterval(async () => {
-    try {
-      await recoverStuckDeposits();
-    } catch (err) {
-      console.error("[Settlement] Stuck-deposit recovery error:", err);
-    }
-  }, 5_000);
-
-  console.log("[Settlement] Started — checking every 5s (recovery every 5s)");
+  console.log("[Settlement] Started — checking every 5s (with balance recovery)");
 }
 
 /**
- * Find matches stuck in `awaiting_deposits` where both Firebase deposit
- * flags are true and the on-chain game is Active — then activate them.
- * This recovers matches where RPC lag caused activateMatch() to be skipped.
+ * Retry balance settlement for a match that was marked settled
+ * but whose balances were not fully updated (crash recovery).
  */
-async function recoverStuckDeposits(): Promise<void> {
-  const awaitingMatches = await getMatchesByStatus("awaiting_deposits");
+async function retryBalanceSettlement(
+  matchId: string,
+  match: Record<string, unknown>
+): Promise<void> {
+  if (_settling.has(matchId)) return;
+  _settling.add(matchId);
+  try {
+    const isTie = match.status === "tied";
+    const winner = isTie ? undefined : (match.winner as string | undefined);
 
-  for (const { id, data: match } of awaitingMatches) {
-    // Only attempt if Firebase already recorded both deposits.
-    if (!match.player1DepositVerified || !match.player2DepositVerified) continue;
-    if (!match.onChainGameId) continue;
+    await settleMatchBalances(
+      matchId,
+      winner,
+      match.player1 as string,
+      match.player2 as string,
+      match.betAmount as number,
+      isTie
+    );
 
-    const game = await fetchGameAccount(BigInt(match.onChainGameId));
-    if (!game || game.status !== GameStatus.Active) continue;
-
-    console.log(`[Settlement] Recovering stuck match ${id} — both deposits verified, activating`);
-    try {
-      await activateMatch(id, match, game);
-    } catch (err) {
-      console.error(`[Settlement] Recovery failed for match ${id}:`, err);
-    }
+    await updateMatch(matchId, { balancesSettled: true });
+    console.log(`[Settlement] Recovery complete for ${matchId}`);
+  } catch (err) {
+    console.error(`[Settlement] Recovery failed for ${matchId}:`, err);
+  } finally {
+    _settling.delete(matchId);
   }
 }
 
@@ -103,18 +121,30 @@ export async function settleByForfeit(
   const winner =
     disconnectedPlayer === match.player1 ? match.player2 : match.player1;
 
-  // ── Step 1: Update Firebase + broadcast IMMEDIATELY ──
+  // 1. Update Firebase.
   await updateMatch(matchId, {
     status: "forfeited",
     winner,
     player1Roi: 0,
     player2Roi: 0,
     settledAt: Date.now(),
-    onChainSettled: false,
   });
 
+  // 2. Settle balances instantly.
+  await settleMatchBalances(
+    matchId,
+    winner,
+    match.player1,
+    match.player2,
+    match.betAmount,
+    false
+  );
+  await updateMatch(matchId, { balancesSettled: true });
+
+  // 3. Update player stats.
   await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
 
+  // 4. Broadcast result.
   broadcastToMatch(matchId, {
     type: "match_end",
     matchId,
@@ -126,24 +156,18 @@ export async function settleByForfeit(
   });
 
   console.log(
-    `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer} disconnected | Winner: ${winner}`
+    `[Settlement] Match ${matchId} forfeited | ${disconnectedPlayer.slice(0, 8)}… disconnected | Winner: ${winner.slice(0, 8)}…`
   );
-
-  // ── Step 2: Settle on-chain asynchronously (retry loop picks up failures) ──
-  if (match.onChainGameId) {
-    settleOnChainAsync(matchId, match.onChainGameId, winner, 0, 0);
-  }
 }
 
 /**
- * Settle a single match: calculate ROI, determine winner, broadcast
- * result immediately, then settle on-chain asynchronously.
+ * Settle a single match: calculate ROI, determine winner, update balances instantly.
  */
 async function settleMatch(
   matchId: string,
   match: Record<string, unknown>
 ): Promise<void> {
-  if (_settling.has(matchId)) return; // already being settled
+  if (_settling.has(matchId)) return;
   _settling.add(matchId);
   try {
     await _doSettleMatch(matchId, match);
@@ -187,7 +211,6 @@ async function _doSettleMatch(
   const player1 = match.player1 as string;
   const player2 = match.player2 as string;
   const betAmount = match.betAmount as number;
-  const onChainGameId = match.onChainGameId as number | undefined;
 
   const p1Pnl = allPositions
     .filter((p) => p.playerAddress === player1)
@@ -211,19 +234,23 @@ async function _doSettleMatch(
     winner = p1Roi > p2Roi ? player1 : player2;
   }
 
-  // ── Step 1: Update Firebase + broadcast result IMMEDIATELY ──
-  // Users see the result right away, regardless of on-chain outcome.
+  // 1. Update Firebase with result.
   await updateMatch(matchId, {
     status,
     winner,
     player1Roi: p1Roi,
     player2Roi: p2Roi,
     settledAt: Date.now(),
-    onChainSettled: false,
   });
 
+  // 2. Settle balances INSTANTLY — no on-chain waiting.
+  await settleMatchBalances(matchId, winner, player1, player2, betAmount, isTie);
+  await updateMatch(matchId, { balancesSettled: true });
+
+  // 3. Update player stats.
   await updatePlayerStats(player1, player2, winner, betAmount, isTie);
 
+  // 4. Broadcast result immediately — users see it with zero delay.
   broadcastToMatch(matchId, {
     type: "match_end",
     matchId,
@@ -235,60 +262,8 @@ async function _doSettleMatch(
   });
 
   console.log(
-    `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner}`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
+    `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner?.slice(0, 8)}…`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
   );
-
-  // ── Step 2: Settle on-chain asynchronously (don't block the result) ──
-  if (onChainGameId) {
-    settleOnChainAsync(matchId, onChainGameId, winner, p1Roi, p2Roi);
-  }
-}
-
-/**
- * Settle on-chain in the background with a timeout.
- * If it fails, the retry loop will pick it up later.
- */
-function settleOnChainAsync(
-  matchId: string,
-  onChainGameId: number,
-  winner: string | undefined | null,
-  p1Roi: number,
-  p2Roi: number
-): void {
-  const TIMEOUT_MS = 15_000; // 15-second timeout
-
-  const onChainPromise = (async () => {
-    const p1PnlBps = Math.round(p1Roi * 10000);
-    const p2PnlBps = Math.round(p2Roi * 10000);
-    await endGameOnChain(
-      onChainGameId,
-      winner || null,
-      p1PnlBps,
-      p2PnlBps,
-      false
-    );
-  })();
-
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("On-chain settlement timed out")), TIMEOUT_MS)
-  );
-
-  Promise.race([onChainPromise, timeoutPromise])
-    .then(async () => {
-      await updateMatch(matchId, { onChainSettled: true });
-      console.log(`[Settlement] On-chain settled for match ${matchId}`);
-
-      const updatedMatch = await getMatch(matchId);
-      if (updatedMatch) {
-        processMatchPayout(matchId, updatedMatch).catch((err) => {
-          console.error(`[Settlement] Payout failed for match ${matchId}:`, err);
-        });
-      }
-    })
-    .catch((err) => {
-      console.error(`[Settlement] On-chain end_game failed for match ${matchId}:`, err);
-      console.warn(`[Settlement] Retry loop will pick up match ${matchId}`);
-    });
 }
 
 function calculatePnl(pos: DbPosition, currentPrice: number): number {
@@ -297,243 +272,6 @@ function calculatePnl(pos: DbPosition, currentPrice: number): number {
     ? exitPrice - pos.entryPrice
     : pos.entryPrice - exitPrice;
   return (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
-}
-
-/**
- * Retry loop for matches that settled in Firebase but failed on-chain,
- * and for matches whose refund failed after on-chain settlement.
- * Runs every 30 seconds.
- */
-export function startOnChainRetryLoop(): void {
-  setInterval(async () => {
-    try {
-      // ── Part 1: Retry on-chain settlement for unsettled matches ──
-      for (const status of ["completed", "tied", "forfeited"] as const) {
-        const matches = await getMatchesByStatus(status);
-        for (const { id, data: match } of matches) {
-          if (match.onChainSettled) continue;
-          if (!match.onChainGameId) continue;
-          // Don't retry too frequently — skip if settled less than 30s ago.
-          if (match.settledAt && Date.now() - match.settledAt < 30_000) continue;
-
-          try {
-            // Check on-chain status FIRST to avoid calling end_game on
-            // a game that was already settled (would fail with GameNotActive).
-            const onChainGame = await fetchGameAccount(BigInt(match.onChainGameId));
-
-            if (onChainGame && onChainGame.status !== GameStatus.Active) {
-              // Already settled on-chain — just mark Firebase and trigger payout.
-              console.log(`[Settlement] Match ${id} already settled on-chain (status=${onChainGame.status}) — syncing Firebase`);
-              await updateMatch(id, { onChainSettled: true });
-
-              const updatedMatch = await getMatch(id);
-              if (updatedMatch) {
-                processMatchPayout(id, updatedMatch).catch((err) => {
-                  console.error(`[Settlement] Payout failed for match ${id}:`, err);
-                });
-              }
-              continue;
-            }
-
-            // Game is still Active on-chain — check if we CAN settle it.
-            // end_game requires both player profile PDAs to exist on-chain.
-            // NOTE: The backend cannot create profiles on behalf of players
-            // (create_profile requires the player as a Signer). The fix is
-            // FIX 1 in the deposit flow which makes profile creation mandatory.
-            // For already-stuck matches we keep checking indefinitely using a
-            // SEPARATE counter so the main tx-failure cap isn't consumed.
-            const [p1HasProfile, p2HasProfile] = await Promise.all([
-              playerProfileExists(match.player1),
-              playerProfileExists(match.player2),
-            ]);
-
-            if (!p1HasProfile || !p2HasProfile) {
-              const missingCount = (match.profileMissingCount || 0) + 1;
-              await updateMatch(id, { profileMissingCount: missingCount });
-
-              // Cap at ~30 minutes (60 checks × 30s interval). After that,
-              // stop retrying to avoid burning resources indefinitely.
-              if (missingCount >= 60) {
-                if (missingCount === 60) {
-                  console.error(
-                    `[Settlement] Match ${id}: profile-missing timeout after 60 checks (~30min)` +
-                    ` — halting on-chain settlement retries. Manual intervention required.`
-                  );
-                }
-                continue;
-              }
-
-              // Log on first miss and every 10th miss to avoid log spam.
-              if (missingCount === 1 || missingCount % 10 === 0) {
-                const missing = [
-                  !p1HasProfile ? match.player1.slice(0, 8) + "…" : null,
-                  !p2HasProfile ? match.player2.slice(0, 8) + "…" : null,
-                ].filter(Boolean).join(", ");
-                console.warn(
-                  `[Settlement] Match ${id}: missing profile(s) for [${missing}]` +
-                  ` — cannot call end_game (check #${missingCount}).` +
-                  ` Players must create on-chain profiles to unblock settlement.`
-                );
-              }
-              continue;
-            }
-
-            // Cap transaction-failure retries to avoid infinite SOL drain.
-            const retries = match.onChainRetries || 0;
-            if (retries >= 10) {
-              if (retries === 10) {
-                console.error(`[Settlement] Match ${id}: max retries (10) reached — giving up on-chain settlement`);
-                await updateMatch(id, { onChainRetries: retries + 1 });
-              }
-              continue;
-            }
-
-            console.log(`[Settlement] Retrying on-chain settlement for match ${id} (${status}, attempt ${retries + 1})...`);
-
-            const isForfeit = status === "forfeited";
-            const p1PnlBps = Math.round((match.player1Roi || 0) * 10000);
-            const p2PnlBps = Math.round((match.player2Roi || 0) * 10000);
-
-            await endGameOnChain(
-              match.onChainGameId,
-              match.winner || null,
-              p1PnlBps,
-              p2PnlBps,
-              isForfeit
-            );
-
-            await updateMatch(id, { onChainSettled: true, onChainRetries: retries + 1 });
-            console.log(`[Settlement] On-chain retry succeeded for match ${id}`);
-
-            const updatedMatch = await getMatch(id);
-            if (updatedMatch) {
-              processMatchPayout(id, updatedMatch).catch((err) => {
-                console.error(`[Settlement] Payout failed on retry for match ${id}:`, err);
-              });
-            }
-          } catch (err) {
-            // Increment retry counter on failure.
-            const retries = (match.onChainRetries || 0) + 1;
-            await updateMatch(id, { onChainRetries: retries });
-            console.error(`[Settlement] On-chain retry #${retries} failed for match ${id}:`, err);
-          }
-        }
-      }
-
-      // ── Part 2: Retry failed refunds (ties and cancelled matches) ──
-      await retryFailedRefunds();
-
-      // ── Part 3: Close fully-settled game accounts to reclaim rent ──
-      await closeSettledGames();
-    } catch (err) {
-      console.error("[Settlement] Retry loop error:", err);
-    }
-  }, 30_000);
-
-  console.log("[Settlement] On-chain retry loop started (30s interval)");
-}
-
-/**
- * Retry refunds for tied/cancelled matches where the refund failed.
- * Picks up matches with escrowState === "refund_failed".
- */
-async function retryFailedRefunds(): Promise<void> {
-  for (const status of ["tied", "cancelled"] as const) {
-    const matches = await getMatchesByStatus(status);
-    for (const { id, data: match } of matches) {
-      if (match.escrowState !== "refund_failed") continue;
-      if (!match.onChainGameId) continue;
-
-      console.log(`[Settlement] Retrying refund for match ${id} (${status})...`);
-
-      try {
-        // Try batched refund+close to save a transaction.
-        const sig = await refundAndCloseOnChain(
-          match.onChainGameId,
-          match.player1,
-          match.player2
-        );
-        await updateMatch(id, {
-          escrowState: "refunded",
-          gameClosed: true,
-          refundSignatures: { refund: sig },
-        });
-
-        broadcastToMatch(id, {
-          type: "escrow_refunded",
-          matchId: id,
-          signature: sig,
-        });
-
-        console.log(`[Settlement] Refund+close retry succeeded for match ${id} | sig: ${sig}`);
-      } catch {
-        // Fall back to refund-only if batched fails.
-        try {
-          const refundSig = await refundEscrowOnChain(
-            match.onChainGameId,
-            match.player1,
-            match.player2
-          );
-          await updateMatch(id, {
-            escrowState: "refunded",
-            refundSignatures: { refund: refundSig },
-          });
-
-          broadcastToMatch(id, {
-            type: "escrow_refunded",
-            matchId: id,
-            signature: refundSig,
-          });
-
-          console.log(`[Settlement] Refund retry succeeded for match ${id} (close deferred) | sig: ${refundSig}`);
-        } catch (err) {
-          console.error(`[Settlement] Refund retry still failing for match ${id}:`, err);
-        }
-      }
-    }
-  }
-}
-
-/**
- * Close game accounts for fully-settled matches to reclaim rent.
- * Targets games where escrow is already empty (payout claimed or refunded).
- */
-async function closeSettledGames(): Promise<void> {
-  for (const status of ["completed", "tied", "forfeited", "cancelled"] as const) {
-    const matches = await getMatchesByStatus(status);
-    for (const { id, data: match } of matches) {
-      if (!match.onChainGameId) continue;
-      if (match.gameClosed) continue; // Already closed.
-
-      // Only close games where escrow funds have been fully disbursed.
-      const closableStates = ["payout_sent", "refunded", "partial_refund"];
-      if (!match.escrowState || !closableStates.includes(match.escrowState)) continue;
-
-      // For wins/forfeits, verify the escrow is actually empty on-chain
-      // (winner may not have claimed yet).
-      try {
-        const game = await fetchGameAccount(BigInt(match.onChainGameId));
-        if (!game) {
-          // Game PDA already closed — just mark it.
-          await updateMatch(id, { gameClosed: true });
-          continue;
-        }
-
-        // Check if escrow token account is empty by reading on-chain.
-        // close_game will fail with EscrowNotEmpty if funds remain,
-        // so we just attempt it and handle the error gracefully.
-        await closeGameOnChain(match.onChainGameId);
-        await updateMatch(id, { gameClosed: true });
-        console.log(`[Settlement] Game ${match.onChainGameId} closed (match ${id}) — rent reclaimed`);
-      } catch (err) {
-        // Expected to fail if winner hasn't claimed yet — silently skip.
-        const errMsg = String(err);
-        if (!errMsg.includes("EscrowNotEmpty")) {
-          console.warn(`[Settlement] Failed to close game ${match.onChainGameId} (match ${id}):`, err);
-        }
-      }
-    }
-  }
 }
 
 async function updatePlayerStats(

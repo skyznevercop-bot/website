@@ -64,36 +64,44 @@ class MatchResult {
   });
 }
 
-/// State of the portfolio feature (transaction history + withdraw state).
+/// State of the portfolio feature (transaction history + withdraw/deposit state).
 class PortfolioState {
   final List<Transaction> transactions;
   final List<MatchResult> matchHistory;
   final bool isWithdrawing;
+  final bool isDepositing;
   final bool isLoadingHistory;
   final String? withdrawError;
+  final String? depositError;
 
   const PortfolioState({
     this.transactions = const [],
     this.matchHistory = const [],
     this.isWithdrawing = false,
+    this.isDepositing = false,
     this.isLoadingHistory = false,
     this.withdrawError,
+    this.depositError,
   });
 
   PortfolioState copyWith({
     List<Transaction>? transactions,
     List<MatchResult>? matchHistory,
     bool? isWithdrawing,
+    bool? isDepositing,
     bool? isLoadingHistory,
     String? withdrawError,
+    String? depositError,
     bool clearError = false,
   }) {
     return PortfolioState(
       transactions: transactions ?? this.transactions,
       matchHistory: matchHistory ?? this.matchHistory,
       isWithdrawing: isWithdrawing ?? this.isWithdrawing,
+      isDepositing: isDepositing ?? this.isDepositing,
       isLoadingHistory: isLoadingHistory ?? this.isLoadingHistory,
       withdrawError: clearError ? null : (withdrawError ?? this.withdrawError),
+      depositError: clearError ? null : (depositError ?? this.depositError),
     );
   }
 }

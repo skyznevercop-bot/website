@@ -10,7 +10,6 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
-import '../../../core/services/escrow_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../providers/trading_provider.dart';
@@ -33,8 +32,6 @@ class MatchResultOverlay extends ConsumerStatefulWidget {
 
 enum _RevealPhase { pending, countdown, reveal, stats }
 
-enum _ClaimStep { idle, settling, signing, complete }
-
 class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     with TickerProviderStateMixin {
   // ── Animation state ──
@@ -50,11 +47,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   late final Animation<double> _resultOpacity;
   late final Animation<double> _statsSlide;
 
-  // ── Claim state ──
-  bool _claiming = false;
-  String? _claimTx;
-  String? _claimError;
-  _ClaimStep _claimStep = _ClaimStep.idle;
   Timer? _pollTimer;
   int _pollCount = 0;
 
@@ -276,74 +268,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     });
   }
 
-  // ── Claim flow ──
-
-  Future<void> _claimPrize() async {
-    final matchId = widget.state.matchId;
-    if (matchId == null) return;
-
-    setState(() {
-      _claiming = true;
-      _claimError = null;
-      _claimStep = _ClaimStep.settling;
-    });
-
-    try {
-      Map<String, dynamic>? claimInfo;
-      for (var attempt = 0; attempt < 24; attempt++) {
-        try {
-          claimInfo =
-              await ApiClient.instance.get('/match/$matchId/claim-info');
-          break;
-        } on ApiException catch (e) {
-          if (e.statusCode == 400 && attempt < 23) {
-            if (mounted) {
-              setState(() => _claimStep = _ClaimStep.settling);
-            }
-            await Future.delayed(const Duration(seconds: 5));
-            if (!mounted) return;
-            continue;
-          }
-          rethrow;
-        }
-      }
-
-      if (claimInfo == null) {
-        throw Exception(
-            'On-chain settlement timed out. Please try again in a moment.');
-      }
-
-      if (mounted) setState(() => _claimStep = _ClaimStep.signing);
-
-      final wallet = ref.read(walletProvider);
-      final walletName = wallet.walletType?.name ?? 'phantom';
-
-      final txSig = await EscrowService.claimWinnings(
-        walletName: walletName,
-        gamePda: claimInfo['gamePda'] as String,
-        escrowTokenAccount: claimInfo['escrowTokenAccount'] as String,
-        platformPda: claimInfo['platformPda'] as String,
-        treasuryAddress: claimInfo['treasuryAddress'] as String,
-      );
-
-      if (mounted) {
-        setState(() {
-          _claimTx = txSig;
-          _claimStep = _ClaimStep.complete;
-          _claiming = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _claimError = e.toString();
-          _claimStep = _ClaimStep.idle;
-          _claiming = false;
-        });
-      }
-    }
-  }
-
   // ── Build ──
 
   @override
@@ -463,7 +387,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
           ),
           const SizedBox(height: 10),
           Text(
-            'Settling on-chain & determining winner\u2026',
+            'Determining winner\u2026',
             style: interStyle(fontSize: 13, color: AppTheme.textTertiary),
           ),
           const SizedBox(height: 24),
@@ -981,7 +905,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     );
   }
 
-  // ── Claim section ──
+  // ── Payout section (instant balance update) ──
 
   Widget _buildClaimSection() {
     final isWinner = _isWinner;
@@ -999,12 +923,12 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.info_outline_rounded,
+            const Icon(Icons.balance_rounded,
                 size: 16, color: AppTheme.textSecondary),
             const SizedBox(width: 8),
             Flexible(
               child: Text(
-                'Draw — deposits refunded on-chain automatically',
+                'Draw — bet refunded to your balance',
                 style:
                     interStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
@@ -1014,221 +938,64 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
       );
     }
 
-    if (!isWinner) return const SizedBox.shrink();
-
-    return Column(
-      children: [
-        if (_claiming || _claimStep == _ClaimStep.complete) ...[
-          _buildClaimSteps(),
-          const SizedBox(height: 16),
-        ],
-
-        if (_claimTx != null) ...[
-          Container(
-            width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [
-                AppTheme.success.withValues(alpha: 0.12),
-                AppTheme.success.withValues(alpha: 0.05),
-              ]),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                  color: AppTheme.success.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.check_circle_rounded,
-                    size: 18, color: AppTheme.success),
-                const SizedBox(width: 8),
-                Text(
-                  'Prize claimed successfully!',
-                  style: interStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.success),
-                ),
-              ],
-            ),
-          ),
-        ],
-
-        if (_claimTx == null) ...[
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: MouseRegion(
-              cursor: _claiming
-                  ? SystemMouseCursors.basic
-                  : SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: _claiming ? null : _claimPrize,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  decoration: BoxDecoration(
-                    gradient: _claiming ? null : AppTheme.longGradient,
-                    color: _claiming ? AppTheme.surfaceAlt : null,
-                    borderRadius: BorderRadius.circular(14),
-                    boxShadow: _claiming
-                        ? null
-                        : [
-                            BoxShadow(
-                              color: AppTheme.success
-                                  .withValues(alpha: 0.25),
-                              blurRadius: 20,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                  ),
-                  child: Center(
-                    child: _claiming
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: AppTheme.textSecondary,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                _claimStep == _ClaimStep.settling
-                                    ? 'Settling on-chain\u2026'
-                                    : 'Approve in wallet\u2026',
-                                style: interStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textSecondary),
-                              ),
-                            ],
-                          )
-                        : Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                  Icons.account_balance_wallet_rounded,
-                                  size: 18,
-                                  color: Colors.white),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Claim Prize',
-                                style: interStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white),
-                              ),
-                            ],
-                          ),
-                  ),
-                ),
+    if (!isWinner) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: AppTheme.error.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.error.withValues(alpha: 0.15)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.remove_circle_outline_rounded,
+                size: 16, color: AppTheme.error.withValues(alpha: 0.7)),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                'Bet deducted from your balance',
+                style: interStyle(
+                    fontSize: 12,
+                    color: AppTheme.error.withValues(alpha: 0.7)),
               ),
             ),
-          ),
-        ],
-
-        if (_claimError != null) ...[
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.error.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                  color: AppTheme.error.withValues(alpha: 0.2)),
-            ),
-            child: Text(
-              _claimError!,
-              style: interStyle(fontSize: 11, color: AppTheme.error),
-              textAlign: TextAlign.center,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildClaimSteps() {
-    final steps = [
-      ('Settle', _ClaimStep.settling),
-      ('Sign', _ClaimStep.signing),
-      ('Done', _ClaimStep.complete),
-    ];
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < steps.length; i++) ...[
-          if (i > 0)
-            Container(
-              width: 32,
-              height: 1,
-              color: _claimStep.index > steps[i].$2.index
-                  ? AppTheme.success
-                  : AppTheme.border,
-            ),
-          _claimStepDot(
-            label: steps[i].$1,
-            isActive: _claimStep == steps[i].$2,
-            isComplete: _claimStep.index > steps[i].$2.index,
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _claimStepDot({
-    required String label,
-    required bool isActive,
-    required bool isComplete,
-  }) {
-    final color = isComplete
-        ? AppTheme.success
-        : isActive
-            ? AppTheme.solanaPurple
-            : AppTheme.textTertiary;
-
-    return Column(
-      children: [
-        Container(
-          width: 24,
-          height: 24,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isComplete
-                ? AppTheme.success.withValues(alpha: 0.15)
-                : isActive
-                    ? AppTheme.solanaPurple.withValues(alpha: 0.15)
-                    : Colors.transparent,
-            border: Border.all(color: color, width: 1.5),
-          ),
-          child: Center(
-            child: isComplete
-                ? const Icon(Icons.check_rounded,
-                    size: 12, color: AppTheme.success)
-                : isActive
-                    ? SizedBox(
-                        width: 10,
-                        height: 10,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 1.5, color: color),
-                      )
-                    : null,
-          ),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(label,
-            style: interStyle(
-                fontSize: 9, fontWeight: FontWeight.w600, color: color)),
-      ],
+      );
+    }
+
+    // Winner — instant payout
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [
+          AppTheme.success.withValues(alpha: 0.12),
+          AppTheme.success.withValues(alpha: 0.05),
+        ]),
+        borderRadius: BorderRadius.circular(12),
+        border:
+            Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.check_circle_rounded,
+              size: 18, color: AppTheme.success),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              'Prize credited to your balance instantly!',
+              style: interStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.success),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

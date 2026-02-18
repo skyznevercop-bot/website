@@ -23,6 +23,10 @@ class WalletState {
   final String? gamerTag;
   final String? errorMessage;
 
+  /// Platform balance fields (custodial balance held by backend).
+  final double platformBalance;
+  final double frozenBalance;
+
   const WalletState({
     this.status = WalletConnectionStatus.disconnected,
     this.walletType,
@@ -30,7 +34,12 @@ class WalletState {
     this.usdcBalance,
     this.gamerTag,
     this.errorMessage,
+    this.platformBalance = 0,
+    this.frozenBalance = 0,
   });
+
+  /// Available platform balance (total minus frozen).
+  double get availableBalance => platformBalance - frozenBalance;
 
   bool get isConnected => status == WalletConnectionStatus.connected;
   bool get isConnecting => status == WalletConnectionStatus.connecting;
@@ -49,6 +58,8 @@ class WalletState {
     double? usdcBalance,
     String? gamerTag,
     String? errorMessage,
+    double? platformBalance,
+    double? frozenBalance,
   }) {
     return WalletState(
       status: status ?? this.status,
@@ -57,6 +68,8 @@ class WalletState {
       usdcBalance: usdcBalance ?? this.usdcBalance,
       gamerTag: gamerTag ?? this.gamerTag,
       errorMessage: errorMessage ?? this.errorMessage,
+      platformBalance: platformBalance ?? this.platformBalance,
+      frozenBalance: frozenBalance ?? this.frozenBalance,
     );
   }
 }

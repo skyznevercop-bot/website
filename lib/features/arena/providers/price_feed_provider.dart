@@ -26,7 +26,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   StreamSubscription? _backendWsSub;
   int _reconnectAttempts = 0;
   bool _started = false;
-  bool _wsConnected = false;
+
 
   /// Buffer for incoming WS prices — flushed to state periodically.
   final Map<String, double> _priceBuffer = {};
@@ -49,7 +49,6 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   void start() {
     if (_started) return;
     _started = true;
-    _wsConnected = false;
 
     // 1. Fetch prices from CoinGecko immediately (reliable, CORS-friendly).
     _fetchCoinGecko();
@@ -82,7 +81,6 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
   void stop() {
     _started = false;
-    _wsConnected = false;
     _binanceWs?.close();
     _binanceWs = null;
     _reconnectTimer?.cancel();
@@ -98,7 +96,6 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     if (!_started) return;
 
     _binanceWs?.close();
-    _wsConnected = false;
 
     final streams = TradingAsset.all
         .map((a) => '${a.binanceSymbol.toLowerCase()}@aggTrade')
@@ -114,7 +111,6 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
     _binanceWs!.onopen = ((web.Event e) {
       _reconnectAttempts = 0;
-      _wsConnected = true;
       debugPrint('[PriceFeed] Binance aggTrade WS connected');
     }).toJS;
 
@@ -138,14 +134,12 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
     _binanceWs!.onclose = ((web.Event e) {
       debugPrint('[PriceFeed] Binance WS disconnected');
-      _wsConnected = false;
-      if (_started) _scheduleReconnect();
+        if (_started) _scheduleReconnect();
     }).toJS;
 
     _binanceWs!.onerror = ((web.Event e) {
       debugPrint('[PriceFeed] Binance WS error');
-      _wsConnected = false;
-      _binanceWs?.close();
+        _binanceWs?.close();
     }).toJS;
   }
 

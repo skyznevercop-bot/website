@@ -2,6 +2,16 @@ import { Request, Response, NextFunction } from "express";
 
 const requestCounts = new Map<string, { count: number; resetAt: number }>();
 
+// Periodically purge expired entries to prevent unbounded memory growth.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of requestCounts) {
+    if (now > entry.resetAt) {
+      requestCounts.delete(key);
+    }
+  }
+}, 60_000);
+
 /**
  * Simple in-memory rate limiter.
  * For production, use Redis-backed rate limiting.
