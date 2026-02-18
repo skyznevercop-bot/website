@@ -130,8 +130,15 @@
         if (window._lwChartSessions[containerId] !== session) return;
 
         var container = document.getElementById(containerId);
+
+        // Retry if element not yet inserted into the DOM (Flutter platform view
+        // insertion is asynchronous and may lag behind addPostFrameCallback).
         if (!container) {
-          console.warn('[LWChart] container not found:', containerId);
+          if (attempt < 15) {
+            setTimeout(function() { tryCreate(attempt + 1); }, 150);
+            return;
+          }
+          console.warn('[LWChart] container not found after retries:', containerId);
           return;
         }
 
@@ -562,11 +569,18 @@
       var signature = typeof result === 'string' ? result
         : (result.signature ? result.signature : result.toString());
 
-      await connection.confirmTransaction({
+      var confirmation = await connection.confirmTransaction({
         signature: signature,
         blockhash: bh.blockhash,
         lastValidBlockHeight: bh.lastValidBlockHeight,
       }, 'confirmed');
+
+      // Throw if the TX landed in a block but failed on-chain (e.g., wrong game
+      // state, wrong accounts). Without this check the caller would silently
+      // receive a signature and believe the claim succeeded.
+      if (confirmation && confirmation.value && confirmation.value.err) {
+        throw new Error('Claim transaction failed on-chain: ' + JSON.stringify(confirmation.value.err));
+      }
 
       return signature;
     };
