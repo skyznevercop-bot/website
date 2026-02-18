@@ -299,10 +299,17 @@ async function handleMessage(
       if (snapMatch && snapMatch.status === "active") {
         const snapPositions = await getPositions(matchId, ws.userAddress);
 
-        // Recompute balance: demo balance minus the margin locked in open positions.
+        // Recompute balance:
+        //   DEMO_BALANCE − open margins + realized PnL from closed positions
+        // Mirrors the frontend formula: open() deducts size, close() returns size+pnl,
+        // so the net effect of a closed position on balance is just its pnl.
         let balance = DEMO_BALANCE;
         for (const pos of snapPositions) {
-          if (!pos.closedAt) balance -= pos.size;
+          if (!pos.closedAt) {
+            balance -= pos.size;          // open: margin is locked
+          } else {
+            balance += (pos.pnl ?? 0);   // closed: net realized PnL
+          }
         }
 
         ws.send(JSON.stringify({
