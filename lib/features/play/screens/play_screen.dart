@@ -380,6 +380,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               final result = await api.post(
                 '/match/${match.matchId}/confirm-deposit',
                 {'txSignature': txSignature},
+                const Duration(seconds: 90),
               );
 
               final matchActive = result['matchActive'] == true;

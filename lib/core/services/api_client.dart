@@ -69,12 +69,13 @@ class ApiClient {
   Future<Map<String, dynamic>> post(
     String path, [
     Map<String, dynamic>? body,
+    Duration? timeout,
   ]) async {
     final response = await http.post(
       Uri.parse('${Environment.apiBaseUrl}$path'),
       headers: _authHeaders,
       body: body != null ? jsonEncode(body) : null,
-    ).timeout(_timeout);
+    ).timeout(timeout ?? _timeout);
     return _handleResponse(response);
   }
 

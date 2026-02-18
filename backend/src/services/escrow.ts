@@ -56,18 +56,22 @@ export async function confirmDeposit(
     return { success: false, message: "No on-chain game ID for this match", matchNowActive: false };
   }
 
-  // First, confirm the deposit tx itself on the backend's RPC node.
+  // Confirm the deposit tx on the backend's RPC node (10s cap so we don't
+  // stall the HTTP response; the PDA retry loop below handles slower cases).
   try {
     const connection = getConnection();
     const latestBlockhash = await connection.getLatestBlockhash("confirmed");
-    await connection.confirmTransaction(
-      {
-        signature: txSignature,
-        blockhash: latestBlockhash.blockhash,
-        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-      },
-      "confirmed"
-    );
+    await Promise.race([
+      connection.confirmTransaction(
+        {
+          signature: txSignature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        },
+        "confirmed"
+      ),
+      sleep(10_000),
+    ]);
   } catch (err) {
     console.warn(`[Escrow] Tx ${txSignature} not yet confirmed on backend RPC, proceeding to PDA check`);
   }
@@ -82,10 +86,10 @@ export async function confirmDeposit(
     ? game.playerOneDeposited
     : game.playerTwoDeposited;
 
-  // Retry up to 5 times (1s apart) if the deposit flag hasn't propagated yet.
+  // Retry up to 10 times (1s apart) if the deposit flag hasn't propagated yet.
   if (!playerDeposited) {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await sleep(1500);
+    for (let attempt = 0; attempt < 10; attempt++) {
+      await sleep(1000);
       game = await fetchGameAccount(BigInt(match.onChainGameId));
       if (!game) break;
       playerDeposited = isPlayer1
