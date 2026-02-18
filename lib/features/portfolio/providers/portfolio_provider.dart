@@ -127,7 +127,7 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     }
   }
 
-  /// One-click deposit: sign + send USDC transfer via wallet, then confirm with backend.
+  /// One-click deposit: sign + send USDC transfer via wallet, then poll backend.
   Future<bool> deposit(double amount) async {
     if (state.isDepositing) return false;
 
@@ -145,20 +145,25 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       return false;
     }
 
-    state = state.copyWith(isDepositing: true, clearError: true);
+    // ── Step 1: Signing ──
+    state = state.copyWith(
+      isDepositing: true,
+      depositStep: DepositStep.signing,
+      clearError: true,
+    );
 
     try {
-      // 1. Get vault address from backend.
       final vaultAddress = await getVaultAddress();
       if (vaultAddress == null) {
         state = state.copyWith(
           isDepositing: false,
+          depositStep: DepositStep.idle,
           depositError: 'Could not load vault address',
         );
         return false;
       }
 
-      // 2. Build + sign + send the SPL transfer (wallet popup).
+      // Wallet popup appears here.
       final signature = await SolanaWalletAdapter.depositToVault(
         walletName: wallet.walletType!.name,
         vaultAddress: vaultAddress,
@@ -167,28 +172,72 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
         rpcUrl: Environment.solanaRpcUrl,
       );
 
-      // 3. Confirm with backend to credit platform balance.
-      final confirmed = await confirmDeposit(signature);
-      if (!confirmed) return false;
+      // ── Step 2: Confirming on-chain ──
+      state = state.copyWith(depositStep: DepositStep.confirming);
 
-      // 4. Refresh balances.
+      // Poll backend — the RPC may not see the tx immediately.
+      bool confirmed = false;
+      String? lastError;
+      for (int attempt = 0; attempt < 15; attempt++) {
+        if (attempt > 0) {
+          await Future.delayed(const Duration(seconds: 3));
+        }
+        try {
+          await _api.post('/balance/deposit', {'txSignature': signature});
+          confirmed = true;
+          break;
+        } on ApiException catch (e) {
+          lastError = e.message;
+          // Stop on definitive errors (replay, wrong sender, etc.).
+          if (!_isRetryableDepositError(e.message)) break;
+        } catch (e) {
+          lastError = e.toString();
+        }
+      }
+
+      if (!confirmed) {
+        state = state.copyWith(
+          isDepositing: false,
+          depositStep: DepositStep.idle,
+          depositError: lastError ?? 'Transaction not confirmed on-chain',
+        );
+        return false;
+      }
+
+      // ── Step 3: Crediting balance ──
+      state = state.copyWith(depositStep: DepositStep.crediting);
+      ref.read(walletProvider.notifier).refreshPlatformBalance();
       ref.read(walletProvider.notifier).refreshBalance();
       await fetchTransactions();
 
+      state = state.copyWith(
+        isDepositing: false,
+        depositStep: DepositStep.done,
+      );
       return true;
     } on WalletException catch (e) {
       state = state.copyWith(
         isDepositing: false,
+        depositStep: DepositStep.idle,
         depositError: e.message,
       );
       return false;
     } catch (e) {
       state = state.copyWith(
         isDepositing: false,
+        depositStep: DepositStep.idle,
         depositError: 'Deposit failed: ${e.toString()}',
       );
       return false;
     }
+  }
+
+  /// Returns true if the backend error is transient (tx not yet visible).
+  static bool _isRetryableDepositError(String msg) {
+    final lower = msg.toLowerCase();
+    return lower.contains('not found') ||
+        lower.contains('not yet') ||
+        lower.contains('not confirmed');
   }
 
   /// Confirm a deposit with the backend (after on-chain USDC transfer to vault).

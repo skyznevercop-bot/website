@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../../wallet/providers/wallet_provider.dart';
+import '../models/transaction_models.dart';
 import '../providers/portfolio_provider.dart';
 
 /// Shows the one-click deposit modal.
@@ -16,8 +17,6 @@ void showDepositModal(BuildContext context) {
   );
 }
 
-enum _Step { form, sending, success }
-
 class _DepositModal extends ConsumerStatefulWidget {
   const _DepositModal();
 
@@ -26,8 +25,8 @@ class _DepositModal extends ConsumerStatefulWidget {
 }
 
 class _DepositModalState extends ConsumerState<_DepositModal> {
-  _Step _step = _Step.form;
   String? _error;
+  bool _showForm = true;
   final _amountController = TextEditingController();
   double _depositedAmount = 0;
 
@@ -58,7 +57,7 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
 
     setState(() {
       _error = null;
-      _step = _Step.sending;
+      _showForm = false;
       _depositedAmount = amount;
     });
 
@@ -67,12 +66,10 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
 
     if (!mounted) return;
 
-    if (success) {
-      setState(() => _step = _Step.success);
-    } else {
+    if (!success) {
       final state = ref.read(portfolioProvider);
       setState(() {
-        _step = _Step.form;
+        _showForm = true;
         _error = state.depositError ?? 'Deposit failed';
       });
     }
@@ -82,6 +79,8 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final onChainBalance = wallet.usdcBalance ?? 0;
+    final portfolio = ref.watch(portfolioProvider);
+    final step = portfolio.depositStep;
 
     return Center(
       child: Material(
@@ -94,11 +93,11 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
             borderRadius: BorderRadius.circular(AppTheme.radiusXl),
             boxShadow: AppTheme.shadowLg,
           ),
-          child: switch (_step) {
-            _Step.form => _buildForm(onChainBalance),
-            _Step.sending => _buildSending(),
-            _Step.success => _buildSuccess(),
-          },
+          child: _showForm && step == DepositStep.idle
+              ? _buildForm(onChainBalance)
+              : step == DepositStep.done
+                  ? _buildSuccess()
+                  : _buildProgress(step),
         ),
       ),
     );
@@ -335,11 +334,33 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
     );
   }
 
-  Widget _buildSending() {
+  /// Step-by-step progress view driven by [DepositStep] from provider.
+  Widget _buildProgress(DepositStep step) {
+    final (title, subtitle, stepIndex) = switch (step) {
+      DepositStep.signing => (
+          'Approve in your wallet',
+          'Confirm the transaction in the wallet popup...',
+          0,
+        ),
+      DepositStep.confirming => (
+          'Confirming on Solana',
+          'Waiting for the transaction to confirm on-chain...',
+          1,
+        ),
+      DepositStep.crediting => (
+          'Crediting your balance',
+          'Updating your platform balance...',
+          2,
+        ),
+      _ => ('Processing...', '', 0),
+    };
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SizedBox(height: 48),
+        const SizedBox(height: 36),
+
+        // ── Spinner ──
         const SizedBox(
           width: 48,
           height: 48,
@@ -348,9 +369,11 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
             color: AppTheme.solanaPurple,
           ),
         ),
+
         const SizedBox(height: 24),
+
         Text(
-          'Confirm in your wallet',
+          title,
           style: GoogleFonts.inter(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -358,15 +381,91 @@ class _DepositModalState extends ConsumerState<_DepositModal> {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          'Approve the transaction in your wallet popup...',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            color: AppTheme.textSecondary,
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.inter(
+              fontSize: 14,
+              color: AppTheme.textSecondary,
+            ),
           ),
         ),
-        const SizedBox(height: 48),
+
+        const SizedBox(height: 32),
+
+        // ── Step indicators ──
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Row(
+            children: [
+              _stepDot(0, stepIndex, 'Sign'),
+              _stepLine(0, stepIndex),
+              _stepDot(1, stepIndex, 'Confirm'),
+              _stepLine(1, stepIndex),
+              _stepDot(2, stepIndex, 'Credit'),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 36),
       ],
+    );
+  }
+
+  Widget _stepDot(int index, int current, String label) {
+    final isActive = index == current;
+    final isDone = index < current;
+
+    return Expanded(
+      child: Column(
+        children: [
+          Container(
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isDone
+                  ? AppTheme.success
+                  : isActive
+                      ? AppTheme.solanaPurple
+                      : AppTheme.border,
+            ),
+            child: Center(
+              child: isDone
+                  ? const Icon(Icons.check_rounded, size: 16, color: Colors.white)
+                  : Text(
+                      '${index + 1}',
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: isActive ? Colors.white : AppTheme.textTertiary,
+                      ),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+              color: isActive ? AppTheme.textPrimary : AppTheme.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepLine(int afterIndex, int current) {
+    final isDone = afterIndex < current;
+    return Container(
+      height: 2,
+      width: 24,
+      margin: const EdgeInsets.only(bottom: 20),
+      color: isDone ? AppTheme.success : AppTheme.border,
     );
   }
 

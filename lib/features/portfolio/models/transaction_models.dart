@@ -81,12 +81,16 @@ class MatchResult {
   bool get isTie => result == 'TIE';
 }
 
+/// Tracks which step the deposit flow is on.
+enum DepositStep { idle, signing, confirming, crediting, done }
+
 /// State of the portfolio feature (transaction history + withdraw/deposit state).
 class PortfolioState {
   final List<Transaction> transactions;
   final List<MatchResult> matchHistory;
   final bool isWithdrawing;
   final bool isDepositing;
+  final DepositStep depositStep;
   final bool isLoadingHistory;
   final String? withdrawError;
   final String? depositError;
@@ -96,6 +100,7 @@ class PortfolioState {
     this.matchHistory = const [],
     this.isWithdrawing = false,
     this.isDepositing = false,
+    this.depositStep = DepositStep.idle,
     this.isLoadingHistory = false,
     this.withdrawError,
     this.depositError,
@@ -106,6 +111,7 @@ class PortfolioState {
     List<MatchResult>? matchHistory,
     bool? isWithdrawing,
     bool? isDepositing,
+    DepositStep? depositStep,
     bool? isLoadingHistory,
     String? withdrawError,
     String? depositError,
@@ -116,6 +122,7 @@ class PortfolioState {
       matchHistory: matchHistory ?? this.matchHistory,
       isWithdrawing: isWithdrawing ?? this.isWithdrawing,
       isDepositing: isDepositing ?? this.isDepositing,
+      depositStep: depositStep ?? this.depositStep,
       isLoadingHistory: isLoadingHistory ?? this.isLoadingHistory,
       withdrawError: clearError ? null : (withdrawError ?? this.withdrawError),
       depositError: clearError ? null : (depositError ?? this.depositError),
