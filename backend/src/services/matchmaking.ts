@@ -1,5 +1,6 @@
 import { queuesRef, createMatch as createDbMatch, getUser, updateMatch, DbMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
+import { isUserConnected } from "../ws/rooms";
 import { config } from "../config";
 import { startGameOnChain, getGamePdaAndEscrow } from "../utils/solana";
 
@@ -125,11 +126,20 @@ async function matchPair(
   player1: string,
   player2: string
 ): Promise<void> {
-  // Remove both from queue first.
+  // Remove both from queue first (prevents duplicate matching).
   await Promise.all([
     queuesRef.child(queueKey).child(player1).remove(),
     queuesRef.child(queueKey).child(player2).remove(),
   ]);
+
+  // Guard: if either player has disconnected since they joined the queue,
+  // abort without creating an on-chain game (saves SOL on rent + fees).
+  if (!isUserConnected(player1) || !isUserConnected(player2)) {
+    console.log(
+      `[Matchmaking] Aborted match: ${!isUserConnected(player1) ? player1 : player2} is offline`
+    );
+    return;
+  }
 
   const parts = queueKey.split("_");
   const duration = parts[0];
