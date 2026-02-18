@@ -56,10 +56,11 @@ export async function confirmDeposit(
     ? match.player1DepositVerified
     : match.player2DepositVerified;
   if (alreadyVerified) {
+    const updatedMatch = await getMatch(matchId);
     return {
       success: true,
       message: "Deposit already verified",
-      matchNowActive: false,
+      matchNowActive: updatedMatch?.status === "active",
     };
   }
 
@@ -151,15 +152,36 @@ export async function confirmDeposit(
   // Re-read Firebase so we see the updated deposit flags after our write.
   const updatedMatch = (await getMatch(matchId)) ?? match;
 
-  // Check if both players have deposited and the on-chain game is Active.
-  // Use Firebase flags as fallback for when the on-chain RPC lags behind
-  // and hasn't yet reflected the OTHER player's deposit.
-  const bothOnChain = game.playerOneDeposited && game.playerTwoDeposited;
+  // ── Wait for BOTH deposits to be confirmed on-chain ──
+  // The on-chain program transitions the game to Active only when both
+  // players have deposited. We poll the game PDA until we see Active status
+  // with both deposit flags set, or give up and let the recovery loop handle it.
   const bothFirebase =
     !!updatedMatch.player1DepositVerified && !!updatedMatch.player2DepositVerified;
 
-  if ((bothOnChain || bothFirebase) && game.status === GameStatus.Active) {
-    return await activateMatch(matchId, updatedMatch, game);
+  // Only attempt activation when Firebase says both deposited.
+  // Then verify on-chain before proceeding.
+  if (bothFirebase) {
+    // Poll up to 10 times (1s apart) for the on-chain game to reflect
+    // both deposits and transition to Active.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const freshGame = await fetchGameAccount(BigInt(match.onChainGameId!));
+      if (
+        freshGame &&
+        freshGame.playerOneDeposited &&
+        freshGame.playerTwoDeposited &&
+        freshGame.status === GameStatus.Active
+      ) {
+        console.log(
+          `[Escrow] Match ${matchId}: both deposits confirmed on-chain (attempt ${attempt + 1}) — activating`
+        );
+        return await activateMatch(matchId, updatedMatch, freshGame);
+      }
+      await sleep(1000);
+    }
+    console.warn(
+      `[Escrow] Match ${matchId}: both Firebase flags set but on-chain game not Active after 10s — recovery loop will retry`
+    );
   }
 
   return {
@@ -171,13 +193,45 @@ export async function confirmDeposit(
 
 /**
  * Activate a match using a Firebase transaction for atomicity.
- * The on-chain program already set the game to Active; this syncs Firebase.
+ * IMPORTANT: Independently verifies both deposits on-chain before activating.
+ * The on-chain program sets the game to Active only when both players deposit;
+ * this function reads the game PDA to confirm that state before syncing Firebase.
  */
 export async function activateMatch(
   matchId: string,
   match: DbMatch,
-  game: { startTime: bigint; endTime: bigint }
+  game: {
+    startTime: bigint;
+    endTime: bigint;
+    playerOneDeposited: boolean;
+    playerTwoDeposited: boolean;
+    status: number;
+  }
 ): Promise<{ success: boolean; message: string; matchNowActive: boolean }> {
+  // ── Gate: BOTH deposits must be confirmed on-chain ──
+  // Never activate based on Firebase alone — always require on-chain truth.
+  if (!game.playerOneDeposited || !game.playerTwoDeposited) {
+    console.warn(
+      `[Escrow] activateMatch(${matchId}) rejected: on-chain deposits p1=${game.playerOneDeposited} p2=${game.playerTwoDeposited}`
+    );
+    return {
+      success: false,
+      message: "Both players must deposit before the match can start",
+      matchNowActive: false,
+    };
+  }
+
+  if (game.status !== GameStatus.Active) {
+    console.warn(
+      `[Escrow] activateMatch(${matchId}) rejected: on-chain status=${game.status}, expected Active(${GameStatus.Active})`
+    );
+    return {
+      success: false,
+      message: "On-chain game is not in Active state",
+      matchNowActive: false,
+    };
+  }
+
   const matchRef = matchesRef.child(matchId);
 
   const result = await matchRef.transaction((current: DbMatch | null) => {
@@ -206,7 +260,10 @@ export async function activateMatch(
   broadcastToUser(match.player2, activationMsg);
   broadcastToMatch(matchId, activationMsg);
 
-  console.log(`[Escrow] Match ${matchId} activated: both deposits verified on-chain`);
+  console.log(
+    `[Escrow] Match ${matchId} activated: BOTH deposits verified on-chain ` +
+    `(p1=${game.playerOneDeposited}, p2=${game.playerTwoDeposited}, status=Active)`
+  );
 
   return {
     success: true,

@@ -6,6 +6,7 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
   SystemProgram,
+  ComputeBudgetProgram,
 } from "@solana/web3.js";
 import {
   getAssociatedTokenAddress,
@@ -46,6 +47,63 @@ export function getProgramId(): PublicKey {
 
 export function getUsdcMint(): PublicKey {
   return new PublicKey(config.usdcMint);
+}
+
+// ── Compute Budget Optimization ─────────────────────────────────
+
+/**
+ * Compute unit limits per instruction type.
+ * These are set conservatively above actual usage to avoid failures,
+ * but well below the 200k default to reduce base fees.
+ */
+const COMPUTE_UNITS: Record<string, number> = {
+  start_game: 80_000,       // Account creation + init (~40-60k actual)
+  end_game: 40_000,         // State updates + profile writes (~20-30k actual)
+  cancel_pending_game: 20_000, // Simple state update (~10k actual)
+  refund_escrow: 50_000,    // Token transfers + state (~30-40k actual)
+  close_game: 30_000,       // Account close + token close (~15-20k actual)
+  refund_and_close: 80_000, // Combined refund + close (~50-60k actual)
+};
+
+/**
+ * Get the recent median priority fee from the cluster.
+ * Returns a value in micro-lamports per compute unit.
+ * Falls back to 1 micro-lamport if the RPC call fails.
+ */
+async function getRecentPriorityFee(): Promise<number> {
+  try {
+    const connection = getConnection();
+    const fees = await connection.getRecentPrioritizationFees();
+    if (!fees.length) return 1;
+
+    // Use the median of recent fees, clamped to a reasonable max.
+    const sorted = fees
+      .map((f) => f.prioritizationFee)
+      .filter((f) => f > 0)
+      .sort((a, b) => a - b);
+
+    if (!sorted.length) return 1;
+
+    const median = sorted[Math.floor(sorted.length / 2)];
+    // Cap at 50,000 micro-lamports/CU to avoid overpaying during spikes.
+    return Math.min(median, 50_000);
+  } catch {
+    return 1; // 1 micro-lamport fallback
+  }
+}
+
+/**
+ * Add compute budget instructions (unit limit + priority fee) to a transaction.
+ */
+async function addComputeBudget(tx: Transaction, instructionName: string): Promise<void> {
+  const units = COMPUTE_UNITS[instructionName] || 100_000;
+  const priorityFee = await getRecentPriorityFee();
+
+  // Prepend compute budget instructions (must come before program instructions).
+  tx.instructions.unshift(
+    ComputeBudgetProgram.setComputeUnitLimit({ units }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFee })
+  );
 }
 
 // ── PDA Derivation ──────────────────────────────────────────────
@@ -305,6 +363,7 @@ export async function startGameOnChain(
   });
 
   const tx = new Transaction().add(ix);
+  await addComputeBudget(tx, "start_game");
   const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
@@ -386,6 +445,7 @@ export async function endGameOnChain(
   });
 
   const tx = new Transaction().add(ix);
+  await addComputeBudget(tx, "end_game");
   const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
@@ -424,6 +484,7 @@ export async function cancelPendingGameOnChain(
   });
 
   const tx = new Transaction().add(ix);
+  await addComputeBudget(tx, "cancel_pending_game");
   const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
@@ -475,6 +536,7 @@ export async function refundEscrowOnChain(
   });
 
   const tx = new Transaction().add(ix);
+  await addComputeBudget(tx, "refund_escrow");
   const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
@@ -518,10 +580,77 @@ export async function closeGameOnChain(gameId: number): Promise<string> {
   });
 
   const tx = new Transaction().add(ix);
+  await addComputeBudget(tx, "close_game");
   const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
     commitment: "confirmed",
   });
 
   console.log(`[Solana] close_game: gameId=${gameId} | rent reclaimed | sig: ${sig}`);
+  return sig;
+}
+
+/**
+ * Refund escrow AND close game in a single transaction.
+ * Saves one transaction fee vs doing them separately.
+ * Used for ties and cancellations where the backend controls the full flow.
+ */
+export async function refundAndCloseOnChain(
+  gameId: number,
+  player1: string,
+  player2: string
+): Promise<string> {
+  const connection = getConnection();
+  const authority = getAuthorityKeypair();
+  const programId = getProgramId();
+  const usdcMint = getUsdcMint();
+
+  const bigGameId = BigInt(gameId);
+  const [platformPda] = getPlatformPDA();
+  const [gamePda] = getGamePDA(bigGameId);
+  const escrowTokenAccount = await getAssociatedTokenAddress(
+    usdcMint,
+    gamePda,
+    true
+  );
+
+  const player1Pubkey = new PublicKey(player1);
+  const player2Pubkey = new PublicKey(player2);
+  const p1TokenAccount = await getAssociatedTokenAddress(usdcMint, player1Pubkey);
+  const p2TokenAccount = await getAssociatedTokenAddress(usdcMint, player2Pubkey);
+
+  // Instruction 1: refund_escrow
+  const refundIx = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: p1TokenAccount, isSigner: false, isWritable: true },
+      { pubkey: p2TokenAccount, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: anchorDiscriminator("refund_escrow"),
+  });
+
+  // Instruction 2: close_game
+  const closeIx = new TransactionInstruction({
+    programId,
+    keys: [
+      { pubkey: platformPda, isSigner: false, isWritable: false },
+      { pubkey: gamePda, isSigner: false, isWritable: true },
+      { pubkey: escrowTokenAccount, isSigner: false, isWritable: true },
+      { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: anchorDiscriminator("close_game"),
+  });
+
+  const tx = new Transaction().add(refundIx, closeIx);
+  await addComputeBudget(tx, "refund_and_close");
+  const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+    commitment: "confirmed",
+  });
+
+  console.log(`[Solana] refund_and_close: gameId=${gameId} | refunded + rent reclaimed | sig: ${sig}`);
   return sig;
 }

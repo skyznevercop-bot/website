@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
 import '../models/trading_models.dart';
+import '../utils/arena_helpers.dart';
 import 'price_feed_provider.dart';
 
 /// State for the entire trading arena session.
@@ -26,6 +27,16 @@ class TradingState {
   final String? matchWinner;
   final bool matchIsTie;
   final bool matchIsForfeit;
+  final double peakEquity;
+  final MatchStats? matchStats;
+
+  // v2: Phase & momentum tracking (computed client-side)
+  final MatchPhase matchPhase;
+  final int totalDurationSeconds;
+  final bool wasLeading;
+  final int leadChangeCount;
+  final int consecutiveWins;
+  final int bestStreak;
 
   static const double demoBalance = 1000000;
 
@@ -47,6 +58,14 @@ class TradingState {
     this.matchWinner,
     this.matchIsTie = false,
     this.matchIsForfeit = false,
+    this.peakEquity = demoBalance,
+    this.matchStats,
+    this.matchPhase = MatchPhase.intro,
+    this.totalDurationSeconds = 0,
+    this.wasLeading = false,
+    this.leadChangeCount = 0,
+    this.consecutiveWins = 0,
+    this.bestStreak = 0,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -105,6 +124,14 @@ class TradingState {
     Object? matchWinner = _unchanged,
     bool? matchIsTie,
     bool? matchIsForfeit,
+    double? peakEquity,
+    Object? matchStats = _unchanged,
+    MatchPhase? matchPhase,
+    int? totalDurationSeconds,
+    bool? wasLeading,
+    int? leadChangeCount,
+    int? consecutiveWins,
+    int? bestStreak,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -133,6 +160,16 @@ class TradingState {
           : matchWinner as String?,
       matchIsTie: matchIsTie ?? this.matchIsTie,
       matchIsForfeit: matchIsForfeit ?? this.matchIsForfeit,
+      peakEquity: peakEquity ?? this.peakEquity,
+      matchStats: matchStats == _unchanged
+          ? this.matchStats
+          : matchStats as MatchStats?,
+      matchPhase: matchPhase ?? this.matchPhase,
+      totalDurationSeconds: totalDurationSeconds ?? this.totalDurationSeconds,
+      wasLeading: wasLeading ?? this.wasLeading,
+      leadChangeCount: leadChangeCount ?? this.leadChangeCount,
+      consecutiveWins: consecutiveWins ?? this.consecutiveWins,
+      bestStreak: bestStreak ?? this.bestStreak,
     );
   }
 }
@@ -152,6 +189,7 @@ class TradingNotifier extends Notifier<TradingState> {
     ref.onDispose(() {
       _matchTimer?.cancel();
       _checkTimer?.cancel();
+      _resultPollTimer?.cancel();
       _wsSubscription?.cancel();
       _priceFeed.stop();
     });
@@ -179,6 +217,7 @@ class TradingNotifier extends Notifier<TradingState> {
       state = state.copyWith(
         matchTimeRemainingSeconds: durationSeconds,
         arenaRoute: arenaRoute,
+        totalDurationSeconds: durationSeconds,
       );
     } else {
       state = state.copyWith(
@@ -198,6 +237,15 @@ class TradingNotifier extends Notifier<TradingState> {
         matchWinner: null,
         matchIsTie: false,
         matchIsForfeit: false,
+        peakEquity: TradingState.demoBalance,
+        matchStats: null,
+        // v2: Phase & momentum
+        matchPhase: MatchPhase.intro,
+        totalDurationSeconds: durationSeconds,
+        wasLeading: false,
+        leadChangeCount: 0,
+        consecutiveWins: 0,
+        bestStreak: 0,
       );
     }
 
@@ -216,8 +264,11 @@ class TradingNotifier extends Notifier<TradingState> {
       if (state.matchTimeRemainingSeconds <= 1) {
         endMatch();
       } else {
+        final newRemaining = state.matchTimeRemainingSeconds - 1;
+        final newPhase = computePhase(newRemaining, state.totalDurationSeconds);
         state = state.copyWith(
-          matchTimeRemainingSeconds: state.matchTimeRemainingSeconds - 1,
+          matchTimeRemainingSeconds: newRemaining,
+          matchPhase: newPhase,
         );
       }
     });
@@ -254,10 +305,26 @@ class TradingNotifier extends Notifier<TradingState> {
         final equity =
             (data['equity'] as num?)?.toDouble() ?? TradingState.demoBalance;
         final posCount = (data['positionCount'] as num?)?.toInt() ?? 0;
+
+        // Track lead changes: compare my ROI vs opponent ROI.
+        final myRoi = state.initialBalance > 0
+            ? (state.equity - state.initialBalance) / state.initialBalance
+            : 0.0;
+        final oppRoi = state.initialBalance > 0
+            ? (equity - state.initialBalance) / state.initialBalance
+            : 0.0;
+        final amLeading = myRoi > oppRoi;
+        final leadChanged = state.wasLeading != amLeading &&
+            state.matchTimeRemainingSeconds < state.totalDurationSeconds - 5;
+
         state = state.copyWith(
           opponentPnl: pnl,
           opponentEquity: equity,
           opponentPositionCount: posCount,
+          wasLeading: amLeading,
+          leadChangeCount: leadChanged
+              ? state.leadChangeCount + 1
+              : null,
         );
         break;
 
@@ -270,18 +337,35 @@ class TradingNotifier extends Notifier<TradingState> {
         if (closedId != null && exitPx != null) {
           final now = DateTime.now();
           double balanceReturn = 0;
+          double? closedPnl;
           final updated = state.positions.map((p) {
             if (p.id == closedId && p.isOpen) {
               p.exitPrice = exitPx;
               p.closedAt = now;
               p.closeReason = reason;
-              balanceReturn = p.size + (serverPnl ?? p.pnl(exitPx));
+              closedPnl = serverPnl ?? p.pnl(exitPx);
+              balanceReturn = p.size + closedPnl!;
             }
             return p;
           }).toList();
+
+          // Track consecutive wins/losses.
+          int newConsecutive = state.consecutiveWins;
+          int newBest = state.bestStreak;
+          if (closedPnl != null) {
+            if (closedPnl! >= 0) {
+              newConsecutive++;
+              if (newConsecutive > newBest) newBest = newConsecutive;
+            } else {
+              newConsecutive = 0;
+            }
+          }
+
           state = state.copyWith(
             positions: updated,
             balance: state.balance + balanceReturn,
+            consecutiveWins: newConsecutive,
+            bestStreak: newBest,
           );
         }
         break;
@@ -374,6 +458,7 @@ class TradingNotifier extends Notifier<TradingState> {
     final now = DateTime.now();
     bool changed = false;
     double balanceAdjust = 0;
+    final closedPnls = <double>[];
 
     final updatedPositions = state.positions.map((p) {
       if (!p.isOpen) return p;
@@ -389,7 +474,9 @@ class TradingNotifier extends Notifier<TradingState> {
         p.exitPrice = p.liquidationPrice;
         p.closedAt = now;
         p.closeReason = 'liquidation';
-        balanceAdjust += p.size + p.pnl(p.liquidationPrice);
+        final pnl = p.pnl(p.liquidationPrice);
+        balanceAdjust += p.size + pnl;
+        closedPnls.add(pnl);
         changed = true;
         return p;
       }
@@ -402,7 +489,9 @@ class TradingNotifier extends Notifier<TradingState> {
           p.exitPrice = p.stopLoss;
           p.closedAt = now;
           p.closeReason = 'sl';
-          balanceAdjust += p.size + p.pnl(p.stopLoss!);
+          final pnl = p.pnl(p.stopLoss!);
+          balanceAdjust += p.size + pnl;
+          closedPnls.add(pnl);
           changed = true;
           return p;
         }
@@ -416,7 +505,9 @@ class TradingNotifier extends Notifier<TradingState> {
           p.exitPrice = p.takeProfit;
           p.closedAt = now;
           p.closeReason = 'tp';
-          balanceAdjust += p.size + p.pnl(p.takeProfit!);
+          final pnl = p.pnl(p.takeProfit!);
+          balanceAdjust += p.size + pnl;
+          closedPnls.add(pnl);
           changed = true;
           return p;
         }
@@ -426,10 +517,43 @@ class TradingNotifier extends Notifier<TradingState> {
     }).toList();
 
     if (changed) {
+      final newBalance = state.balance + balanceAdjust;
+      // Recalculate equity for peak tracking.
+      double unrealized = 0;
+      for (final p in updatedPositions) {
+        if (p.isOpen) {
+          final px = prices[p.assetSymbol] ?? p.entryPrice;
+          unrealized += p.pnl(px);
+        }
+      }
+      final newEquity = newBalance + unrealized;
+
+      // Track consecutive wins/losses for auto-closed positions.
+      int newConsecutive = state.consecutiveWins;
+      int newBest = state.bestStreak;
+      for (final pnl in closedPnls) {
+        if (pnl >= 0) {
+          newConsecutive++;
+          if (newConsecutive > newBest) newBest = newConsecutive;
+        } else {
+          newConsecutive = 0;
+        }
+      }
+
       state = state.copyWith(
         positions: updatedPositions,
-        balance: state.balance + balanceAdjust,
+        balance: newBalance,
+        peakEquity:
+            newEquity > state.peakEquity ? newEquity : null,
+        consecutiveWins: newConsecutive,
+        bestStreak: newBest,
       );
+    } else {
+      // Even without position changes, track peak equity from price moves.
+      final currentEquity = state.equity;
+      if (currentEquity > state.peakEquity) {
+        state = state.copyWith(peakEquity: currentEquity);
+      }
     }
   }
 
@@ -489,6 +613,7 @@ class TradingNotifier extends Notifier<TradingState> {
   void closePosition(String positionId) {
     final now = DateTime.now();
     double balanceReturn = 0;
+    double? closedPnl;
 
     final updatedPositions = state.positions.map((p) {
       if (p.id == positionId && p.isOpen) {
@@ -497,14 +622,29 @@ class TradingNotifier extends Notifier<TradingState> {
         p.exitPrice = currentPrice;
         p.closedAt = now;
         p.closeReason = 'manual';
-        balanceReturn = p.size + p.pnl(currentPrice);
+        closedPnl = p.pnl(currentPrice);
+        balanceReturn = p.size + closedPnl!;
       }
       return p;
     }).toList();
 
+    // Track consecutive wins/losses.
+    int newConsecutive = state.consecutiveWins;
+    int newBest = state.bestStreak;
+    if (closedPnl != null) {
+      if (closedPnl! >= 0) {
+        newConsecutive++;
+        if (newConsecutive > newBest) newBest = newConsecutive;
+      } else {
+        newConsecutive = 0;
+      }
+    }
+
     state = state.copyWith(
       positions: updatedPositions,
       balance: state.balance + balanceReturn,
+      consecutiveWins: newConsecutive,
+      bestStreak: newBest,
     );
 
     // Report to server.
@@ -581,6 +721,9 @@ class TradingNotifier extends Notifier<TradingState> {
     }
   }
 
+  Timer? _resultPollTimer;
+  int _pollAttempt = 0;
+
   void endMatch({
     String? winner,
     bool? isTie,
@@ -593,6 +736,7 @@ class TradingNotifier extends Notifier<TradingState> {
     // cleaned up in build()'s onDispose.
     _priceFeed.stop();
 
+    // ── Close all open positions at current market price ──
     final now = DateTime.now();
     double balanceReturn = 0;
     final updatedPositions = state.positions.map((p) {
@@ -609,6 +753,16 @@ class TradingNotifier extends Notifier<TradingState> {
 
     final myFinalBalance = state.balance + balanceReturn;
 
+    // ── Compute match statistics ──
+    final stats = MatchStats.compute(
+      positions: updatedPositions,
+      initialBalance: state.initialBalance,
+      finalBalance: myFinalBalance,
+      peakEquity: state.peakEquity > myFinalBalance
+          ? state.peakEquity
+          : myFinalBalance,
+    );
+
     // Preserve any existing server-authoritative result when called without
     // explicit winner/tie info (e.g. the client-side timer fires after a WS
     // match_end already delivered the result).
@@ -624,7 +778,69 @@ class TradingNotifier extends Notifier<TradingState> {
       matchWinner: resolvedWinner,
       matchIsTie: resolvedIsTie,
       matchIsForfeit: resolvedIsForfeit,
+      matchStats: stats,
+      matchPhase: MatchPhase.ended,
     );
+
+    // If we still don't have a winner/tie result (client timer fired before
+    // backend settled), poll the backend with exponential backoff.
+    // Also re-join the match room so WS broadcasts can still reach us.
+    if (resolvedWinner == null && !resolvedIsTie) {
+      if (state.matchId != null) {
+        _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
+      }
+      _startResultPolling();
+    } else {
+      _resultPollTimer?.cancel();
+    }
+  }
+
+  void _startResultPolling() {
+    _resultPollTimer?.cancel();
+    _pollAttempt = 0;
+    if (state.matchId == null) return;
+    final matchId = state.matchId!;
+
+    _pollResult(matchId);
+  }
+
+  Future<void> _pollResult(String matchId) async {
+    if (state.matchWinner != null || state.matchIsTie) {
+      _resultPollTimer?.cancel();
+      return;
+    }
+
+    // Exponential backoff: 2s, 2s, 4s, 4s, 8s, 8s... capped at 10s.
+    // Total ~3 minutes before giving up (30 attempts).
+    if (_pollAttempt >= 30) {
+      _resultPollTimer?.cancel();
+      return;
+    }
+
+    try {
+      final result = await _api.get('/match/$matchId');
+      final status = result['status'] as String?;
+      if (status == 'completed' ||
+          status == 'tied' ||
+          status == 'forfeited') {
+        _resultPollTimer?.cancel();
+        final w = result['winner'] as String?;
+        state = state.copyWith(
+          matchWinner: w,
+          matchIsTie: status == 'tied',
+          matchIsForfeit: status == 'forfeited',
+        );
+        return;
+      }
+    } catch (_) {
+      // Will retry on next attempt.
+    }
+
+    _pollAttempt++;
+    final delaySec = (_pollAttempt < 4) ? 2 : (_pollAttempt < 10 ? 4 : 10);
+    _resultPollTimer = Timer(Duration(seconds: delaySec), () {
+      _pollResult(matchId);
+    });
   }
 }
 

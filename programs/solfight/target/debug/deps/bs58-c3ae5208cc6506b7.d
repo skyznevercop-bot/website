@@ -1,0 +1,10 @@
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/bs58-c3ae5208cc6506b7.d: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/lib.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/alphabet.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/decode.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/encode.rs
+
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/libbs58-c3ae5208cc6506b7.rlib: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/lib.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/alphabet.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/decode.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/encode.rs
+
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/libbs58-c3ae5208cc6506b7.rmeta: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/lib.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/alphabet.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/decode.rs /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/encode.rs
+
+/Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/lib.rs:
+/Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/alphabet.rs:
+/Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/decode.rs:
+/Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bs58-0.4.0/src/encode.rs:

@@ -421,6 +421,28 @@ async function handleMessage(
           balance,
         }));
       }
+
+      // If the match is already settled (completed/tied/forfeited), re-send
+      // the result so the client shows the winner overlay even after a WS
+      // reconnect or page refresh that missed the original match_end broadcast.
+      if (snapMatch) {
+        const settled = ["completed", "tied", "forfeited"];
+        if (settled.includes(snapMatch.status)) {
+          ws.send(JSON.stringify({
+            type: "match_end",
+            matchId,
+            winner: snapMatch.winner || null,
+            p1Roi: snapMatch.player1Roi != null
+              ? Math.round(snapMatch.player1Roi * 10000) / 100
+              : 0,
+            p2Roi: snapMatch.player2Roi != null
+              ? Math.round(snapMatch.player2Roi * 10000) / 100
+              : 0,
+            isTie: snapMatch.status === "tied",
+            isForfeit: snapMatch.status === "forfeited",
+          }));
+        }
+      }
       break;
     }
 

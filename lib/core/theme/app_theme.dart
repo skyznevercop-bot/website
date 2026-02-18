@@ -13,7 +13,7 @@ class AppTheme {
   static const Color solanaGreen = Color(0xFF14F195);
   static const Color solanaGreenDark = Color(0xFF0ECB7C);
 
-  // ── Neutral Colors (TradingView dark palette) ────────────────────────────
+  // ── Neutral Colors (dark palette) ────────────────────────────────────────
   static const Color background = Color(0xFF131722);
   static const Color surface = Color(0xFF1E222D);
   static const Color surfaceAlt = Color(0xFF262B3D);

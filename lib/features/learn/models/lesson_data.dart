@@ -177,7 +177,7 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'The Price Chart',
             body:
-                'The center of the Arena is a real-time TradingView chart showing the selected asset\'s price. You can switch between BTC, ETH, and SOL using the asset tabs above the chart. The chart updates every second with live market data. Use it to identify trends, support/resistance levels, and entry points.',
+                'The center of the Arena is a real-time candlestick chart showing the selected asset\'s price. You can switch between BTC, ETH, and SOL using the asset tabs above the chart. The chart updates every second with live market data. Use it to identify trends, support/resistance levels, and entry points.',
           ),
           LessonSection(
             heading: 'The Order Panel',

@@ -1,9 +1,189 @@
-/// Tradeable asset definition with symbol info and chart mapping.
+/// Match phase system — drives UI intensity and announcements.
+enum MatchPhase {
+  intro,        // 3-2-1 countdown (first 5 seconds)
+  openingBell,  // First 20% of match
+  midGame,      // 20-70% of match
+  finalSprint,  // 70-90% — amber urgency
+  lastStand,    // Final 10% — red, maximum intensity
+  ended,        // Match over
+}
+
+/// Post-match statistics computed when the game ends.
+class MatchStats {
+  final int totalTrades;
+  final int winningTrades;
+  final int losingTrades;
+  final double winRate;
+  final double bestTradePnl;
+  final double worstTradePnl;
+  final String? bestTradeAsset;
+  final String? worstTradeAsset;
+  final double totalVolume; // Sum of notional values
+  final double peakEquity;
+  final double maxDrawdown; // Percentage from peak
+  final double finalEquity;
+  final double roi;
+  final Map<String, int> assetBreakdown; // Symbol → trade count
+  final double avgLeverage;
+  final int longsCount;
+  final int shortsCount;
+  final Duration? longestHold;
+  final Duration? avgHoldTime;
+
+  // v2 additions
+  final int leadChanges;
+  final double biggestSwing;     // Largest single-trade PnL (absolute)
+  final String? mvpAsset;        // Most traded asset
+  final int hotStreak;           // Longest consecutive winning trades
+
+  const MatchStats({
+    this.totalTrades = 0,
+    this.winningTrades = 0,
+    this.losingTrades = 0,
+    this.winRate = 0,
+    this.bestTradePnl = 0,
+    this.worstTradePnl = 0,
+    this.bestTradeAsset,
+    this.worstTradeAsset,
+    this.totalVolume = 0,
+    this.peakEquity = 0,
+    this.maxDrawdown = 0,
+    this.finalEquity = 0,
+    this.roi = 0,
+    this.assetBreakdown = const {},
+    this.avgLeverage = 0,
+    this.longsCount = 0,
+    this.shortsCount = 0,
+    this.longestHold,
+    this.avgHoldTime,
+    this.leadChanges = 0,
+    this.biggestSwing = 0,
+    this.mvpAsset,
+    this.hotStreak = 0,
+  });
+
+  /// Compute stats from a list of closed positions and match data.
+  factory MatchStats.compute({
+    required List<Position> positions,
+    required double initialBalance,
+    required double finalBalance,
+    required double peakEquity,
+  }) {
+    final closed = positions.where((p) => !p.isOpen).toList();
+    if (closed.isEmpty) {
+      return MatchStats(
+        finalEquity: finalBalance,
+        peakEquity: peakEquity,
+        roi: initialBalance > 0
+            ? (finalBalance - initialBalance) / initialBalance * 100
+            : 0,
+      );
+    }
+
+    final winning = <Position>[];
+    final losing = <Position>[];
+    double bestPnl = double.negativeInfinity;
+    double worstPnl = double.infinity;
+    String? bestAsset;
+    String? worstAsset;
+    double totalVol = 0;
+    double totalLev = 0;
+    int longs = 0;
+    int shorts = 0;
+    final assets = <String, int>{};
+    Duration? longest;
+    Duration totalHold = Duration.zero;
+    double biggestSwing = 0;
+    int currentStreak = 0;
+    int bestStreak = 0;
+
+    for (final p in closed) {
+      final pnl = p.pnl(p.exitPrice ?? p.entryPrice);
+      if (pnl >= 0) {
+        winning.add(p);
+        currentStreak++;
+        if (currentStreak > bestStreak) bestStreak = currentStreak;
+      } else {
+        losing.add(p);
+        currentStreak = 0;
+      }
+      if (pnl.abs() > biggestSwing) biggestSwing = pnl.abs();
+      if (pnl > bestPnl) {
+        bestPnl = pnl;
+        bestAsset = p.assetSymbol;
+      }
+      if (pnl < worstPnl) {
+        worstPnl = pnl;
+        worstAsset = p.assetSymbol;
+      }
+      totalVol += p.notional;
+      totalLev += p.leverage;
+      if (p.isLong) {
+        longs++;
+      } else {
+        shorts++;
+      }
+      assets[p.assetSymbol] = (assets[p.assetSymbol] ?? 0) + 1;
+
+      if (p.closedAt != null) {
+        final hold = p.closedAt!.difference(p.openedAt);
+        totalHold += hold;
+        if (longest == null || hold > longest) longest = hold;
+      }
+    }
+
+    // MVP asset = most traded
+    String? mvpAsset;
+    if (assets.isNotEmpty) {
+      mvpAsset = assets.entries.reduce((a, b) => a.value >= b.value ? a : b).key;
+    }
+
+    final roi = initialBalance > 0
+        ? (finalBalance - initialBalance) / initialBalance * 100
+        : 0.0;
+    final drawdownPct = peakEquity > 0
+        ? ((peakEquity - finalBalance).clamp(0, double.infinity) /
+            peakEquity *
+            100)
+        : 0.0;
+
+    return MatchStats(
+      totalTrades: closed.length,
+      winningTrades: winning.length,
+      losingTrades: losing.length,
+      winRate:
+          closed.isNotEmpty ? (winning.length / closed.length * 100) : 0,
+      bestTradePnl: bestPnl == double.negativeInfinity ? 0 : bestPnl,
+      worstTradePnl: worstPnl == double.infinity ? 0 : worstPnl,
+      bestTradeAsset: bestAsset,
+      worstTradeAsset: worstAsset,
+      totalVolume: totalVol,
+      peakEquity: peakEquity,
+      maxDrawdown: drawdownPct,
+      finalEquity: finalBalance,
+      roi: roi,
+      assetBreakdown: assets,
+      avgLeverage: closed.isNotEmpty ? totalLev / closed.length : 0,
+      longsCount: longs,
+      shortsCount: shorts,
+      longestHold: longest,
+      avgHoldTime:
+          closed.isNotEmpty
+              ? Duration(
+                  milliseconds: totalHold.inMilliseconds ~/ closed.length)
+              : null,
+      biggestSwing: biggestSwing,
+      mvpAsset: mvpAsset,
+      hotStreak: bestStreak,
+    );
+  }
+}
+
+/// Tradeable asset definition with symbol info for chart and price feeds.
 class TradingAsset {
   final String symbol;
   final String name;
-  final String tvSymbol; // TradingView chart symbol
-  final String binanceSymbol; // Binance API symbol
+  final String binanceSymbol; // Binance API / chart symbol (e.g. 'BTCUSDT')
   final String coingeckoId; // CoinGecko API id
   final double basePrice; // Fallback price before live feed connects
   final double maxLeverage;
@@ -11,7 +191,6 @@ class TradingAsset {
   const TradingAsset({
     required this.symbol,
     required this.name,
-    required this.tvSymbol,
     required this.binanceSymbol,
     required this.coingeckoId,
     required this.basePrice,
@@ -22,7 +201,6 @@ class TradingAsset {
     TradingAsset(
       symbol: 'BTC',
       name: 'Bitcoin',
-      tvSymbol: 'BINANCE:BTCUSDT',
       binanceSymbol: 'BTCUSDT',
       coingeckoId: 'bitcoin',
       basePrice: 66000,
@@ -31,7 +209,6 @@ class TradingAsset {
     TradingAsset(
       symbol: 'ETH',
       name: 'Ethereum',
-      tvSymbol: 'BINANCE:ETHUSDT',
       binanceSymbol: 'ETHUSDT',
       coingeckoId: 'ethereum',
       basePrice: 2000,
@@ -40,7 +217,6 @@ class TradingAsset {
     TradingAsset(
       symbol: 'SOL',
       name: 'Solana',
-      tvSymbol: 'BINANCE:SOLUSDT',
       binanceSymbol: 'SOLUSDT',
       coingeckoId: 'solana',
       basePrice: 80,

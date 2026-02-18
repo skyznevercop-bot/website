@@ -1,0 +1,11 @@
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/libsecp256k1-e4c25c43ccde7d16.d: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsecp256k1-0.6.0/src/lib.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const_gen.rs
+
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/liblibsecp256k1-e4c25c43ccde7d16.rlib: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsecp256k1-0.6.0/src/lib.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const_gen.rs
+
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/deps/liblibsecp256k1-e4c25c43ccde7d16.rmeta: /Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsecp256k1-0.6.0/src/lib.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const.rs /Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const_gen.rs
+
+/Users/antoninalarcon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/libsecp256k1-0.6.0/src/lib.rs:
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const.rs:
+/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out/const_gen.rs:
+
+# env-dep:OUT_DIR=/Users/antoninalarcon/Desktop/Coding/Trading_website/trading_website/programs/solfight/target/debug/build/libsecp256k1-79b9b8dff9f00c69/out

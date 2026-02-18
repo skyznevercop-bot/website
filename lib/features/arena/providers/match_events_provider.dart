@@ -1,0 +1,213 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../models/match_event.dart';
+import '../models/trading_models.dart';
+import '../utils/arena_helpers.dart';
+import 'trading_provider.dart';
+
+// =============================================================================
+// Match Events Provider — auto-generates live events from trading state changes
+// =============================================================================
+
+class MatchEventsState {
+  final List<MatchEvent> events;
+  final MatchEvent? latestEvent;
+
+  const MatchEventsState({
+    this.events = const [],
+    this.latestEvent,
+  });
+
+  MatchEventsState copyWith({
+    List<MatchEvent>? events,
+    MatchEvent? latestEvent,
+  }) {
+    return MatchEventsState(
+      events: events ?? this.events,
+      latestEvent: latestEvent ?? this.latestEvent,
+    );
+  }
+}
+
+class MatchEventsNotifier extends Notifier<MatchEventsState> {
+  int _eventCounter = 0;
+
+  // Cached previous-frame values for diff detection.
+  MatchPhase? _prevPhase;
+  int _prevLeadChangeCount = 0;
+  int _prevConsecutiveWins = 0;
+  int _prevClosedCount = 0;
+  int _prevOpponentPositionCount = 0;
+  double _prevEquity = TradingState.demoBalance;
+  bool _wasMatchActive = false;
+
+  @override
+  MatchEventsState build() {
+    // Listen to trading state changes and generate events.
+    ref.listen(tradingProvider, (prev, next) {
+      _onTradingStateChanged(prev, next);
+    });
+    return const MatchEventsState();
+  }
+
+  void _onTradingStateChanged(TradingState? prev, TradingState next) {
+    // Don't generate events when match isn't active.
+    if (!next.matchActive && !_wasMatchActive) return;
+
+    // Match just started — reset tracking state.
+    if (next.matchActive && !_wasMatchActive) {
+      _reset();
+      _wasMatchActive = true;
+      return;
+    }
+
+    // Match just ended.
+    if (!next.matchActive && _wasMatchActive) {
+      _wasMatchActive = false;
+      _addEvent(
+        EventType.phaseChange,
+        'Match over!',
+      );
+      return;
+    }
+
+    // ── Phase change ──
+    if (_prevPhase != null && next.matchPhase != _prevPhase) {
+      _addEvent(
+        EventType.phaseChange,
+        '${phaseLabel(next.matchPhase)} begins!',
+      );
+    }
+    _prevPhase = next.matchPhase;
+
+    // ── Lead change ──
+    if (next.leadChangeCount > _prevLeadChangeCount) {
+      final amLeading = next.wasLeading;
+      _addEvent(
+        EventType.leadChange,
+        amLeading ? 'You took the lead!' : 'Opponent took the lead!',
+      );
+    }
+    _prevLeadChangeCount = next.leadChangeCount;
+
+    // ── Win streak ──
+    if (next.consecutiveWins > _prevConsecutiveWins &&
+        next.consecutiveWins >= 3) {
+      _addEvent(
+        EventType.streak,
+        '${next.consecutiveWins}-trade win streak!',
+      );
+    }
+    _prevConsecutiveWins = next.consecutiveWins;
+
+    // ── Trade result (position closed) ──
+    final closedCount = next.closedPositions.length;
+    if (closedCount > _prevClosedCount) {
+      final newlyClosed =
+          next.closedPositions.take(closedCount - _prevClosedCount);
+      for (final p in newlyClosed) {
+        final pnl = p.pnl(p.exitPrice ?? p.entryPrice);
+        final sign = pnl >= 0 ? '+' : '';
+        final reason = p.closeReason == 'liquidation'
+            ? 'LIQUIDATED'
+            : p.closeReason == 'sl'
+                ? 'SL hit'
+                : p.closeReason == 'tp'
+                    ? 'TP hit'
+                    : 'Closed';
+        _addEvent(
+          p.closeReason == 'liquidation'
+              ? EventType.liquidation
+              : EventType.tradeResult,
+          '$reason ${p.isLong ? "LONG" : "SHORT"} ${p.assetSymbol}: $sign\$${pnl.toStringAsFixed(2)}',
+        );
+      }
+    }
+    _prevClosedCount = closedCount;
+
+    // ── Opponent activity ──
+    if (next.opponentPositionCount != _prevOpponentPositionCount) {
+      if (next.opponentPositionCount > _prevOpponentPositionCount) {
+        _addEvent(
+          EventType.opponentTrade,
+          'Opponent opened a new position',
+        );
+      } else if (next.opponentPositionCount < _prevOpponentPositionCount) {
+        _addEvent(
+          EventType.opponentTrade,
+          'Opponent closed a position',
+        );
+      }
+    }
+    _prevOpponentPositionCount = next.opponentPositionCount;
+
+    // ── ROI milestones (every 5%) ──
+    final roi = next.initialBalance > 0
+        ? (next.equity - next.initialBalance) / next.initialBalance * 100
+        : 0.0;
+    final prevRoi = next.initialBalance > 0
+        ? (_prevEquity - next.initialBalance) / next.initialBalance * 100
+        : 0.0;
+    // Check if we crossed a 5% boundary.
+    final currentBucket = (roi / 5).floor();
+    final prevBucket = (prevRoi / 5).floor();
+    if (currentBucket != prevBucket && currentBucket != 0) {
+      final milestone = currentBucket * 5;
+      if (milestone > 0) {
+        _addEvent(
+          EventType.milestone,
+          'You\'re up ${milestone.abs()}%!',
+        );
+      } else {
+        _addEvent(
+          EventType.milestone,
+          'You\'re down ${milestone.abs()}%',
+        );
+      }
+    }
+    _prevEquity = next.equity;
+  }
+
+  void _addEvent(EventType type, String message) {
+    _eventCounter++;
+    final event = MatchEvent(
+      id: 'evt_$_eventCounter',
+      type: type,
+      message: message,
+      timestamp: DateTime.now(),
+      icon: eventIcon(type),
+      color: eventColor(type),
+    );
+
+    // Keep rolling list of last 50 events.
+    final updated = [...state.events, event];
+    if (updated.length > 50) {
+      updated.removeRange(0, updated.length - 50);
+    }
+
+    state = MatchEventsState(
+      events: updated,
+      latestEvent: event,
+    );
+  }
+
+  void _reset() {
+    _eventCounter = 0;
+    _prevPhase = null;
+    _prevLeadChangeCount = 0;
+    _prevConsecutiveWins = 0;
+    _prevClosedCount = 0;
+    _prevOpponentPositionCount = 0;
+    _prevEquity = TradingState.demoBalance;
+    state = const MatchEventsState();
+  }
+
+  /// Clear the latest event (after toast is dismissed).
+  void dismissLatest() {
+    state = state.copyWith(latestEvent: state.latestEvent);
+  }
+}
+
+final matchEventsProvider =
+    NotifierProvider<MatchEventsNotifier, MatchEventsState>(
+        MatchEventsNotifier.new);

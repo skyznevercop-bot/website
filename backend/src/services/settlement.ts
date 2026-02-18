@@ -57,9 +57,9 @@ export function startSettlementLoop(): void {
     } catch (err) {
       console.error("[Settlement] Stuck-deposit recovery error:", err);
     }
-  }, 30_000);
+  }, 5_000);
 
-  console.log("[Settlement] Started — checking every 5s (recovery every 30s)");
+  console.log("[Settlement] Started — checking every 5s (recovery every 5s)");
 }
 
 /**

@@ -117,13 +117,15 @@ router.get("/active/:address", async (req, res) => {
 
   const m = foundData as Record<string, unknown>;
 
-  // Auto-cancel if the match is stale (settlement failed / timed out).
+  // If the match looks stale (settlement failed / timed out), return null
+  // so the client doesn't get stuck on a broken match. Don't modify the
+  // match status here — the settlement retry loop and deposit timeout loop
+  // handle cleanup properly (including on-chain refunds).
   if (isStaleMatch(m)) {
     console.log(
-      `[Match] Auto-cancelling stale match ${foundId} (status=${m.status}, ` +
-        `endTime=${m.endTime}, depositDeadline=${m.depositDeadline})`
+      `[Match] Stale match ${foundId} (status=${m.status}, ` +
+        `endTime=${m.endTime}, depositDeadline=${m.depositDeadline}) — returning null, letting background loops handle cleanup`
     );
-    await updateMatch(foundId, { status: "cancelled", escrowState: "refunded" });
     res.json({ match: null });
     return;
   }

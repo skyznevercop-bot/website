@@ -163,23 +163,11 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    // Poll every 2s. Once WS is confirmed working, slow down to every 10s
-    // as a safety net.
-    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
-      if (_wsConnected) {
-        // WS is working — slow down polling to just a keep-alive check.
-        _pollTimer?.cancel();
-        _pollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-          if (!_wsConnected) {
-            // WS dropped — speed polling back up.
-            _startPolling();
-          } else {
-            _fetchCoinGecko();
-          }
-        });
-      } else {
-        _fetchCoinGecko();
-      }
+    // Poll every 3s always. When WS is working this serves as a safety net;
+    // when WS is down this keeps prices flowing. Previous 10s slow-down
+    // caused prices to appear frozen when WS silently dropped.
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _fetchCoinGecko();
     });
   }
 

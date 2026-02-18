@@ -119,8 +119,8 @@ function connectPythStream(): void {
 function scheduleReconnect(): void {
   if (reconnectTimer) return; // already scheduled
 
-  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s max.
-  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+  // Exponential backoff: 1s, 2s, 4s, 5s max (capped low to keep prices fresh).
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 5_000);
   reconnectAttempts++;
 
   console.log(
@@ -228,6 +228,31 @@ export function startPriceOracle(): void {
       ...latestPrices,
     });
   }, 1000);
+
+  // Staleness watchdog: if SSE appears connected but prices are stale
+  // (no updates for 10s), force fallback polling. This catches silent
+  // SSE failures where the connection stays open but data stops flowing.
+  setInterval(() => {
+    const age = Date.now() - latestPrices.timestamp;
+    if (age > 10_000) {
+      if (pythConnected) {
+        console.warn(
+          `[PriceOracle] Prices stale (${(age / 1000).toFixed(1)}s) despite SSE "connected" — forcing reconnect + fallback`
+        );
+        // Force close and reconnect the SSE stream.
+        pythConnected = false;
+        if (pythSource) {
+          pythSource.close();
+          pythSource = null;
+        }
+        scheduleReconnect();
+      } else if (!fallbackInterval) {
+        // SSE is down and fallback somehow isn't running — start it.
+        console.warn("[PriceOracle] Prices stale and no fallback running — starting fallback");
+        startFallbackPolling();
+      }
+    }
+  }, 5_000);
 
   console.log("[PriceOracle] Started — Pyth Hermes SSE (primary), CoinGecko/Binance (fallback), broadcasting every 1s");
 }
