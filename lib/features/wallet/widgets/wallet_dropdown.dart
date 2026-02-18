@@ -128,9 +128,9 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             value: 'portfolio',
           ),
           _buildMenuItem(
-            icon: Icons.bar_chart_rounded,
-            label: 'My Stats',
-            value: 'stats',
+            icon: Icons.school_rounded,
+            label: 'Learn',
+            value: 'learn',
           ),
           PopupMenuItem<String>(
             value: 'referrals',
@@ -305,8 +305,8 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
       case 'portfolio':
         context.go(AppConstants.portfolioRoute);
         break;
-      case 'stats':
-        context.go(AppConstants.portfolioRoute);
+      case 'learn':
+        context.go(AppConstants.learnRoute);
         break;
     }
   }
