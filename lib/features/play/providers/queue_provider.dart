@@ -20,6 +20,10 @@ class QueueState {
   /// The duration index the user queued for.
   final int? queuedDurationIndex;
 
+  /// Duration label and bet amount for the active queue entry (used by leaveQueue).
+  final String? queuedDurationLabel;
+  final double? queuedBet;
+
   /// Seconds spent waiting in queue.
   final int waitSeconds;
 
@@ -44,6 +48,8 @@ class QueueState {
     this.waitTimes = const ['--', '--', '--', '--', '--'],
     this.isInQueue = false,
     this.queuedDurationIndex,
+    this.queuedDurationLabel,
+    this.queuedBet,
     this.waitSeconds = 0,
     this.matchFound,
     this.totalPlayers = 0,
@@ -67,6 +73,8 @@ class QueueState {
     List<String>? waitTimes,
     bool? isInQueue,
     int? queuedDurationIndex,
+    String? queuedDurationLabel,
+    double? queuedBet,
     bool clearQueuedDuration = false,
     int? waitSeconds,
     MatchFoundData? matchFound,
@@ -86,6 +94,12 @@ class QueueState {
       queuedDurationIndex: clearQueuedDuration
           ? null
           : (queuedDurationIndex ?? this.queuedDurationIndex),
+      queuedDurationLabel: clearQueuedDuration
+          ? null
+          : (queuedDurationLabel ?? this.queuedDurationLabel),
+      queuedBet: clearQueuedDuration
+          ? null
+          : (queuedBet ?? this.queuedBet),
       waitSeconds: waitSeconds ?? this.waitSeconds,
       matchFound:
           clearMatchFound ? null : (matchFound ?? this.matchFound),
@@ -273,6 +287,8 @@ class QueueNotifier extends Notifier<QueueState> {
     state = state.copyWith(
       isInQueue: true,
       queuedDurationIndex: durationIndex,
+      queuedDurationLabel: durationLabel,
+      queuedBet: betAmount,
       waitSeconds: 0,
       clearMatchFound: true,
     );
@@ -295,7 +311,11 @@ class QueueNotifier extends Notifier<QueueState> {
     if (!state.isInQueue) return;
 
     _waitTimer?.cancel();
-    _api.wsSend({'type': 'leave_queue'});
+    _api.wsSend({
+      'type': 'leave_queue',
+      'duration': state.queuedDurationLabel,
+      'bet': state.queuedBet,
+    });
 
     state = state.copyWith(
       isInQueue: false,

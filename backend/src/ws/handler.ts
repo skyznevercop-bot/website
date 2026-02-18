@@ -12,7 +12,7 @@ import {
   isUserConnected,
   getActiveMatchIds,
 } from "./rooms";
-import { joinQueue, leaveQueue } from "../services/matchmaking";
+import { joinQueue, leaveQueue, removeFromAllQueues } from "../services/matchmaking";
 import { getLatestPrices } from "../services/price-oracle";
 import {
   createPosition,
@@ -78,6 +78,9 @@ export function setupWebSocket(server: HttpServer): void {
     ws.on("close", () => {
       if (ws.userAddress) {
         unregisterUserConnection(ws.userAddress, ws);
+
+        // Always clean up any queue entries for this player on disconnect.
+        removeFromAllQueues(ws.userAddress).catch(() => {});
 
         if (ws.currentMatchId) {
           leaveMatchRoom(ws.currentMatchId, ws);
@@ -267,10 +270,15 @@ async function handleMessage(
 
     case "leave_queue": {
       const { duration, bet } = data as {
-        duration: string;
-        bet: number;
+        duration?: string;
+        bet?: number;
       };
-      await leaveQueue(ws.userAddress, duration, bet);
+      if (duration && bet != null) {
+        await leaveQueue(ws.userAddress, duration, bet);
+      } else {
+        // Fallback: remove from all queues when duration/bet are missing.
+        await removeFromAllQueues(ws.userAddress);
+      }
       ws.send(JSON.stringify({ type: "queue_left" }));
       break;
     }

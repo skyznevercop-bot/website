@@ -31,6 +31,27 @@ export async function leaveQueue(
 }
 
 /**
+ * Remove a player from ALL queues they may be in.
+ * Used on WS disconnect and as a safe fallback for leave_queue.
+ */
+export async function removeFromAllQueues(address: string): Promise<void> {
+  const snap = await queuesRef.once("value");
+  if (!snap.exists()) return;
+
+  const removals: Promise<void>[] = [];
+  snap.forEach((queueChild) => {
+    if (queueChild.hasChild(address)) {
+      removals.push(queuesRef.child(queueChild.key!).child(address).remove());
+    }
+  });
+
+  if (removals.length > 0) {
+    await Promise.all(removals);
+    console.log(`[Matchmaking] Removed ${address} from ${removals.length} queue(s)`);
+  }
+}
+
+/**
  * Get queue statistics for all active queues.
  */
 export async function getQueueStats(): Promise<
