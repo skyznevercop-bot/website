@@ -12,6 +12,10 @@ import '../providers/trading_provider.dart';
 
 // ── JS interop ──────────────────────────────────────────────────────────────
 
+@JS('window._createLWChartEl')
+external void _jsCreateEl(
+    String containerId, JSObject containerEl, String binanceSymbol);
+
 @JS('window._createLWChart')
 external void _jsCreate(String containerId, String binanceSymbol);
 
@@ -59,6 +63,10 @@ class _LWChartState extends ConsumerState<LWChart> {
   late final String _viewType;
   bool _ready = false;
 
+  /// Direct reference to the platform view div — passed to JS so it doesn't
+  /// need to search the DOM (fixes CanvasKit/Skwasm shadow-DOM issues).
+  web.HTMLDivElement? _containerDiv;
+
   String _assetSymbol = '';
   final Set<String> _drawnLines = {};
 
@@ -71,11 +79,12 @@ class _LWChartState extends ConsumerState<LWChart> {
 
     // Register the platform view factory — creates a plain div.
     ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
-      return web.HTMLDivElement()
+      _containerDiv = web.HTMLDivElement()
         ..id = _containerId
         ..style.width = '100%'
         ..style.height = '100%'
         ..style.backgroundColor = '#131722';
+      return _containerDiv!;
     });
 
     // After the first frame is drawn, give the browser a moment to lay out
@@ -91,7 +100,13 @@ class _LWChartState extends ConsumerState<LWChart> {
     if (!mounted) return;
     final asset = ref.read(tradingProvider).selectedAsset;
     _assetSymbol = asset.symbol;
-    _jsCreate(_containerId, asset.binanceSymbol);
+
+    // Pass the actual DOM element to JS — avoids shadow-DOM search issues.
+    if (_containerDiv != null) {
+      _jsCreateEl(_containerId, _containerDiv!, asset.binanceSymbol);
+    } else {
+      _jsCreate(_containerId, asset.binanceSymbol);
+    }
     _ready = true;
 
     // After Flutter layout is fully settled, push exact dimensions.

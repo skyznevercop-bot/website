@@ -66,21 +66,15 @@
 
   // ── Find the container element ──────────────────────────────────────────
   // Flutter Web (HTML renderer) puts platform views directly in the DOM.
-  // CanvasKit renderer may wrap them in shadow DOM or iframes.
+  // CanvasKit / Skwasm renderer may wrap them in nested shadow DOMs or iframes.
   function findContainer(id) {
     // 1. Direct DOM lookup (works for HTML renderer).
     var el = document.getElementById(id);
     if (el) return el;
 
-    // 2. Shadow DOM: walk all shadow roots.
-    var allHosts = document.querySelectorAll("*");
-    for (var i = 0; i < allHosts.length; i++) {
-      var sr = allHosts[i].shadowRoot;
-      if (sr) {
-        el = sr.getElementById(id);
-        if (el) return el;
-      }
-    }
+    // 2. Recursive shadow DOM walk (handles nested shadow roots in Flutter 3.22+).
+    el = searchShadowRoots(document.body, id);
+    if (el) return el;
 
     // 3. Iframes (CanvasKit platform views).
     var iframes = document.querySelectorAll("iframe");
@@ -90,6 +84,9 @@
         if (doc) {
           el = doc.getElementById(id);
           if (el) return el;
+          // Also search shadow DOMs inside iframes.
+          el = searchShadowRoots(doc.body, id);
+          if (el) return el;
         }
       } catch (_) {}
     }
@@ -97,7 +94,41 @@
     return null;
   }
 
-  // ── Create chart ────────────────────────────────────────────────────────
+  // Recursively search shadow roots for an element by ID.
+  function searchShadowRoots(root, id) {
+    if (!root) return null;
+    var children = root.querySelectorAll("*");
+    for (var i = 0; i < children.length; i++) {
+      var sr = children[i].shadowRoot;
+      if (sr) {
+        var el = sr.getElementById(id);
+        if (el) return el;
+        // Recurse into nested shadow roots.
+        el = searchShadowRoots(sr, id);
+        if (el) return el;
+      }
+    }
+    return null;
+  }
+
+  // ── Create chart (with direct element reference from Dart) ──────────────
+  // Preferred path: Dart passes the actual HTMLDivElement, bypassing DOM search.
+  window._createLWChartEl = function (containerId, containerEl, binanceSymbol) {
+    window._destroyLWChart(containerId);
+    if (containerEl) {
+      // Wait a tick for the element to get dimensions from CSS layout.
+      setTimeout(function () {
+        if (!charts[containerId]) {
+          createInContainer(containerId, containerEl, binanceSymbol);
+        }
+      }, 50);
+      return;
+    }
+    // Fallback: search the DOM (legacy path).
+    window._createLWChart(containerId, binanceSymbol);
+  };
+
+  // ── Create chart (legacy DOM-search path) ──────────────────────────────
   window._createLWChart = function (containerId, binanceSymbol) {
     // Destroy any previous chart in this container.
     window._destroyLWChart(containerId);
