@@ -4,6 +4,9 @@ import { isUserConnected } from "../ws/rooms";
 import { config } from "../config";
 import { startGameOnChain, getGamePdaAndEscrow } from "../utils/solana";
 
+/** Guard against double-matching: addresses currently being matched. */
+const _matchingPlayers = new Set<string>();
+
 /**
  * Add a player to the FIFO matchmaking queue.
  * Queue key: "queues/{duration}_{bet}/{walletAddress}"
@@ -107,7 +110,22 @@ export function startMatchmakingLoop(): void {
         // Sort by joinedAt (oldest first) for FIFO.
         entries.sort((a, b) => a.joinedAt - b.joinedAt);
 
-        void matchPair(queueKey, entries[0].address, entries[1].address);
+        // Find the first pair where neither player is already being matched.
+        // This prevents double-matching when matchPair runs async across
+        // consecutive loop iterations.
+        for (let i = 0; i < entries.length - 1; i++) {
+          const p1 = entries[i].address;
+          const p2 = entries[i + 1].address;
+          if (_matchingPlayers.has(p1) || _matchingPlayers.has(p2)) continue;
+
+          _matchingPlayers.add(p1);
+          _matchingPlayers.add(p2);
+          void matchPair(queueKey, p1, p2).finally(() => {
+            _matchingPlayers.delete(p1);
+            _matchingPlayers.delete(p2);
+          });
+          break;
+        }
       });
     } catch (err) {
       console.error("[Matchmaking] Error:", err);

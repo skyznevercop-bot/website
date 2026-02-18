@@ -28,6 +28,9 @@ import { getUser } from "../services/firebase";
 const DEMO_BALANCE = config.demoInitialBalance;
 const FORFEIT_GRACE_MS = 30_000; // 30 seconds
 
+/** Guard against double-close: position IDs currently being closed. */
+const _closingPositions = new Set<string>();
+
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
   currentMatchId?: string;
@@ -144,6 +147,8 @@ export function setupWebSocket(server: HttpServer): void {
 
       for (const pos of positions) {
         if (pos.closedAt) continue;
+        // Skip if another code path is already closing this position.
+        if (_closingPositions.has(pos.id)) continue;
 
         const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
 
@@ -169,27 +174,32 @@ export function setupWebSocket(server: HttpServer): void {
 
         if (closeReason === null) continue;
 
-        const priceDiff = pos.isLong
-          ? exitPrice - pos.entryPrice
-          : pos.entryPrice - exitPrice;
-        const pnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+        _closingPositions.add(pos.id);
+        try {
+          const priceDiff = pos.isLong
+            ? exitPrice - pos.entryPrice
+            : pos.entryPrice - exitPrice;
+          const pnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
 
-        await updatePosition(matchId, pos.id, {
-          exitPrice,
-          pnl,
-          closedAt: Date.now(),
-          closeReason,
-        });
+          await updatePosition(matchId, pos.id, {
+            exitPrice,
+            pnl,
+            closedAt: Date.now(),
+            closeReason,
+          });
 
-        broadcastToUser(pos.playerAddress, {
-          type: "position_closed",
-          positionId: pos.id,
-          exitPrice,
-          pnl,
-          closeReason,
-        });
+          broadcastToUser(pos.playerAddress, {
+            type: "position_closed",
+            positionId: pos.id,
+            exitPrice,
+            pnl,
+            closeReason,
+          });
 
-        broadcastOpponentUpdate(matchId, pos.playerAddress).catch(() => {});
+          broadcastOpponentUpdate(matchId, pos.playerAddress).catch(() => {});
+        } finally {
+          _closingPositions.delete(pos.id);
+        }
       }
     }
   }, 1000);
@@ -470,6 +480,29 @@ async function handleMessage(
         return;
       }
 
+      // Idempotency: if the client re-sends with the same positionId (e.g.
+      // network retry), return the existing position instead of overwriting it.
+      if (localPositionId != null) {
+        const existing = await getPositions(matchId, ws.userAddress);
+        const dup = existing.find((p) => p.id === localPositionId);
+        if (dup) {
+          ws.send(
+            JSON.stringify({
+              type: "position_opened",
+              position: {
+                id: dup.id,
+                asset: dup.assetSymbol,
+                isLong: dup.isLong,
+                entryPrice: dup.entryPrice,
+                size: dup.size,
+                leverage: dup.leverage,
+              },
+            })
+          );
+          return;
+        }
+      }
+
       // Server-side balance check: reject if open margin would exceed demo balance.
       const openPositions = await getPositions(matchId, ws.userAddress);
       const usedMargin = openPositions
@@ -483,6 +516,17 @@ async function handleMessage(
       }
 
       const prices = getLatestPrices();
+
+      // Reject if prices are stale (>30s old) — protects against opening
+      // positions on outdated data when both price feeds are down.
+      const PRICE_MAX_AGE_MS = 30_000;
+      if (Date.now() - prices.timestamp > PRICE_MAX_AGE_MS) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" })
+        );
+        return;
+      }
+
       const priceMap: Record<string, number> = {
         BTC: prices.btc,
         ETH: prices.eth,
@@ -588,37 +632,61 @@ async function handleMessage(
         return;
       }
 
-      const prices = getLatestPrices();
-      const priceMap: Record<string, number> = {
-        BTC: prices.btc,
-        ETH: prices.eth,
-        SOL: prices.sol,
-      };
-      const exitPrice =
-        priceMap[position.assetSymbol] || position.entryPrice;
-      const priceDiff = position.isLong
-        ? exitPrice - position.entryPrice
-        : position.entryPrice - exitPrice;
-      const pnl =
-        (priceDiff / position.entryPrice) * position.size * position.leverage;
+      // Prevent double-close race with server-side SL/TP/liquidation check.
+      if (_closingPositions.has(positionId)) {
+        ws.send(
+          JSON.stringify({ type: "error", message: "Position is already being closed" })
+        );
+        return;
+      }
 
-      await updatePosition(matchId, positionId, {
-        exitPrice,
-        pnl,
-        closedAt: Date.now(),
-        closeReason: "manual",
-      });
+      _closingPositions.add(positionId);
+      try {
+        const prices = getLatestPrices();
 
-      ws.send(
-        JSON.stringify({
-          type: "position_closed",
-          positionId,
+        // Reject manual close if prices are stale — prevents closing at
+        // a wildly outdated price when feeds are down.
+        const CLOSE_PRICE_MAX_AGE_MS = 30_000;
+        if (Date.now() - prices.timestamp > CLOSE_PRICE_MAX_AGE_MS) {
+          ws.send(
+            JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" })
+          );
+          return;
+        }
+
+        const priceMap: Record<string, number> = {
+          BTC: prices.btc,
+          ETH: prices.eth,
+          SOL: prices.sol,
+        };
+        const exitPrice =
+          priceMap[position.assetSymbol] || position.entryPrice;
+        const priceDiff = position.isLong
+          ? exitPrice - position.entryPrice
+          : position.entryPrice - exitPrice;
+        const pnl =
+          (priceDiff / position.entryPrice) * position.size * position.leverage;
+
+        await updatePosition(matchId, positionId, {
           exitPrice,
           pnl,
-        })
-      );
+          closedAt: Date.now(),
+          closeReason: "manual",
+        });
 
-      broadcastOpponentUpdate(matchId, ws.userAddress);
+        ws.send(
+          JSON.stringify({
+            type: "position_closed",
+            positionId,
+            exitPrice,
+            pnl,
+          })
+        );
+
+        broadcastOpponentUpdate(matchId, ws.userAddress);
+      } finally {
+        _closingPositions.delete(positionId);
+      }
       break;
     }
 

@@ -12,6 +12,7 @@ import {
   cancelPendingGameOnChain,
   refundEscrowOnChain,
   closeGameOnChain,
+  refundAndCloseOnChain,
 } from "../utils/solana";
 import { broadcastToMatch, broadcastToUser } from "../ws/rooms";
 
@@ -46,6 +47,20 @@ export async function confirmDeposit(
   const isPlayer2 = playerAddress === match.player2;
   if (!isPlayer1 && !isPlayer2) {
     return { success: false, message: "You are not a player in this match", matchNowActive: false };
+  }
+
+  // Idempotency: if this player's deposit is already verified, skip the
+  // full PDA check and just return success. Prevents duplicate processing
+  // when the client retries or the user double-clicks.
+  const alreadyVerified = isPlayer1
+    ? match.player1DepositVerified
+    : match.player2DepositVerified;
+  if (alreadyVerified) {
+    return {
+      success: true,
+      message: "Deposit already verified",
+      matchNowActive: false,
+    };
   }
 
   if (match.depositDeadline && Date.now() > match.depositDeadline) {
@@ -240,27 +255,43 @@ export async function processMatchPayout(
       `[Escrow] Match ${matchId} settled on-chain | Winner ${match.winner} can claim`
     );
   } else if (match.status === "tied") {
-    // Tie: call refund_escrow to return funds to both players immediately.
+    // Tie: refund escrow AND close game in a single transaction to save fees.
     try {
-      const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
+      const sig = await refundAndCloseOnChain(gameId, match.player1, match.player2);
       await updateMatch(matchId, {
         escrowState: "refunded",
-        refundSignatures: { refund: refundSig },
+        gameClosed: true,
+        refundSignatures: { refund: sig },
       });
 
       broadcastToMatch(matchId, {
         type: "escrow_refunded",
         matchId,
-        signature: refundSig,
+        signature: sig,
       });
 
-      console.log(`[Escrow] Tie refund for match ${matchId} | sig: ${refundSig}`);
-
-      // Close the game account to reclaim rent.
-      tryCloseGame(gameId, matchId);
+      console.log(`[Escrow] Tie refund+close for match ${matchId} | sig: ${sig}`);
     } catch (err) {
-      console.error(`[Escrow] Tie refund failed for match ${matchId}:`, err);
-      await updateMatch(matchId, { escrowState: "refund_failed" });
+      // If the batched tx fails, fall back to refund-only so funds aren't stuck.
+      console.warn(`[Escrow] Batched refund+close failed for match ${matchId}, trying refund only:`, err);
+      try {
+        const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
+        await updateMatch(matchId, {
+          escrowState: "refunded",
+          refundSignatures: { refund: refundSig },
+        });
+
+        broadcastToMatch(matchId, {
+          type: "escrow_refunded",
+          matchId,
+          signature: refundSig,
+        });
+
+        console.log(`[Escrow] Tie refund for match ${matchId} (close deferred) | sig: ${refundSig}`);
+      } catch (refundErr) {
+        console.error(`[Escrow] Tie refund failed for match ${matchId}:`, refundErr);
+        await updateMatch(matchId, { escrowState: "refund_failed" });
+      }
     }
   } else if (match.status === "forfeited" && match.winner) {
     // Forfeit: same as win — winner claims from frontend.
@@ -279,19 +310,6 @@ export async function processMatchPayout(
       `[Escrow] Match ${matchId} forfeited on-chain | Winner ${match.winner} can claim`
     );
   }
-}
-
-/**
- * Try to close a game account to reclaim rent. Fire-and-forget.
- */
-function tryCloseGame(gameId: number, matchId: string): void {
-  closeGameOnChain(gameId)
-    .then(() => {
-      console.log(`[Escrow] Game ${gameId} closed (match ${matchId}) — rent reclaimed`);
-    })
-    .catch((err) => {
-      console.warn(`[Escrow] Failed to close game ${gameId} (match ${matchId}):`, err);
-    });
 }
 
 /**
@@ -318,57 +336,91 @@ export async function checkDepositTimeouts(): Promise<void> {
       continue;
     }
 
-    if (!game || game.status !== GameStatus.Pending) continue;
+    if (!game) continue;
+
+    // If the game is Active on-chain (both deposited), the stuck-deposit
+    // recovery in settlement.ts handles activation — skip here.
+    if (game.status === GameStatus.Active) continue;
+
+    // If the game is neither Pending nor Cancelled, skip (unexpected state).
+    if (game.status !== GameStatus.Pending && game.status !== GameStatus.Cancelled) continue;
 
     const p1Deposited = game.playerOneDeposited;
     const p2Deposited = game.playerTwoDeposited;
+    const alreadyCancelled = game.status !== GameStatus.Pending;
 
     try {
-      // Cancel the game on-chain first.
-      await cancelPendingGameOnChain(gameId);
+      // Cancel the game on-chain first (skip if already cancelled from a
+      // previous attempt where the Firebase update failed).
+      if (!alreadyCancelled) {
+        await cancelPendingGameOnChain(gameId);
+      }
 
       if (!p1Deposited && !p2Deposited) {
-        // Neither deposited — just cancel.
-        await updateMatch(id, { status: "cancelled", escrowState: "refunded" });
+        // Neither deposited — just cancel + close in one step.
+        try {
+          await closeGameOnChain(gameId);
+          await updateMatch(id, { status: "cancelled", escrowState: "refunded", gameClosed: true });
+        } catch {
+          // Close failed — mark cancelled, retry loop will close it later.
+          await updateMatch(id, { status: "cancelled", escrowState: "refunded" });
+        }
         const cancelMsg = { type: "match_cancelled", matchId: id, reason: "no_deposits" };
         broadcastToUser(match.player1, cancelMsg);
         broadcastToUser(match.player2, cancelMsg);
         console.log(`[Escrow] Match ${id} cancelled: no deposits`);
-
-        // Close the game account to reclaim rent.
-        tryCloseGame(gameId, id);
       } else {
-        // One deposited — refund on-chain.
+        // One deposited — refund + close in a single transaction.
         const depositor = p1Deposited ? match.player1 : match.player2;
         const noShow = p1Deposited ? match.player2 : match.player1;
 
-        const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
-        await updateMatch(id, {
-          status: "cancelled",
-          escrowState: "partial_refund",
-          refundSignatures: { [depositor]: refundSig },
-        });
+        try {
+          const sig = await refundAndCloseOnChain(gameId, match.player1, match.player2);
+          await updateMatch(id, {
+            status: "cancelled",
+            escrowState: "partial_refund",
+            gameClosed: true,
+            refundSignatures: { [depositor]: sig },
+          });
 
-        broadcastToUser(depositor, {
-          type: "match_cancelled",
-          matchId: id,
-          reason: "opponent_no_deposit",
-          refundSignature: refundSig,
-          refundAmount: match.betAmount,
-        });
+          broadcastToUser(depositor, {
+            type: "match_cancelled",
+            matchId: id,
+            reason: "opponent_no_deposit",
+            refundSignature: sig,
+            refundAmount: match.betAmount,
+          });
+
+          console.log(
+            `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Refunded+closed | sig: ${sig}`
+          );
+        } catch {
+          // Batched failed — fall back to refund only.
+          const refundSig = await refundEscrowOnChain(gameId, match.player1, match.player2);
+          await updateMatch(id, {
+            status: "cancelled",
+            escrowState: "partial_refund",
+            refundSignatures: { [depositor]: refundSig },
+          });
+
+          broadcastToUser(depositor, {
+            type: "match_cancelled",
+            matchId: id,
+            reason: "opponent_no_deposit",
+            refundSignature: refundSig,
+            refundAmount: match.betAmount,
+          });
+
+          console.log(
+            `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Refunded (close deferred) | sig: ${refundSig}`
+          );
+        }
 
         broadcastToUser(noShow, {
           type: "match_cancelled",
           matchId: id,
           reason: "deposit_timeout",
         });
-
-        console.log(
-          `[Escrow] Match ${id} cancelled: ${noShow} didn't deposit | Refunded ${depositor} on-chain | sig: ${refundSig}`
-        );
-
-        // Close the game account to reclaim rent.
-        tryCloseGame(gameId, id);
       }
     } catch (err) {
       console.error(`[Escrow] Timeout handling failed for match ${id}:`, err);

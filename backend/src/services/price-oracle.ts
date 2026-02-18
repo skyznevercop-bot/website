@@ -1,3 +1,4 @@
+import { EventSource } from "eventsource";
 import { broadcastToMatch } from "../ws/rooms";
 
 export interface PriceData {
@@ -18,10 +19,125 @@ export function getLatestPrices(): PriceData {
   return { ...latestPrices };
 }
 
-/**
- * Fetch prices from CoinGecko (server-side — no CORS issues).
- * Pyth integration can be added as primary source.
- */
+// ── Pyth Hermes SSE Streaming (primary) ────────────────────────────────────
+
+/** Pyth price feed IDs for BTC/USD, ETH/USD, SOL/USD. */
+const PYTH_FEED_IDS: Record<string, keyof Omit<PriceData, "timestamp">> = {
+  "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43": "btc",
+  "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace": "eth",
+  "0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d": "sol",
+};
+
+const HERMES_BASE = "https://hermes.pyth.network";
+
+let pythSource: EventSource | null = null;
+let pythConnected = false;
+let reconnectAttempts = 0;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+/** Suppress repeated connect logs after the first. */
+let loggedFirstUpdate = false;
+
+function buildStreamUrl(): string {
+  const ids = Object.keys(PYTH_FEED_IDS);
+  const params = ids.map((id) => `ids[]=${id}`).join("&");
+  return `${HERMES_BASE}/v2/updates/price/stream?${params}&parsed=true&allow_unordered=true&benchmarks_only=false`;
+}
+
+function connectPythStream(): void {
+  // Clean up previous connection.
+  if (pythSource) {
+    pythSource.close();
+    pythSource = null;
+  }
+
+  const url = buildStreamUrl();
+  const es = new EventSource(url);
+  pythSource = es;
+
+  es.onopen = () => {
+    pythConnected = true;
+    reconnectAttempts = 0;
+    console.log("[PriceOracle] Pyth Hermes SSE connected");
+
+    // Stop fallback polling — Pyth is live.
+    stopFallbackPolling();
+  };
+
+  es.onmessage = (event: MessageEvent) => {
+    try {
+      const data = JSON.parse(event.data as string);
+      const parsed = data.parsed as Array<{
+        id: string;
+        price: { price: string; expo: number; publish_time: number };
+        ema_price: { price: string; expo: number };
+      }> | undefined;
+
+      if (!parsed || parsed.length === 0) return;
+
+      let updated = false;
+      for (const feed of parsed) {
+        // Feed IDs come without the 0x prefix in responses.
+        const feedId = feed.id.startsWith("0x") ? feed.id : `0x${feed.id}`;
+        const key = PYTH_FEED_IDS[feedId];
+        if (!key) continue;
+
+        const rawPrice = parseInt(feed.price.price, 10);
+        const expo = feed.price.expo;
+        const price = rawPrice * Math.pow(10, expo);
+
+        if (price > 0) {
+          latestPrices[key] = price;
+          updated = true;
+        }
+      }
+
+      if (updated) {
+        latestPrices.timestamp = Date.now();
+
+        if (!loggedFirstUpdate) {
+          loggedFirstUpdate = true;
+          console.log(
+            `[PriceOracle] First Pyth prices: BTC=$${latestPrices.btc.toFixed(2)} ` +
+            `ETH=$${latestPrices.eth.toFixed(2)} SOL=$${latestPrices.sol.toFixed(2)}`
+          );
+        }
+      }
+    } catch (err) {
+      console.error("[PriceOracle] Pyth SSE parse error:", err);
+    }
+  };
+
+  es.onerror = () => {
+    pythConnected = false;
+    es.close();
+    pythSource = null;
+    scheduleReconnect();
+  };
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer) return; // already scheduled
+
+  // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s max.
+  const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30_000);
+  reconnectAttempts++;
+
+  console.log(
+    `[PriceOracle] Pyth SSE disconnected — reconnecting in ${delay / 1000}s (attempt #${reconnectAttempts})`
+  );
+
+  // Start fallback polling while SSE is down.
+  startFallbackPolling();
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectPythStream();
+  }, delay);
+}
+
+// ── CoinGecko / Binance Fallback ───────────────────────────────────────────
+
 async function fetchPricesFromCoinGecko(): Promise<PriceData | null> {
   try {
     const response = await fetch(
@@ -40,9 +156,6 @@ async function fetchPricesFromCoinGecko(): Promise<PriceData | null> {
   }
 }
 
-/**
- * Fetch prices from Binance as fallback.
- */
 async function fetchPricesFromBinance(): Promise<PriceData | null> {
   try {
     const symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT"];
@@ -70,21 +183,43 @@ async function fetchPricesFromBinance(): Promise<PriceData | null> {
   }
 }
 
+function startFallbackPolling(): void {
+  if (fallbackInterval) return; // already polling
+
+  console.log("[PriceOracle] Fallback polling active (CoinGecko/Binance every 3s)");
+
+  // Fetch immediately, then every 3s.
+  doFallbackFetch();
+  fallbackInterval = setInterval(doFallbackFetch, 3000);
+}
+
+function stopFallbackPolling(): void {
+  if (!fallbackInterval) return;
+  clearInterval(fallbackInterval);
+  fallbackInterval = null;
+  console.log("[PriceOracle] Fallback polling stopped — Pyth SSE is live");
+}
+
+async function doFallbackFetch(): Promise<void> {
+  const prices =
+    (await fetchPricesFromCoinGecko()) ??
+    (await fetchPricesFromBinance());
+  if (prices) {
+    latestPrices = prices;
+  }
+}
+
+// ── Public API ─────────────────────────────────────────────────────────────
+
 /**
- * Start the price oracle loop — fetches every 3 seconds,
- * broadcasts every 1 second to active match rooms.
+ * Start the price oracle:
+ *   1. Connect Pyth Hermes SSE for real-time streaming (primary).
+ *   2. CoinGecko/Binance polling as fallback when SSE is down.
+ *   3. Broadcast to all active match rooms every 1 second.
  */
 export function startPriceOracle(): void {
-  // Fetch prices every 3 seconds.
-  setInterval(async () => {
-    const prices =
-      (await fetchPricesFromCoinGecko()) ??
-      (await fetchPricesFromBinance());
-
-    if (prices) {
-      latestPrices = prices;
-    }
-  }, 3000);
+  // Primary: Pyth Hermes SSE streaming.
+  connectPythStream();
 
   // Broadcast to all active match rooms every 1 second.
   setInterval(() => {
@@ -94,7 +229,7 @@ export function startPriceOracle(): void {
     });
   }, 1000);
 
-  console.log("[PriceOracle] Started — fetching every 3s, broadcasting every 1s");
+  console.log("[PriceOracle] Started — Pyth Hermes SSE (primary), CoinGecko/Binance (fallback), broadcasting every 1s");
 }
 
 /**

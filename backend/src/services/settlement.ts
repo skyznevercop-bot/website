@@ -13,7 +13,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch } from "../ws/rooms";
 import { processMatchPayout, activateMatch } from "./escrow";
-import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists, closeGameOnChain } from "../utils/solana";
+import { endGameOnChain, fetchGameAccount, GameStatus, refundEscrowOnChain, playerProfileExists, closeGameOnChain, refundAndCloseOnChain } from "../utils/solana";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -350,6 +350,19 @@ export function startOnChainRetryLoop(): void {
             if (!p1HasProfile || !p2HasProfile) {
               const missingCount = (match.profileMissingCount || 0) + 1;
               await updateMatch(id, { profileMissingCount: missingCount });
+
+              // Cap at ~30 minutes (60 checks × 30s interval). After that,
+              // stop retrying to avoid burning resources indefinitely.
+              if (missingCount >= 60) {
+                if (missingCount === 60) {
+                  console.error(
+                    `[Settlement] Match ${id}: profile-missing timeout after 60 checks (~30min)` +
+                    ` — halting on-chain settlement retries. Manual intervention required.`
+                  );
+                }
+                continue;
+              }
+
               // Log on first miss and every 10th miss to avoid log spam.
               if (missingCount === 1 || missingCount % 10 === 0) {
                 const missing = [
@@ -362,7 +375,6 @@ export function startOnChainRetryLoop(): void {
                   ` Players must create on-chain profiles to unblock settlement.`
                 );
               }
-              // Keep cycling — if players create their profiles we'll catch it.
               continue;
             }
 
@@ -435,25 +447,48 @@ async function retryFailedRefunds(): Promise<void> {
       console.log(`[Settlement] Retrying refund for match ${id} (${status})...`);
 
       try {
-        const refundSig = await refundEscrowOnChain(
+        // Try batched refund+close to save a transaction.
+        const sig = await refundAndCloseOnChain(
           match.onChainGameId,
           match.player1,
           match.player2
         );
         await updateMatch(id, {
           escrowState: "refunded",
-          refundSignatures: { refund: refundSig },
+          gameClosed: true,
+          refundSignatures: { refund: sig },
         });
 
         broadcastToMatch(id, {
           type: "escrow_refunded",
           matchId: id,
-          signature: refundSig,
+          signature: sig,
         });
 
-        console.log(`[Settlement] Refund retry succeeded for match ${id} | sig: ${refundSig}`);
-      } catch (err) {
-        console.error(`[Settlement] Refund retry still failing for match ${id}:`, err);
+        console.log(`[Settlement] Refund+close retry succeeded for match ${id} | sig: ${sig}`);
+      } catch {
+        // Fall back to refund-only if batched fails.
+        try {
+          const refundSig = await refundEscrowOnChain(
+            match.onChainGameId,
+            match.player1,
+            match.player2
+          );
+          await updateMatch(id, {
+            escrowState: "refunded",
+            refundSignatures: { refund: refundSig },
+          });
+
+          broadcastToMatch(id, {
+            type: "escrow_refunded",
+            matchId: id,
+            signature: refundSig,
+          });
+
+          console.log(`[Settlement] Refund retry succeeded for match ${id} (close deferred) | sig: ${refundSig}`);
+        } catch (err) {
+          console.error(`[Settlement] Refund retry still failing for match ${id}:`, err);
+        }
       }
     }
   }

@@ -1485,6 +1485,11 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
   /// Poll the backend every 2s for the match result.
   /// This is far more reliable than depending solely on WebSocket messages.
   void _startResultPolling() {
+    // Ensure we're still in the WS match room so match_end can arrive.
+    final matchId = widget.state.matchId;
+    if (matchId != null) {
+      ApiClient.instance.wsSend({'type': 'join_match', 'matchId': matchId});
+    }
     // Try immediately after a short delay (give WS a chance first).
     Future.delayed(const Duration(seconds: 2), () => _fetchResult());
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {

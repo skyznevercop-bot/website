@@ -234,7 +234,9 @@ class TradingNotifier extends Notifier<TradingState> {
       case 'ws_connected':
         // WebSocket reconnected (network blip, not a full page refresh).
         // Re-join the match room so the backend sends prices + match_snapshot.
-        if (state.matchActive && state.matchId != null) {
+        // Also re-join after the local timer fires (matchActive == false) so
+        // we still receive match_end / claim_available events.
+        if (state.matchId != null) {
           _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
         }
         break;
@@ -607,11 +609,12 @@ class TradingNotifier extends Notifier<TradingState> {
 
     final myFinalBalance = state.balance + balanceReturn;
 
-    // Never determine winner locally — the server is authoritative.
-    // The overlay's WebSocket listener or API poll will set matchWinner/matchIsTie.
-    final String? resolvedWinner = winner;
-    final bool resolvedIsTie = isTie ?? false;
-    final bool resolvedIsForfeit = isForfeit ?? false;
+    // Preserve any existing server-authoritative result when called without
+    // explicit winner/tie info (e.g. the client-side timer fires after a WS
+    // match_end already delivered the result).
+    final String? resolvedWinner = winner ?? state.matchWinner;
+    final bool resolvedIsTie = isTie ?? state.matchIsTie;
+    final bool resolvedIsForfeit = isForfeit ?? state.matchIsForfeit;
 
     state = state.copyWith(
       positions: updatedPositions,
