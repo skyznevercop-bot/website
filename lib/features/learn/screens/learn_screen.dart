@@ -757,32 +757,32 @@ class _QuickTips extends StatelessWidget {
     (
       icon: Icons.lightbulb_rounded,
       color: AppTheme.warning,
-      text: 'Check the trend on a higher timeframe before entering a match.',
+      text: 'Assess the trend across BTC, ETH, and SOL during Opening Bell before committing.',
     ),
     (
       icon: Icons.speed_rounded,
       color: AppTheme.info,
-      text: 'In 15m matches, scalp with 10-20x leverage and tight stop losses.',
+      text: 'Use the Quick Trade Grid for instant entries — SOL 50x for scalps, BTC 10x for safer plays.',
     ),
     (
       icon: Icons.shield_rounded,
       color: AppTheme.error,
-      text: 'Never risk more than 25% of your match balance on a single trade.',
+      text: 'Never risk more than 25% of your \$1M demo balance on a single trade.',
     ),
     (
       icon: Icons.psychology_rounded,
       color: AppTheme.solanaPurple,
-      text: 'When ahead, play defense. When behind, find one high-conviction setup.',
+      text: 'Watch the Battle Bar — when ahead in Final Sprint, close risky positions and play defense.',
     ),
     (
       icon: Icons.trending_up_rounded,
       color: AppTheme.success,
-      text: 'SOL moves the most in percentage terms — use it for aggressive plays.',
+      text: 'SOL is the most volatile asset — use it for comebacks during Last Stand.',
     ),
     (
       icon: Icons.timer_rounded,
       color: AppTheme.solanaGreen,
-      text: 'Close positions manually before match end if you\'re protecting a lead.',
+      text: 'Close positions manually before match end to lock in your exact P&L.',
     ),
   ];
 

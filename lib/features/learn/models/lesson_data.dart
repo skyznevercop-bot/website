@@ -81,125 +81,131 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Trading as a Competition',
             body:
-                'SolFight is a player-vs-player trading arena built on Solana. Instead of trading against the market alone, you compete head-to-head against another trader. Both players start with the same virtual balance and trade the same assets (BTC, ETH, SOL) over a fixed timeframe. The player with the higher portfolio ROI at the end wins the match and takes the prize pool.',
+                'SolFight is a player-vs-player trading arena built on Solana. Instead of trading against the market alone, you compete head-to-head against another trader. Both players start with the same \$1,000,000 demo balance and trade the same assets — BTC, ETH, and SOL — over a fixed timeframe. The player with the higher portfolio ROI at the end wins the match and takes the prize pool.',
           ),
           LessonSection(
             heading: 'How Matches Work',
             body:
-                'You choose a timeframe (15 minutes to 24 hours) and a bet amount in USDC. The system matches you with an opponent who chose the same timeframe and bet. Once matched, you both enter the Arena — a real-time trading interface with live price feeds, charting tools, and a chat window. You can go long or short on BTC, ETH, or SOL with up to 50x leverage.',
+                'You choose a match duration (15 minutes, 1 hour, 4 hours, 12 hours, or 24 hours) and a bet amount in USDC (\$5, \$10, \$50, \$100, or \$1,000). The system pairs you with an opponent who selected the same duration and bet. Once matched, you both enter the Arena — a real-time trading interface with live price feeds from Pyth, a candlestick chart, Quick Trade buttons, and an in-match chat window. You can go long or short on BTC, ETH, or SOL with up to 100x leverage.',
           ),
           LessonSection(
             heading: 'The Prize Pool',
             body:
-                'Both players deposit their bet amount into a Solana escrow smart contract before the match starts. The winner receives 90% of the total pool (their own bet + 90% of the opponent\'s bet). The remaining 10% goes to the SolFight protocol. For example, in a \$25 match, the winner walks away with \$47.50.',
+                'Both players\' bet amounts are frozen from their platform balance when the match starts. The winner receives 90% of the total pot (both bets combined). The remaining 10% goes to the SolFight protocol as a rake. For example, in a \$100 match: the pot is \$200, the winner receives \$180, netting \$80 profit. The loser forfeits their \$100 bet. In a tie (both players finish within 0.001% ROI of each other), both players get their full bet returned.',
           ),
           LessonSection(
             heading: 'Why SolFight?',
             body:
-                'Traditional trading can feel isolating. SolFight adds a competitive layer — you\'re not just trying to make money, you\'re trying to outperform a real human opponent under the same market conditions. It\'s like chess, but with candlestick charts. Your skill, strategy, and risk management directly determine the outcome.',
+                'Traditional trading can feel isolating. SolFight adds a competitive layer — you\'re not just trying to make money, you\'re trying to outperform a real human opponent under the same market conditions. It\'s like chess, but with candlestick charts. Your skill, strategy, and risk management directly determine the outcome. Every match is recorded on-chain for full transparency.',
           ),
         ],
         keyTakeaways: [
           'SolFight is PvP trading — you compete against another human, not the house.',
-          'Both players trade the same assets with the same starting balance.',
-          'Winner takes 90% of the combined prize pool.',
-          'Matches range from 15 minutes to 24 hours.',
+          'Both players trade BTC, ETH, and SOL with the same \$1M demo balance.',
+          'Winner takes 90% of the combined pot; 10% goes to the protocol.',
+          'Matches range from 15 minutes to 24 hours with bets from \$5 to \$1,000.',
         ],
       ),
       Lesson(
         id: 'gs_2',
         title: 'Connecting Your Wallet',
-        subtitle: 'Set up Phantom or Solflare in 2 minutes',
-        readMinutes: 2,
+        subtitle: 'Set up your wallet and fund your account',
+        readMinutes: 3,
         sections: [
           LessonSection(
             heading: 'Supported Wallets',
             body:
-                'SolFight supports Phantom, Solflare, Backpack, and any Solana-compatible browser wallet. Phantom is the most popular choice and works as a Chrome extension or mobile app. You\'ll need your wallet to sign transactions, deposit USDC into escrow, and receive winnings.',
+                'SolFight supports four Solana wallets: Phantom, Solflare, Backpack, and Jupiter. Phantom is the most popular and works as a Chrome extension or mobile app. Any of these wallets can connect to SolFight — choose the one you\'re most comfortable with.',
           ),
           LessonSection(
             heading: 'Connecting Step-by-Step',
             body:
-                '1. Click the "Connect Wallet" button in the top bar.\n2. Choose your wallet provider from the modal.\n3. Approve the connection request in your wallet extension.\n4. Your wallet address and USDC balance will appear in the top bar.\n\nThat\'s it — you\'re now authenticated and ready to queue for matches.',
+                '1. Click the "Connect Wallet" button in the top bar.\n2. Choose your wallet provider from the modal (Phantom, Solflare, Backpack, or Jupiter).\n3. Approve the connection request in your wallet extension.\n4. Your wallet address will appear in the top bar, and you\'ll be prompted to set a Gamer Tag (your display name on the platform).\n\nThat\'s it — you\'re now authenticated and ready to deposit funds.',
           ),
           LessonSection(
-            heading: 'Getting Devnet USDC',
+            heading: 'Platform Balance vs On-Chain Balance',
             body:
-                'SolFight currently runs on Solana Devnet, so you need Devnet USDC (not real money). You can get free Devnet SOL from a faucet like faucet.solana.com, then swap it for Devnet USDC using the platform\'s built-in deposit flow. This lets you practice and compete without risking real funds.',
+                'SolFight uses a platform balance system for instant gameplay. Your on-chain USDC stays in your wallet until you deposit it to the platform. Once deposited, your platform balance is used for match bets and winnings settle instantly — no waiting for blockchain confirmations during matches. You can withdraw your platform balance back to your wallet at any time.',
+          ),
+          LessonSection(
+            heading: 'Depositing USDC',
+            body:
+                'To deposit, go to your Portfolio page and click "Deposit." Send USDC to the platform vault address, then confirm the transaction. The backend verifies your deposit on-chain and credits your platform balance instantly. SolFight currently runs on Solana Devnet, so you\'ll use Devnet USDC (free test tokens) — no real money at risk.',
           ),
         ],
         keyTakeaways: [
-          'Phantom is the recommended wallet for beginners.',
-          'Connecting takes ~30 seconds — just approve the popup.',
-          'We\'re on Devnet, so all funds are free test tokens.',
+          'Four wallets supported: Phantom, Solflare, Backpack, and Jupiter.',
+          'Your platform balance is separate from your on-chain wallet balance.',
+          'Deposit USDC to your platform balance before joining matches.',
+          'We\'re on Devnet — all funds are free test tokens, no real money.',
         ],
       ),
       Lesson(
         id: 'gs_3',
         title: 'Your First Match',
         subtitle: 'Join a queue and enter the Arena',
-        readMinutes: 3,
+        readMinutes: 4,
         sections: [
           LessonSection(
-            heading: 'Choosing a Timeframe',
+            heading: 'The War Room (Play Screen)',
             body:
-                'On the Play screen, you\'ll see five timeframe options: 15 minutes, 1 hour, 4 hours, 12 hours, and 24 hours. Shorter timeframes are more action-packed and require quick decisions. Longer timeframes let you ride trends and think more strategically. Start with 15-minute or 1-hour matches to learn the ropes.',
+                'The Play screen is your launch pad. At the top, you\'ll see live platform stats — total players, matches played, and total volume. Below that are two selectors: match duration and bet amount. Duration options are 15 minutes, 1 hour, 4 hours, 12 hours, and 24 hours. Bet amounts are \$5, \$10, \$50, \$100, and \$1,000. Each duration chip shows a live badge with how many players are currently in that queue.',
+          ),
+          LessonSection(
+            heading: 'Choosing Your Match',
+            body:
+                'Start with 15-minute or 1-hour matches to learn the ropes — they\'re fast, action-packed, and the most popular queues. Pick a bet amount you\'re comfortable with (start small at \$5 or \$10). Below the selectors, a match info card shows the total pot size, number of players in queue, and estimated wait time for your selection.',
           ),
           LessonSection(
             heading: 'Joining the Queue',
             body:
-                'Select your timeframe, choose a bet amount, and click "Join Queue." The matchmaking system will pair you with an opponent who selected the same timeframe and bet. Queue times depend on how many players are active — popular timeframes like 15m and 1h usually match within seconds.',
+                'Click "Join Queue" to enter matchmaking. Your bet amount is immediately frozen from your platform balance (you need sufficient available balance). The system matches you with the next player who selected the same duration and bet — matchmaking is instant FIFO (first-in, first-out). While waiting, you\'ll see a timer tracking your queue time.',
           ),
           LessonSection(
-            heading: 'The Opponent Found Screen',
+            heading: 'The Face-Off & Arena Entry',
             body:
-                'When an opponent is found, you\'ll see their gamer tag and a countdown to deposit your bet into the Solana escrow. Approve the transaction in your wallet — once both players deposit, the match begins immediately and you\'re taken to the Arena.',
-          ),
-          LessonSection(
-            heading: 'Arena Basics',
-            body:
-                'The Arena shows a live price chart, your portfolio (balance + open positions), and your opponent\'s ROI. Use the order panel on the right to open long or short positions. You can set leverage, stop-loss, and take-profit levels. At the end of the timeframe, all positions auto-close and the player with the higher ROI wins.',
+                'When an opponent is found, a face-off screen appears showing your gamer tag vs your opponent\'s. After a brief countdown, you\'re taken directly into the Arena. No manual deposit needed — your bet was already frozen when you joined the queue. The match timer starts immediately, and you\'ll see a dramatic 3-2-1 FIGHT countdown overlay before trading begins.',
           ),
         ],
         keyTakeaways: [
-          'Start with 15m or 1h matches to learn quickly.',
-          'Queue times are shortest during peak hours.',
-          'Both players must deposit before the match starts.',
-          'The Arena auto-closes all positions when time runs out.',
+          'Start with 15m or 1h matches at \$5-\$10 bets to learn.',
+          'Your bet is frozen from your platform balance when you join the queue.',
+          'Matchmaking is instant — you\'re paired with the next player in the same queue.',
+          'The match starts immediately after the face-off countdown.',
         ],
       ),
       Lesson(
         id: 'gs_4',
         title: 'Understanding the Arena UI',
-        subtitle: 'Navigate charts, orders, and positions',
-        readMinutes: 4,
+        subtitle: 'Navigate charts, orders, positions, and the HUD',
+        readMinutes: 5,
         sections: [
           LessonSection(
             heading: 'The Price Chart',
             body:
-                'The center of the Arena is a real-time candlestick chart showing the selected asset\'s price. You can switch between BTC, ETH, and SOL using the asset tabs above the chart. The chart updates every second with live market data. Use it to identify trends, support/resistance levels, and entry points.',
+                'The center of the Arena is a real-time candlestick chart powered by LightWeight Charts. You can switch between BTC, ETH, and SOL using the asset bar above the chart. Price data updates every second with live market feeds. The chart displays 1-minute candles by default — use it to spot trends, support/resistance levels, and entry points.',
           ),
           LessonSection(
             heading: 'The Order Panel',
             body:
-                'On the right side (or in the "Trade" tab on mobile), you\'ll find the order panel. Here you can:\n- Choose Long (bet price goes up) or Short (bet price goes down)\n- Set your position size using percentage buttons (25%, 50%, 75%, MAX)\n- Choose leverage (1x to 50x)\n- Set optional Stop Loss and Take Profit prices\n- Click "Open Long" or "Open Short" to execute',
+                'On the right side (desktop) or "Trade" tab (mobile), you\'ll find the order panel with two modes:\n\n• Quick Trade Grid: Six preset buttons for instant trades — Long/Short BTC at 10x, Long/Short ETH at 25x, Long/Short SOL at 50x. Perfect for fast entries.\n\n• Manual Order: Choose Long or Short, set your position size with percentage buttons (25%, 50%, 75%, MAX), pick leverage from 1x to 100x (with presets at 1x, 5x, 10x, 25x, 50x, 100x), and optionally set Stop Loss and Take Profit prices. A risk indicator shows Low, Medium, High, or Extreme based on your leverage. The order info card displays your entry price, liquidation price, liquidation distance %, and notional size before you confirm.',
           ),
           LessonSection(
-            heading: 'Open Positions & Closed Trades',
+            heading: 'Positions & Trade History',
             body:
-                'Below the chart (desktop) or in the "Positions" tab (mobile), you can see your open positions with live P&L, and your closed trades history. Each position shows the asset, direction, entry price, size, leverage, and current unrealized P&L. You can manually close any position at any time by clicking the X button.',
+                'The open positions panel shows all your active trades with live P&L updates — asset, direction (Long/Short), entry price, current price, size, leverage, and unrealized profit/loss in both dollars and percentage. Close any position instantly with the close button. Your closed trades history shows exit prices, realized P&L, and the close reason (manual, stop loss, take profit, liquidation, or match end).',
           ),
           LessonSection(
-            heading: 'The Toolbar',
+            heading: 'The Gaming HUD',
             body:
-                'The Arena toolbar at the top shows:\n- Match timer (countdown to match end)\n- Your opponent\'s gamer tag and ROI\n- Your portfolio balance and equity\n- A chat button (desktop) to message your opponent\n\nKeep an eye on the timer — when it hits zero, all positions auto-close and the winner is decided.',
+                'The Arena HUD keeps you informed at all times:\n\n• Match Timer: Countdown to match end at the top.\n• Player Cards: Your name, balance, and equity vs your opponent\'s gamer tag, ROI, and open position count.\n• Battle Bar: A tug-of-war indicator showing who\'s winning in real-time.\n• Events Feed: Live notifications for lead changes, big moves, opponent trades, liquidations, streaks, and phase transitions.\n• Match Phases: The match progresses through Opening Bell, Mid Game, Final Sprint (amber urgency), and Last Stand (red, final 10%). Phase banners slide down to announce transitions.\n• In-Match Chat: Message your opponent during the match.',
           ),
         ],
         keyTakeaways: [
-          'Switch between BTC, ETH, SOL using the asset tabs.',
-          'Use percentage buttons for quick position sizing.',
-          'Monitor both your P&L and your opponent\'s ROI in the toolbar.',
-          'Positions auto-close when the match timer reaches zero.',
+          'Switch between BTC, ETH, SOL using the asset bar above the chart.',
+          'Quick Trade Grid gives instant entries; Manual Order gives full control up to 100x leverage.',
+          'Monitor the Battle Bar and opponent stats to adapt your strategy.',
+          'Watch for match phase transitions — Final Sprint and Last Stand signal urgency.',
         ],
       ),
     ],
@@ -223,7 +229,7 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'What is a Candlestick?',
             body:
-                'A candlestick represents price movement over a specific time period. Each candle has four data points: Open (where the price started), Close (where it ended), High (the highest price reached), and Low (the lowest). A green candle means the price closed higher than it opened (bullish). A red candle means it closed lower (bearish).',
+                'A candlestick represents price movement over a specific time period. Each candle has four data points: Open (where the price started), Close (where it ended), High (the highest price reached), and Low (the lowest). A green candle means the price closed higher than it opened (bullish). A red candle means it closed lower (bearish). In the SolFight Arena, the chart displays 1-minute candles by default.',
           ),
           LessonSection(
             heading: 'The Body and Wicks',
@@ -238,14 +244,14 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Using Candles in SolFight',
             body:
-                'In a 15-minute match, each 1-minute candle matters. Look for reversal patterns near support or resistance to time your entries. In longer matches (4h+), zoom out and use hourly candles to identify the broader trend before zooming in for precise entries.',
+                'In a 15-minute match, each 1-minute candle matters — look for reversal patterns near support or resistance to time your entries. In longer matches (4h+), observe the broader trend developing over many candles before committing to a direction. The SolFight chart updates live every second, so you\'ll see candles forming in real-time.',
           ),
         ],
         keyTakeaways: [
           'Green = bullish (price went up), Red = bearish (price went down).',
           'Long wicks show price rejection — important reversal signals.',
           'Learn to spot Doji, Hammer, and Engulfing patterns.',
-          'Match your candle timeframe to your match duration.',
+          'Match your analysis timeframe to your match duration.',
         ],
       ),
       Lesson(
@@ -267,19 +273,19 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Breakouts and Breakdowns',
             body:
-                'When price finally breaks through support or resistance with strong volume, it\'s called a breakout (up through resistance) or breakdown (down through support). These are powerful trading signals. The old resistance often becomes new support after a breakout, and vice versa. This "flip" is one of the most reliable patterns in trading.',
+                'When price finally breaks through support or resistance with conviction, it\'s called a breakout (up through resistance) or breakdown (down through support). These are powerful trading signals. The old resistance often becomes new support after a breakout, and vice versa. This "flip" is one of the most reliable patterns in trading.',
           ),
           LessonSection(
             heading: 'Applying to SolFight Matches',
             body:
-                'Before opening any position, identify the nearest support and resistance levels on the chart. Go long near support (with a stop loss just below). Go short near resistance (with a stop loss just above). If you see a breakout, ride the momentum. These levels give you an edge by defining clear entry, exit, and risk points.',
+                'Before opening any position, identify the nearest support and resistance levels on the chart. Go long near support (with a stop loss just below). Go short near resistance (with a stop loss just above). If you see a breakout, ride the momentum. These levels give you clear entry, exit, and risk points — use them with the TP/SL fields in the order panel.',
           ),
         ],
         keyTakeaways: [
           'Support = floor (price bounces up), Resistance = ceiling (price bounces down).',
           'The more times a level holds, the stronger it is.',
           'Broken resistance becomes new support (and vice versa).',
-          'Always trade with nearby support/resistance in mind.',
+          'Set your Stop Loss and Take Profit around support/resistance levels.',
         ],
       ),
       Lesson(
@@ -306,14 +312,14 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Trend Trading in SolFight',
             body:
-                'Before a match starts, quickly assess the current trend on the 1-hour and 15-minute charts. If there\'s a clear uptrend, lean towards long positions. If it\'s a downtrend, lean short. If it\'s ranging, play the bounces between support and resistance. Having a directional bias from the start gives you a plan instead of random trades.',
+                'When a match starts, quickly assess the trend across all three assets. If BTC is in a clear uptrend, lean towards long positions. If it\'s a downtrend, lean short. If it\'s ranging, play the bounces between support and resistance. Having a directional bias from the start gives you a plan instead of random trades. Use the Quick Trade Grid for fast entries once you\'ve identified the trend.',
           ),
         ],
         keyTakeaways: [
           'Uptrend: higher highs + higher lows. Favor longs.',
           'Downtrend: lower highs + lower lows. Favor shorts.',
           'Range: play the bounces or wait for breakout.',
-          'Identify the trend BEFORE the match starts.',
+          'Assess the trend across BTC, ETH, and SOL as the match begins.',
         ],
       ),
       Lesson(
@@ -333,16 +339,16 @@ final allLearningPaths = <LearningPath>[
                 'If price is making new highs but volume is decreasing, it\'s a warning sign — the uptrend is losing steam. This is called bearish divergence. Conversely, if price makes new lows on declining volume, sellers might be exhausted, signaling a potential bottom. Always compare price action with volume for the full picture.',
           ),
           LessonSection(
-            heading: 'Momentum Indicators',
+            heading: 'Momentum Concepts',
             body:
-                'RSI (Relative Strength Index) measures how fast price is moving. Above 70 = overbought (may reverse down). Below 30 = oversold (may reverse up). MACD shows momentum direction changes — when the MACD line crosses above the signal line, it\'s bullish. These indicators won\'t be on the SolFight chart by default, but understanding their logic helps you read raw price action.',
+                'RSI (Relative Strength Index) measures how fast price is moving. Above 70 = overbought (may reverse down). Below 30 = oversold (may reverse up). MACD shows momentum direction changes — when the MACD line crosses above the signal line, it\'s bullish. While these indicators aren\'t displayed on the SolFight chart, understanding the concepts behind them helps you read raw price action and candle patterns more effectively.',
           ),
         ],
         keyTakeaways: [
           'High volume confirms price moves; low volume signals caution.',
           'Price + falling volume = weakening trend (divergence).',
           'RSI above 70 = overbought, below 30 = oversold.',
-          'Use momentum concepts even without explicit indicators.',
+          'Apply momentum concepts by reading candle size and frequency.',
         ],
       ),
     ],
@@ -366,24 +372,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Going Long',
             body:
-                'When you go long, you profit when the price goes up. You buy at a lower price and aim to sell higher. In SolFight, opening a long position is a bet that the asset\'s price will increase during the match. Example: BTC is at \$60,000, you go long with 10x leverage and \$100 size. If BTC rises 1%, your position gains \$100 (10x your collateral\'s 1% move = 10% return).',
+                'When you go long, you profit when the price goes up. In SolFight, opening a long position is a bet that the asset\'s price will increase during the match. Example: BTC is at \$100,000, you go long with 10x leverage and \$10,000 size. If BTC rises 1%, your position gains \$10,000 (10x your collateral\'s 1% move = 10% return on your margin).',
           ),
           LessonSection(
             heading: 'Going Short',
             body:
-                'When you go short, you profit when the price drops. You\'re essentially selling first and buying back later at a lower price. In SolFight, shorting is a bet that the asset will decline. Example: ETH is at \$3,000, you short with 5x leverage and \$200 size. If ETH drops 2%, your position gains \$200 (5x * 2% = 10% return on your collateral).',
+                'When you go short, you profit when the price drops. You\'re essentially selling first and buying back later at a lower price. Example: ETH is at \$2,000, you short with 5x leverage and \$20,000 size. If ETH drops 2%, your position gains \$2,000 (5x * 2% = 10% return on your margin). Shorting lets you profit in bear markets.',
           ),
           LessonSection(
             heading: 'When to Long vs Short',
             body:
-                'Long when: the trend is bullish, price just bounced off support, or you see bullish reversal candles. Short when: the trend is bearish, price just hit resistance, or bearish candles form. In SolFight, being able to profit in both directions is your biggest advantage — you\'re never stuck waiting for the market to go one way.',
+                'Long when: the trend is bullish, price just bounced off support, or you see bullish reversal candles. Short when: the trend is bearish, price just hit resistance, or bearish candles form. In SolFight, being able to profit in both directions is your biggest advantage. Use the Quick Trade Grid for instant long/short entries, or the manual order panel when you want to fine-tune your leverage and size.',
           ),
         ],
         keyTakeaways: [
           'Long = profit when price goes up. Short = profit when price goes down.',
           'Leverage amplifies both gains AND losses.',
           'Always trade in the direction of the trend when possible.',
-          'Being able to short is a massive advantage over buy-and-hold investors.',
+          'Quick Trade Grid gives instant long/short entries at preset leverage levels.',
         ],
       ),
       Lesson(
@@ -400,24 +406,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Scalping Setup',
             body:
-                'Use higher leverage (10-25x) with small position sizes so a quick 0.1-0.3% move gives meaningful profit. Set tight stop losses (cut losers fast) and take profits quickly. Watch the 1-minute candles closely. Enter on bounces at micro-support levels or on small breakouts.',
+                'Use higher leverage (10-50x) with smaller position sizes so a quick 0.1-0.3% move gives meaningful profit. Set tight stop losses (cut losers fast) and take profits quickly. Watch the 1-minute candles closely. Enter on bounces at micro-support levels or on small breakouts. The Quick Trade Grid is perfect for scalping — tap SOL Long 50x or ETH Short 25x for instant entries.',
           ),
           LessonSection(
             heading: 'Scalping in 15m Matches',
             body:
-                'In a 15-minute SolFight match, scalping is the dominant strategy. You don\'t have time for big trends to develop — you need quick wins. Open a position, set a tight TP, close it within 1-2 minutes, then look for the next trade. The player who makes more correct micro-decisions wins.',
+                'In a 15-minute SolFight match, scalping is the dominant strategy. You don\'t have time for big trends to develop — you need quick wins. Open a position, set a tight TP, close it within 1-2 minutes, then look for the next trade. The player who makes more correct micro-decisions wins. Keep an eye on the match phases — during Opening Bell, feel out the market; during Final Sprint, protect your gains.',
           ),
           LessonSection(
             heading: 'Common Mistakes',
             body:
-                'Don\'t overtrade — if you\'re not seeing clear setups, wait. Don\'t use MAX leverage with your full balance — one bad trade wipes you out. Don\'t hold a losing scalp hoping it will recover — close it and find a new entry. Speed is important, but discipline is more important.',
+                'Don\'t overtrade — if you\'re not seeing clear setups, wait. Don\'t use 100x leverage with your full balance — one tiny move against you triggers liquidation (at just ~0.9% adverse movement). Don\'t hold a losing scalp hoping it will recover — close it and find a new entry. Speed is important, but discipline is more important.',
           ),
         ],
         keyTakeaways: [
           'Scalping = many small, fast trades with leverage.',
-          'Best for 15m and 1h matches.',
+          'Best for 15m and 1h matches — use Quick Trade Grid for speed.',
           'Cut losses fast, take profits quickly.',
-          'Discipline > speed. Don\'t overtrade.',
+          'Discipline > speed. Don\'t overtrade or over-leverage.',
         ],
       ),
       Lesson(
@@ -429,53 +435,53 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'What is Swing Trading?',
             body:
-                'Swing trading means holding positions for a longer period to capture larger price moves. In SolFight, this applies to 4h, 12h, and 24h matches. Instead of making 10 small trades, you might make 1-3 well-chosen positions and let them ride. The goal is to identify the dominant trend and position yourself early.',
+                'Swing trading means holding positions for a longer period to capture larger price moves. In SolFight, this applies to 4h, 12h, and 24h matches. Instead of making 10 small trades, you might open 1-3 well-chosen positions and let them ride. The goal is to identify the dominant trend and position yourself early.',
           ),
           LessonSection(
             heading: 'Swing Setup',
             body:
-                'Use moderate leverage (2-10x) with larger position sizes. Identify the trend on the hourly chart, then wait for a pullback to enter. Set wider stop losses (give the trade room to breathe) and wider take profits (capture the full move). Patience is key — don\'t panic-close on small pullbacks.',
+                'Use moderate leverage (2-10x) with larger position sizes. Identify the trend on the chart, then wait for a pullback to enter. Set wider stop losses (give the trade room to breathe) and wider take profits (capture the full move). Patience is key — don\'t panic-close on small pullbacks. The SL/TP fields in the order panel let you automate your exits so you don\'t have to watch constantly.',
           ),
           LessonSection(
             heading: 'Multi-Asset Diversification',
             body:
-                'In longer matches, consider splitting your balance across BTC, ETH, and SOL. If BTC is trending up and SOL is ranging, go long BTC and play SOL\'s range. This reduces your dependency on a single asset and smooths out your P&L.',
+                'In longer matches, consider splitting your balance across BTC, ETH, and SOL. If BTC is trending up and SOL is ranging, go long BTC and play SOL\'s range. This reduces your dependency on a single asset and smooths out your P&L. Check all three assets periodically using the asset bar — the market can shift during a 24h match.',
           ),
         ],
         keyTakeaways: [
           'Swing trading = fewer trades, bigger moves, more patience.',
           'Best for 4h, 12h, and 24h matches.',
-          'Use moderate leverage and wider stops.',
-          'Consider diversifying across multiple assets.',
+          'Use moderate leverage (2-10x) and wider stops.',
+          'Diversify across BTC, ETH, and SOL to reduce single-asset risk.',
         ],
       ),
       Lesson(
         id: 'st_4',
         title: 'Using Leverage Wisely',
         subtitle: 'Amplify without destroying',
-        readMinutes: 3,
+        readMinutes: 4,
         sections: [
           LessonSection(
             heading: 'What Leverage Does',
             body:
-                'Leverage multiplies your position size relative to your collateral. With 10x leverage, a \$100 position controls \$1,000 worth of the asset. A 1% price move becomes a 10% gain or loss on your collateral. SolFight offers 1x to 50x leverage.',
+                'Leverage multiplies your position size relative to your margin. With 10x leverage, a \$10,000 position controls \$100,000 worth of the asset. A 1% price move becomes a 10% gain or loss on your margin. SolFight offers leverage from 1x to 100x, with preset buttons at 1x, 5x, 10x, 25x, 50x, and 100x. A risk indicator shows your current risk level: Low, Medium, High, or Extreme.',
           ),
           LessonSection(
             heading: 'The Liquidation Trap',
             body:
-                'Higher leverage means a smaller price move can liquidate you (lose your entire position). At 50x leverage, a mere 2% adverse move wipes out your position. At 10x, it takes 10%. At 2x, it takes 50%. Many beginners max out leverage and get liquidated on normal market noise. Don\'t be that person.',
+                'In SolFight, liquidation triggers when you lose 90% of your position margin. The higher the leverage, the smaller the price move needed to hit that threshold:\n\n• 100x leverage: ~0.9% adverse move = liquidation\n• 50x leverage: ~1.8% adverse move = liquidation\n• 25x leverage: ~3.6% adverse move = liquidation\n• 10x leverage: ~9% adverse move = liquidation\n• 5x leverage: ~18% adverse move = liquidation\n\nMany beginners max out leverage and get liquidated on normal market noise. The order panel shows your exact liquidation price and distance before you confirm — always check it.',
           ),
           LessonSection(
             heading: 'Recommended Leverage by Match Type',
             body:
-                '15-minute matches: 10-25x (price won\'t move much, you need leverage to generate returns)\n1-hour matches: 5-15x (moderate volatility)\n4+ hour matches: 2-10x (longer time = bigger moves = lower leverage needed)\n\nA useful rule: the longer the match, the lower the leverage. Let time create the returns instead of leverage.',
+                '15-minute matches: 10-50x (price won\'t move much, you need leverage to generate returns)\n1-hour matches: 5-25x (moderate volatility)\n4-hour matches: 3-15x (more time for moves to develop)\n12-24 hour matches: 2-10x (big moves happen naturally, leverage less needed)\n\nA useful rule: the longer the match, the lower the leverage. Let time create the returns instead of leverage. The Quick Trade Grid defaults are tuned for each asset\'s volatility: BTC 10x, ETH 25x, SOL 50x.',
           ),
         ],
         keyTakeaways: [
-          'Leverage amplifies BOTH gains and losses.',
-          'Higher leverage = closer liquidation price.',
+          'Leverage goes from 1x to 100x with risk indicators (Low/Medium/High/Extreme).',
+          'Liquidation triggers at 90% margin loss — check your liquidation price before confirming.',
           'Short matches: higher leverage. Long matches: lower leverage.',
-          'Never go 50x with your full balance — leave room for error.',
+          'Never go 100x with a large position — one bad tick wipes you out.',
         ],
       ),
     ],
@@ -499,24 +505,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'The Golden Rule',
             body:
-                'Never risk more than 20-30% of your match balance on a single trade. If you put 100% into one position and it goes wrong, the match is over. By keeping individual positions small, you can take multiple shots at winning. Even if 2 out of 5 trades fail, the remaining 3 can carry you to victory.',
+                'Every match gives you a \$1,000,000 demo balance. Never risk more than 20-30% of it on a single trade. If you put everything into one position and it goes wrong, your equity tanks and recovery becomes nearly impossible. By keeping individual positions moderate, you can take multiple shots at winning. Even if 2 out of 5 trades fail, the remaining 3 can carry you to victory.',
           ),
           LessonSection(
             heading: 'The 25/50/75/MAX Buttons',
             body:
-                'The Arena has quick buttons: 25%, 50%, 75%, and MAX. For most situations, 25% is the safest starting size. 50% is aggressive but acceptable. 75% and MAX should only be used when you have extremely high conviction — like a clear breakout with volume confirmation. Start small, scale up as you gain confidence.',
+                'The Arena order panel has quick buttons: 25%, 50%, 75%, and MAX. These set your position size as a percentage of your available balance. For most situations, 25% is the safest starting size — it leaves room for 3 more positions. 50% is aggressive but acceptable for high-conviction setups. 75% and MAX should only be used when you see a textbook setup with volume confirmation. Start small, scale up as you gain confidence.',
           ),
           LessonSection(
             heading: 'Splitting Across Assets',
             body:
-                'Instead of one 50% position on BTC, consider two 25% positions on BTC and ETH. If both assets are trending the same way, you benefit from both. If one underperforms, the other might compensate. Diversification within a match reduces the impact of any single bad trade.',
+                'Instead of one 50% position on BTC, consider two 25% positions on BTC and ETH. If both assets are trending the same way, you benefit from both. If one underperforms, the other might compensate. Use the asset bar to quickly switch between assets and diversify your exposure within a match.',
           ),
         ],
         keyTakeaways: [
+          'You start with \$1M demo balance each match — manage it wisely.',
           'Never risk more than 20-30% per trade.',
-          'Start with the 25% button and scale up with conviction.',
-          'Spread across assets to reduce single-trade risk.',
-          'Surviving to make more trades is more important than one big win.',
+          'Start with the 25% button and scale up only with strong conviction.',
+          'Spread across assets to reduce the impact of any single bad trade.',
         ],
       ),
       Lesson(
@@ -528,24 +534,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Why Stop Losses Matter',
             body:
-                'A stop loss automatically closes your position if the price moves against you by a set amount. Without one, a small loss can snowball into a liquidation. Setting a stop loss is the single most important risk management tool. It removes emotion from the equation — the system exits for you when the trade is wrong.',
+                'A stop loss (SL) automatically closes your position if the price moves against you past a set level. Without one, a small loss can snowball into a liquidation. SolFight\'s backend monitors SL/TP levels every second and executes them automatically. Setting a stop loss removes emotion from the equation — the system exits for you when the trade thesis is wrong.',
           ),
           LessonSection(
             heading: 'Setting Effective Stop Losses',
             body:
-                'Place your stop loss below the nearest support (for longs) or above the nearest resistance (for shorts). Don\'t set it too tight (you\'ll get stopped out by normal noise) or too wide (you\'ll lose too much before it triggers). A good rule: your stop should be at a level where, if hit, your trade thesis is clearly wrong.',
+                'In the order panel, toggle the SL/TP switch to reveal the price inputs. For longs, set your stop loss below the nearest support level. For shorts, set it above the nearest resistance. Don\'t set it too tight (normal noise will trigger it) or too wide (you\'ll lose too much). A good rule: place your stop at the level where, if hit, your trade idea is clearly wrong.',
           ),
           LessonSection(
             heading: 'Take Profit Targets',
             body:
-                'A take profit automatically closes your position when it reaches a target gain. Aim for a reward-to-risk ratio of at least 2:1. If your stop loss risks \$50, your take profit should target at least \$100. This way, you only need to be right 40% of the time to be profitable overall.',
+                'A take profit (TP) automatically closes your position when it reaches a target gain. Aim for a reward-to-risk ratio of at least 2:1. If your stop loss risks \$50,000, your take profit should target at least \$100,000. This way, you only need to be right 40% of the time to come out ahead. The order panel validates that your TP is on the correct side of the entry price.',
           ),
         ],
         keyTakeaways: [
-          'Always set a stop loss — no exceptions.',
+          'Always set a stop loss — the system checks SL/TP every second.',
           'Place stops below support (longs) or above resistance (shorts).',
-          'Aim for 2:1 or better reward-to-risk ratio.',
-          'Take profits let you lock in gains without watching the screen.',
+          'Aim for 2:1 or better reward-to-risk ratio on your take profits.',
+          'SL/TP lets you set and forget — focus on finding the next trade.',
         ],
       ),
       Lesson(
@@ -555,26 +561,26 @@ final allLearningPaths = <LearningPath>[
         readMinutes: 3,
         sections: [
           LessonSection(
-            heading: 'Your Overall Balance',
+            heading: 'Your Platform Balance',
             body:
-                'Beyond individual trades, think about your total USDC balance across all matches. Don\'t bet your entire balance on a single match. If you have \$100, consider playing \$10-\$25 matches. This gives you 4-10 opportunities to win. Even the best traders lose sometimes — bankroll management ensures you survive the losing streaks.',
+                'Beyond individual trades, think about your total platform balance across all matches. Available bet amounts are \$5, \$10, \$50, \$100, and \$1,000. Don\'t bet your entire balance on a single match. If you have \$200, play \$5-\$10 matches to give yourself 20-40 opportunities. Even the best traders lose sometimes — bankroll management ensures you survive the losing streaks.',
           ),
           LessonSection(
             heading: 'Moving Up in Stakes',
             body:
-                'Only move to higher bet amounts when your win rate consistently proves you\'re profitable. A rough guide:\n- Start at the lowest bet amount available.\n- After 10+ matches with a positive win rate, consider moving up one level.\n- After a losing streak (3+ losses), drop back down.\n\nThis "grinding up" approach protects your bankroll while allowing growth.',
+                'Only move to higher bet amounts when your win rate proves you\'re profitable. A rough guide:\n- Start at \$5 matches to learn the ropes.\n- After 10+ matches with a positive win rate, consider moving to \$10.\n- After consistent success at \$10, try \$50.\n- After a losing streak (3+ losses), drop back down immediately.\n\nCheck your Portfolio page to review your match history, win rate, and total P&L before moving up.',
           ),
           LessonSection(
             heading: 'Tilt Control',
             body:
-                'After a loss, you\'ll feel the urge to immediately queue again with a bigger bet to "win it back." This is tilt — emotional decision-making. It almost always leads to bigger losses. After a loss, take a 5-minute break. Review what went wrong. Then decide calmly whether to play again.',
+                'After a loss, you\'ll feel the urge to immediately queue again with a bigger bet to "win it back." This is tilt — emotional decision-making. It almost always leads to bigger losses. After a loss, take a 5-minute break. Review what went wrong in your match history. Then decide calmly whether to play again. Your win streak stat on the leaderboard resets on a loss — don\'t let tilt destroy a long streak.',
           ),
         ],
         keyTakeaways: [
-          'Never bet more than 25% of your total balance on one match.',
-          'Move up stakes only after proven profitability.',
-          'Drop down after losing streaks.',
-          'Recognize and control tilt — take breaks after losses.',
+          'Never bet more than 25% of your platform balance on one match.',
+          'Start small at \$5 and move up only after proven profitability.',
+          'Drop down in stakes after losing streaks — preserve your bankroll.',
+          'Recognize tilt — take breaks after losses and review your match history.',
         ],
       ),
       Lesson(
@@ -586,24 +592,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Fear and Greed',
             body:
-                'Fear makes you close winning trades too early and hesitate on good setups. Greed makes you hold losing trades too long and overleverage. Recognizing these emotions in real-time is a skill that separates winning traders from losing ones. Before every trade, ask: "Am I making this decision based on analysis or emotion?"',
+                'Fear makes you close winning trades too early and hesitate on good setups. Greed makes you hold losing trades too long and over-leverage. Recognizing these emotions in real-time is a skill that separates winning traders from losing ones. Before every trade, ask: "Am I making this decision based on analysis or emotion?"',
           ),
           LessonSection(
             heading: 'The Plan Before the Match',
             body:
-                'Enter every match with a plan: What\'s the current trend? Which assets look strongest? What leverage will I use? What\'s my max position size? Having a plan prevents impulsive decisions. You don\'t need to predict the market — you just need a framework for reacting to what happens.',
+                'Enter every match with a plan: What\'s the current trend? Which assets look strongest? What leverage will I use? What\'s my max position size? Having a plan prevents impulsive decisions. Use the match phases as structure — Opening Bell for assessment, Mid Game for execution, Final Sprint for risk management, Last Stand for protecting or clawing back.',
           ),
           LessonSection(
             heading: 'Accepting Losses',
             body:
-                'Losses are part of trading. Even the best SolFight players lose 30-40% of their matches. What makes them profitable is that their wins are bigger than their losses (thanks to good risk management and reward-to-risk ratios). Accept that some matches are unwinnable — the market moved against you, the opponent got lucky, or your read was wrong. Move on.',
+                'Losses are part of trading. Even the best SolFight players lose 30-40% of their matches. What makes them profitable is that their wins are bigger than their losses — thanks to the 90% payout on wins and disciplined risk management. Accept that some matches are unwinnable — the market moved against you, the opponent was better, or your read was wrong. Review your stats on the leaderboard and Portfolio page, learn from mistakes, and move on.',
           ),
         ],
         keyTakeaways: [
           'Emotion is the enemy — trade based on analysis, not feelings.',
-          'Have a plan before every match starts.',
+          'Use match phases as structure: assess, execute, manage, protect.',
           'Losing is normal — focus on making wins bigger than losses.',
-          'Review every match afterward to improve.',
+          'Review every match on your Portfolio page to improve over time.',
         ],
       ),
     ],
@@ -621,30 +627,35 @@ final allLearningPaths = <LearningPath>[
       Lesson(
         id: 'ad_1',
         title: 'Reading Your Opponent',
-        subtitle: 'Use the Arena info to your advantage',
+        subtitle: 'Use the Arena HUD to your advantage',
         readMinutes: 3,
         sections: [
           LessonSection(
             heading: 'Opponent ROI Tracking',
             body:
-                'The Arena toolbar shows your opponent\'s ROI in real-time. If they\'re up big, they might become conservative — protecting their lead. If they\'re down, they might take aggressive risks. Use this information to adjust your strategy. When you\'re ahead, play defense. When you\'re behind, take calculated risks.',
+                'The Arena HUD shows your opponent\'s ROI in real-time, updated every 3 seconds. If they\'re up big, they might become conservative — protecting their lead with smaller positions or closing trades. If they\'re down, they might take aggressive risks with higher leverage. Use this information to adjust your strategy: when you\'re ahead, play defense; when you\'re behind, find high-conviction setups.',
           ),
           LessonSection(
             heading: 'Position Count Signals',
             body:
-                'You can see how many open positions your opponent has. If they have 0, they might be waiting for an entry or conserving their lead. If they have multiple positions, they\'re spreading risk. A sudden increase in positions might mean they\'re making a big move to catch up.',
+                'The HUD also shows how many open positions your opponent has. If they have 0, they might be waiting for a setup or protecting a lead in cash. If they have multiple positions, they\'re actively trading and spreading risk. A sudden increase in positions might signal a desperate catch-up attempt. The Events Feed also notifies you of opponent trades, lead changes, and liquidations.',
           ),
           LessonSection(
-            heading: 'Chat Mind Games',
+            heading: 'The Battle Bar & Events',
             body:
-                'The Arena chat lets you communicate with your opponent. Some players try to psych you out or distract you. Stay focused on your charts and strategy. You can also use chat strategically — a confident "GL" at the start can set the tone, but don\'t let trash talk affect your decisions.',
+                'The Battle Bar is a tug-of-war indicator showing who\'s winning. Watch it shift — sudden swings mean your opponent made a big move. The Events Feed alerts you to lead changes, big P&L swings, streaks, and phase transitions. Use this information to stay one step ahead. If you see "Lead Change!" in the feed, reassess your positions immediately.',
+          ),
+          LessonSection(
+            heading: 'Chat Strategy',
+            body:
+                'The in-match chat lets you communicate with your opponent. Some players try to psych you out or distract you. Stay focused on your charts and strategy. A confident "GL" at the start can set the tone, but don\'t let trash talk affect your decisions. The best use of chat is to tilt your opponent when you\'re winning — but never let it tilt you.',
           ),
         ],
         keyTakeaways: [
-          'Monitor opponent ROI to adapt your aggression level.',
-          'When ahead, play defensive. When behind, take calculated risks.',
-          'Opponent position count reveals their strategy.',
-          'Don\'t let chat distract you from the charts.',
+          'Opponent ROI and position count update every 3 seconds — watch them.',
+          'The Battle Bar and Events Feed reveal opponent moves in real-time.',
+          'When ahead: play defensive. When behind: take calculated risks.',
+          'Don\'t let chat distract you — stay focused on the charts.',
         ],
       ),
       Lesson(
@@ -656,24 +667,24 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Asset Correlation',
             body:
-                'BTC, ETH, and SOL are correlated but not identical. BTC leads the market — when BTC makes a big move, ETH and SOL usually follow. However, SOL is more volatile and often moves more in percentage terms. ETH sits in the middle. Understanding these relationships helps you choose which asset to trade at any moment.',
+                'BTC, ETH, and SOL are correlated but not identical. BTC leads the market — when BTC makes a big move, ETH and SOL usually follow. However, SOL is more volatile and often moves more in percentage terms. ETH sits in the middle. Understanding these relationships helps you choose which asset to trade at any moment. The asset bar lets you switch instantly.',
           ),
           LessonSection(
             heading: 'Rotation Strategy',
             body:
-                'During a match, don\'t commit to one asset. Start by watching all three. If BTC breaks out of a range, SOL will likely follow with a bigger move — open your position on SOL for amplified returns. If the market is choppy, look for the one asset showing the clearest trend and focus there.',
+                'During a match, don\'t commit to one asset. Start by watching all three. If BTC breaks out of a range, SOL will likely follow with a bigger move — open your position on SOL for amplified returns. If the market is choppy, look for the one asset showing the clearest trend and focus there. The Quick Trade Grid defaults reflect typical volatility: BTC 10x, ETH 25x, SOL 50x.',
           ),
           LessonSection(
             heading: 'Hedging Across Assets',
             body:
-                'In longer matches, you can hedge by going long on one asset and short on another. If BTC is showing strength relative to SOL, go long BTC and short SOL. This way, even in a market-wide dump, your BTC position loses less than your SOL short gains. This advanced technique reduces directional risk.',
+                'In longer matches, you can hedge by going long on one asset and short on another. If BTC is showing strength relative to SOL, go long BTC and short SOL. This way, even in a market-wide dump, your BTC position loses less than your SOL short gains. This advanced technique reduces directional risk and can give you steady ROI regardless of market direction.',
           ),
         ],
         keyTakeaways: [
           'SOL is most volatile, BTC is most stable, ETH is in between.',
-          'When BTC leads, SOL follows with bigger moves.',
-          'Focus on the asset with the clearest signal.',
-          'Hedging (long one, short another) reduces overall risk.',
+          'When BTC leads, SOL follows with bigger moves — trade the amplifier.',
+          'Focus on the asset with the clearest signal at any given moment.',
+          'Hedging (long one asset, short another) reduces directional risk.',
         ],
       ),
       Lesson(
@@ -690,18 +701,18 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Identifying Extremes',
             body:
-                'Look for: Sudden large candles with long wicks (overextension). Price far from the moving average. Multiple consecutive candles in one direction (exhaustion). In a 15m match, even a 0.5% spike can be an overreaction in crypto. Enter a counter-trade with tight stops above the extreme.',
+                'Look for: Sudden large candles with long wicks (overextension). Price far from recent averages. Multiple consecutive candles in one direction (exhaustion). In a 15m match, even a 0.5% spike can be an overreaction in crypto. Enter a counter-trade with tight stops above the extreme.',
           ),
           LessonSection(
             heading: 'When NOT to Mean-Revert',
             body:
-                'Don\'t fade a strong trend just because it "looks overextended." If BTC is breaking out above major resistance on huge volume, that\'s a real move, not an overreaction. Mean reversion works best in ranging markets or during low-volume spikes. In strong trends, trade WITH the momentum instead.',
+                'Don\'t fade a strong trend just because it "looks overextended." If BTC is breaking out above major resistance on a massive candle, that\'s likely a real move, not an overreaction. Mean reversion works best in ranging markets or during low-volume spikes. In strong trends, trade WITH the momentum instead. Check the Events Feed — if your opponent just got liquidated on a trend trade, the trend is probably real.',
           ),
         ],
         keyTakeaways: [
           'Mean reversion = bet that overreactions will correct.',
           'Works best in ranging, choppy markets.',
-          'Don\'t fight strong trends with real volume behind them.',
+          'Don\'t fight strong trends with real conviction behind them.',
           'Use tight stops when mean-reverting — you\'re trading against momentum.',
         ],
       ),
@@ -709,29 +720,167 @@ final allLearningPaths = <LearningPath>[
         id: 'ad_4',
         title: 'Match Endgame Tactics',
         subtitle: 'Win the final minutes',
-        readMinutes: 3,
+        readMinutes: 4,
         sections: [
+          LessonSection(
+            heading: 'Understanding Match Phases',
+            body:
+                'Every SolFight match progresses through five phases:\n\n• Opening Bell (first 20%): Feel out the market, make initial assessments.\n• Mid Game (20-70%): Execute your core strategy.\n• Final Sprint (70-90%): Urgency increases — the Arena turns amber. Time to lock in gains or make your move.\n• Last Stand (final 10%): Maximum intensity — the Arena turns red. This is where matches are decided.\n• Match End: All positions auto-close at current market prices and ROI is compared.\n\nPhase banners slide down to announce each transition. Adapt your strategy to each phase.',
+          ),
           LessonSection(
             heading: 'Managing a Lead',
             body:
-                'If you\'re ahead with 5 minutes left, your goal shifts from making money to not losing your lead. Close risky positions. Reduce leverage. Move to cash if your lead is comfortable. Your opponent will be forced to take big risks — let them make mistakes while you play it safe.',
+                'If you\'re ahead entering Final Sprint, your goal shifts from making money to protecting your lead. Close risky positions. Reduce leverage on remaining trades. Move to cash if your lead is comfortable. Your opponent will be forced to take big risks during Last Stand — let them make mistakes while you play it safe. Watch the Battle Bar; if it stays in your favor, you\'re doing it right.',
           ),
           LessonSection(
             heading: 'Comeback Strategy',
             body:
-                'If you\'re behind with time running out, you need to take bigger swings. Increase leverage slightly, look for the highest-conviction setup, and go for it. But don\'t blindly max leverage on a coin flip — even when behind, identify a real setup. A well-timed reversal trade with higher leverage can close a big gap quickly.',
+                'If you\'re behind with the match in Final Sprint or Last Stand, you need to take bigger swings. Increase leverage slightly, look for the highest-conviction setup across all three assets, and go for it. SOL\'s higher volatility makes it the best asset for comebacks. But don\'t blindly max leverage on a coin flip — even when behind, identify a real setup. One well-timed trade with 25-50x leverage can close a big gap quickly.',
           ),
           LessonSection(
-            heading: 'The Final 60 Seconds',
+            heading: 'The Final Moments',
             body:
-                'In the last minute, positions auto-close at match end. If you\'re ahead, consider closing all positions manually to lock in your exact P&L (in case a sudden price swing before auto-close hurts you). If you\'re behind, keep your positions open — you need the volatility to close the gap. The endgame is where matches are won and lost.',
+                'In the last minute, all positions auto-close when the match timer hits zero. If you\'re ahead, consider closing all positions manually to lock in your exact P&L — a sudden price swing before auto-close could hurt you. If you\'re behind, keep your positions open — you need the volatility. Also know: if your opponent disconnects during the match, there\'s a 30-second grace period. If they don\'t reconnect, you win by forfeit.',
           ),
         ],
         keyTakeaways: [
-          'When ahead: reduce risk, protect the lead.',
-          'When behind: increase conviction, not recklessness.',
-          'Consider closing manually before auto-close if you\'re winning.',
-          'The last few minutes are the most decisive — stay focused.',
+          'Match phases: Opening Bell → Mid Game → Final Sprint → Last Stand → End.',
+          'When ahead in Final Sprint: reduce risk, protect the lead.',
+          'When behind in Last Stand: find one high-conviction setup on SOL.',
+          'Consider manual closes before auto-close if you\'re protecting a lead.',
+        ],
+      ),
+    ],
+  ),
+
+  // ── Path 6: Platform Features ──────────────────────────────────────────────
+  LearningPath(
+    id: 'platform_features',
+    title: 'Platform Features',
+    description: 'Master deposits, clans, leaderboards, and referrals.',
+    icon: Icons.apps_rounded,
+    color: AppTheme.solanaGreen,
+    tag: 'PLATFORM',
+    lessons: [
+      Lesson(
+        id: 'pf_1',
+        title: 'Deposits & Withdrawals',
+        subtitle: 'Manage your USDC on the platform',
+        readMinutes: 3,
+        sections: [
+          LessonSection(
+            heading: 'How Platform Balance Works',
+            body:
+                'SolFight uses a platform balance system so gameplay is instant — no waiting for blockchain confirmations during matches. Your on-chain USDC lives in your wallet. When you deposit, it transfers to the platform vault and credits your platform balance. When you bet on a match, the amount is "frozen" from your available balance. When the match ends, winnings are credited or losses deducted instantly.',
+          ),
+          LessonSection(
+            heading: 'Making a Deposit',
+            body:
+                'Go to your Portfolio page and click "Deposit." You\'ll send USDC to the SolFight platform vault address on Solana. After the transaction confirms, the backend verifies it on-chain — checking the signature, sender, receiver, and amount — then credits your platform balance. Each deposit signature can only be used once (replay protection). Deposits must confirm within 5 minutes.',
+          ),
+          LessonSection(
+            heading: 'Withdrawing Funds',
+            body:
+                'To withdraw, click "Withdraw" on your Portfolio page and enter the amount (minimum \$1). The backend deducts from your platform balance and sends USDC on-chain to your wallet. If you don\'t have an Associated Token Account (ATA) for USDC, it\'s created automatically. Withdrawals process immediately — you\'ll see the USDC back in your wallet within seconds.',
+          ),
+          LessonSection(
+            heading: 'Balance Breakdown',
+            body:
+                'Your Portfolio page shows four balance components:\n\n• On-Chain Balance: USDC in your connected wallet.\n• Platform Balance: Total USDC held on the platform.\n• Frozen Balance: Amount locked in active matches (returned when the match ends).\n• Available Balance: Platform balance minus frozen — this is what you can bet or withdraw.',
+          ),
+        ],
+        keyTakeaways: [
+          'Platform balance enables instant gameplay — no blockchain delays.',
+          'Deposits are verified on-chain with replay protection.',
+          'Withdrawals process immediately back to your wallet.',
+          'Available balance = Platform balance - Frozen balance.',
+        ],
+      ),
+      Lesson(
+        id: 'pf_2',
+        title: 'Leaderboard & Rankings',
+        subtitle: 'Track your rank and compete for the top',
+        readMinutes: 3,
+        sections: [
+          LessonSection(
+            heading: 'How Rankings Work',
+            body:
+                'The SolFight leaderboard ranks players by wins, P&L, or current streak. Your stats update in real-time after every match. The top 3 players get a podium display with special styling, while 4th place and below appear in the rankings table. Your row is highlighted if you\'re on the board.',
+          ),
+          LessonSection(
+            heading: 'Leaderboard Filters',
+            body:
+                'You can filter the leaderboard by:\n\n• Time Period: Weekly, Monthly, or All Time.\n• Match Duration: All, 15m, 1h, 4h, 12h, or 24h.\n\nThis lets you find the best players in your preferred match type. A player who dominates 15m scalping matches might not appear on the 24h leaderboard, and vice versa.',
+          ),
+          LessonSection(
+            heading: 'Stats Tracked',
+            body:
+                'The leaderboard displays: Rank, Gamer Tag, Wins, Win Rate %, Games Played, Total P&L, and Current Streak. Your match history on the Portfolio page tracks even more detail: each match result with opponent name, P&L, duration, and timestamp.',
+          ),
+        ],
+        keyTakeaways: [
+          'Leaderboard ranks by wins, P&L, or streak with real-time updates.',
+          'Filter by time period (Weekly/Monthly/All Time) and match duration.',
+          'Top 3 get a podium display — aim for the top.',
+          'Your Portfolio page has detailed match-by-match history.',
+        ],
+      ),
+      Lesson(
+        id: 'pf_3',
+        title: 'Clans & Community',
+        subtitle: 'Join forces with other traders',
+        readMinutes: 3,
+        sections: [
+          LessonSection(
+            heading: 'What Are Clans?',
+            body:
+                'Clans are groups of up to 50 SolFight players who team up. Each clan has a name, a short tag (3-5 characters), a description, and a leader. Clans track collective stats including total wins, losses, win rate, trophies, and level. It\'s a way to build community, share strategies, and compete with other groups.',
+          ),
+          LessonSection(
+            heading: 'Creating or Joining a Clan',
+            body:
+                'To create a clan, go to the Clans tab and tap "Create." Choose a name (up to 30 characters), a tag (up to 5 characters, displayed in uppercase), and an optional description. You\'ll automatically be set as the Leader.\n\nTo join an existing clan, browse the clan directory (sorted by trophies) or search by name. Tap a clan to see its members, stats, and war history, then tap "Join." You can only be in one clan at a time.',
+          ),
+          LessonSection(
+            heading: 'Clan Roles & Management',
+            body:
+                'Clans have four roles: Leader, Co-Leader, Elder, and Member. The Leader manages the clan. If the Leader leaves, leadership transfers to the next member. If all members leave, the clan is dissolved. Each member\'s profile shows their trophies, donations, and join date within the clan.',
+          ),
+        ],
+        keyTakeaways: [
+          'Clans hold up to 50 members with tracked collective stats.',
+          'Create a clan with a name and tag, or browse and join existing ones.',
+          'Four roles: Leader, Co-Leader, Elder, Member.',
+          'You can only be in one clan at a time.',
+        ],
+      ),
+      Lesson(
+        id: 'pf_4',
+        title: 'Referrals & Rewards',
+        subtitle: 'Earn by inviting friends',
+        readMinutes: 2,
+        sections: [
+          LessonSection(
+            heading: 'Your Referral Code',
+            body:
+                'Every SolFight player gets a unique referral code generated from their wallet address. Find it on the Referral page along with a shareable link and a QR code. Share it with friends via direct link, QR code, or social media.',
+          ),
+          LessonSection(
+            heading: 'How Referrals Work',
+            body:
+                'When someone uses your referral code and joins SolFight, they\'re linked to your account. The Referral page tracks each referred user with their gamer tag, status (joined, deposited, or played their first match), join date, and any reward earned. Rewards are auto-credited to your platform balance when referred users hit milestones.',
+          ),
+          LessonSection(
+            heading: 'Tracking Your Rewards',
+            body:
+                'The Referral page shows your total earnings from referrals, pending rewards, and a full list of everyone you\'ve referred. Growing your referral network is a great way to earn extra USDC while bringing more opponents into the arena.',
+          ),
+        ],
+        keyTakeaways: [
+          'Every player gets a unique referral code, link, and QR code.',
+          'Referred users are tracked through milestones: joined, deposited, played.',
+          'Rewards are auto-credited to your platform balance.',
+          'More referrals = more earnings and a larger player pool.',
         ],
       ),
     ],
@@ -745,13 +894,17 @@ final allLearningPaths = <LearningPath>[
 const allGlossaryTerms = <GlossaryTerm>[
   GlossaryTerm(term: 'Long', definition: 'A position that profits when price goes up.'),
   GlossaryTerm(term: 'Short', definition: 'A position that profits when price goes down.'),
-  GlossaryTerm(term: 'Leverage', definition: 'Multiplier that amplifies your position size relative to your collateral. 10x leverage = 10x gains/losses.'),
-  GlossaryTerm(term: 'Liquidation', definition: 'Forced closure of your position when losses consume your collateral.'),
-  GlossaryTerm(term: 'Stop Loss (SL)', definition: 'An order that automatically closes your position at a set loss level.'),
-  GlossaryTerm(term: 'Take Profit (TP)', definition: 'An order that automatically closes your position at a set profit level.'),
-  GlossaryTerm(term: 'PnL', definition: 'Profit and Loss — the dollar or percentage gain/loss on a position or portfolio.'),
-  GlossaryTerm(term: 'ROI', definition: 'Return on Investment — your percentage gain/loss relative to your starting balance.'),
+  GlossaryTerm(term: 'Leverage', definition: 'Multiplier that amplifies your position size relative to your margin. 10x leverage = 10x gains/losses. SolFight offers 1x to 100x.'),
+  GlossaryTerm(term: 'Liquidation', definition: 'Forced closure of your position when losses consume 90% of your margin. Higher leverage = smaller price move needed to trigger it.'),
+  GlossaryTerm(term: 'Stop Loss (SL)', definition: 'An order that automatically closes your position at a set loss level. Monitored every second by the backend.'),
+  GlossaryTerm(term: 'Take Profit (TP)', definition: 'An order that automatically closes your position at a set profit level. Monitored every second by the backend.'),
+  GlossaryTerm(term: 'PnL', definition: 'Profit and Loss — the dollar gain/loss on a position or across all positions in a match.'),
+  GlossaryTerm(term: 'ROI', definition: 'Return on Investment — your percentage gain/loss relative to the \$1M demo balance. The player with higher ROI wins the match.'),
   GlossaryTerm(term: 'Equity', definition: 'Your total account value including unrealized profits/losses from open positions.'),
+  GlossaryTerm(term: 'Demo Balance', definition: 'The \$1,000,000 starting balance each player receives at the start of every match for trading.'),
+  GlossaryTerm(term: 'Platform Balance', definition: 'Your USDC held on the SolFight platform, used for bets and winnings. Separate from your on-chain wallet balance.'),
+  GlossaryTerm(term: 'Frozen Balance', definition: 'Portion of your platform balance locked in active matches. Released when the match ends.'),
+  GlossaryTerm(term: 'Rake', definition: 'The 10% fee taken from the winner\'s payout by the SolFight protocol. Loser forfeits their full bet.'),
   GlossaryTerm(term: 'Candlestick', definition: 'A chart element showing open, close, high, and low prices for a time period.'),
   GlossaryTerm(term: 'Support', definition: 'A price level where buying pressure prevents further decline.'),
   GlossaryTerm(term: 'Resistance', definition: 'A price level where selling pressure prevents further increase.'),
@@ -761,10 +914,16 @@ const allGlossaryTerms = <GlossaryTerm>[
   GlossaryTerm(term: 'Mean Reversion', definition: 'A strategy that bets on price returning to its average after an extreme move.'),
   GlossaryTerm(term: 'Doji', definition: 'A candlestick with nearly equal open and close, signaling market indecision.'),
   GlossaryTerm(term: 'Engulfing', definition: 'A large candle that completely covers the previous candle — signals reversal.'),
-  GlossaryTerm(term: 'Escrow', definition: 'A smart contract that holds both players\' bet amounts until the match ends.'),
-  GlossaryTerm(term: 'Tilt', definition: 'Emotional state after a loss that leads to impulsive, often poor decisions.'),
+  GlossaryTerm(term: 'Quick Trade Grid', definition: 'Six preset buttons in the Arena for instant trades: Long/Short BTC 10x, ETH 25x, SOL 50x.'),
+  GlossaryTerm(term: 'Battle Bar', definition: 'A tug-of-war indicator in the Arena HUD showing who is currently winning the match.'),
+  GlossaryTerm(term: 'Match Phase', definition: 'Timed stages of a match: Opening Bell, Mid Game, Final Sprint (amber), Last Stand (red), and Match End.'),
+  GlossaryTerm(term: 'Forfeit', definition: 'When a player disconnects for more than 30 seconds, the match is awarded to the remaining player.'),
+  GlossaryTerm(term: 'Clan', definition: 'A group of up to 50 SolFight players with shared stats, trophies, and community features.'),
+  GlossaryTerm(term: 'Gamer Tag', definition: 'Your display name on SolFight (1-16 characters), visible to opponents and on leaderboards.'),
+  GlossaryTerm(term: 'Tilt', definition: 'Emotional state after a loss that leads to impulsive, often poor decisions. Take a break when tilted.'),
   GlossaryTerm(term: 'USDC', definition: 'A stablecoin pegged to the US Dollar, used for bets and winnings on SolFight.'),
-  GlossaryTerm(term: 'Devnet', definition: 'Solana\'s test network with free tokens — used for practice before mainnet.'),
-  GlossaryTerm(term: 'Gamer Tag', definition: 'Your display name on SolFight, visible to opponents and on leaderboards.'),
+  GlossaryTerm(term: 'Devnet', definition: 'Solana\'s test network where SolFight currently runs. All tokens are free — no real money at risk.'),
   GlossaryTerm(term: 'Reward-to-Risk Ratio', definition: 'How much you stand to gain vs how much you risk. 2:1 means targeting \$2 profit for every \$1 risked.'),
+  GlossaryTerm(term: 'Referral Code', definition: 'A unique code tied to your wallet address that earns you rewards when friends join SolFight.'),
+  GlossaryTerm(term: 'Notional Size', definition: 'The total value of your leveraged position. A \$10,000 margin at 10x leverage = \$100,000 notional size.'),
 ];
