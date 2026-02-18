@@ -9,7 +9,7 @@ import {
   DbPosition,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch } from "../ws/rooms";
+import { broadcastToMatch, broadcastToAll } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
 
 const DEMO_BALANCE = config.demoInitialBalance;
@@ -144,6 +144,9 @@ export async function settleByForfeit(
   // 3. Update player stats.
   await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
 
+  // 3b. Notify all clients to refresh leaderboard.
+  broadcastToAll({ type: "leaderboard_update" });
+
   // 4. Broadcast result.
   broadcastToMatch(matchId, {
     type: "match_end",
@@ -249,6 +252,9 @@ async function _doSettleMatch(
 
   // 3. Update player stats.
   await updatePlayerStats(player1, player2, winner, betAmount, isTie);
+
+  // 3b. Notify all clients to refresh leaderboard.
+  broadcastToAll({ type: "leaderboard_update" });
 
   // 4. Broadcast result immediately — users see it with zero delay.
   broadcastToMatch(matchId, {

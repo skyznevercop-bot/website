@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/api_client.dart';
@@ -5,17 +7,61 @@ import '../models/leaderboard_models.dart';
 
 class LeaderboardNotifier extends Notifier<LeaderboardState> {
   final _api = ApiClient.instance;
+  StreamSubscription<Map<String, dynamic>>? _wsSubscription;
+  Timer? _pollTimer;
 
   @override
   LeaderboardState build() {
-    // Auto-load leaderboard data on first access.
-    Future.microtask(() => fetchLeaderboard());
+    ref.onDispose(() {
+      _wsSubscription?.cancel();
+      _pollTimer?.cancel();
+    });
+
+    // Start real-time listeners and initial fetch.
+    Future.microtask(() => _init());
     return const LeaderboardState(isLoading: true);
   }
 
+  void _init() {
+    // Listen for WebSocket events (leaderboard_update + reconnections).
+    _wsSubscription?.cancel();
+    _wsSubscription = _api.wsStream.listen(_handleWsEvent);
+
+    // Initial fetch.
+    fetchLeaderboard();
+
+    // Poll every 30s as a fallback in case WebSocket events are missed.
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      fetchLeaderboard(silent: true);
+    });
+  }
+
+  void _handleWsEvent(Map<String, dynamic> data) {
+    switch (data['type']) {
+      case 'leaderboard_update':
+        // A match just settled — refresh the leaderboard.
+        fetchLeaderboard(silent: true);
+        break;
+      case 'ws_connected':
+        // WebSocket reconnected — refresh to catch anything missed.
+        fetchLeaderboard(silent: true);
+        break;
+    }
+  }
+
   /// Fetch leaderboard from the backend API.
-  Future<void> fetchLeaderboard({String sortBy = 'wins', int page = 1}) async {
-    state = state.copyWith(isLoading: true);
+  ///
+  /// When [silent] is true, the loading spinner is not shown (used for
+  /// background refreshes so the UI doesn't flash).
+  Future<void> fetchLeaderboard({
+    String sortBy = 'wins',
+    int page = 1,
+    bool silent = false,
+  }) async {
+    if (!silent) {
+      state = state.copyWith(isLoading: true);
+    }
 
     try {
       final response = await _api.get(

@@ -92,6 +92,20 @@ export function broadcastToUser(
 }
 
 /**
+ * Broadcast a message to ALL connected WebSocket clients.
+ */
+export function broadcastToAll(data: Record<string, unknown>): void {
+  const message = JSON.stringify(data);
+  for (const [, conns] of userConnections) {
+    for (const ws of conns) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    }
+  }
+}
+
+/**
  * Check if a user currently has any active WebSocket connections.
  */
 export function isUserConnected(address: string): boolean {
