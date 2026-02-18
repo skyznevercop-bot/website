@@ -219,6 +219,21 @@ class QueueNotifier extends Notifier<QueueState> {
 
   void _handleWsEvent(Map<String, dynamic> data) {
     switch (data['type']) {
+      case 'ws_connected':
+        // WS reconnected — re-join queue if we were in one.
+        // This handles two cases:
+        //   1. joinQueue() was called before WS was OPEN (message was dropped).
+        //   2. WS dropped and reconnected while player was searching.
+        if (state.isInQueue &&
+            state.queuedDurationLabel != null &&
+            state.queuedBet != null) {
+          _api.wsSend({
+            'type': 'join_queue',
+            'duration': state.queuedDurationLabel!,
+            'bet': state.queuedBet!,
+          });
+        }
+        break;
       case 'queue_stats':
         _handleQueueStats(data);
         break;
