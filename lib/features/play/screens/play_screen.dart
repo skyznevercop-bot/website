@@ -299,13 +299,8 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
         // Right: Pickers + Queue.
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(32),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 520),
-                child: _buildPickerContent(wallet, queue),
-              ),
-            ),
+            padding: const EdgeInsets.all(40),
+            child: _buildPickerContent(wallet, queue),
           ),
         ),
       ],
