@@ -183,7 +183,8 @@ class MatchStats {
 class TradingAsset {
   final String symbol;
   final String name;
-  final String binanceSymbol; // Binance API / chart symbol (e.g. 'BTCUSDT')
+  final String binanceSymbol; // Binance-style symbol (e.g. 'BTCUSDT') — used as chart key
+  final String coinbaseProductId; // Coinbase product ID (e.g. 'BTC-USD')
   final String coingeckoId; // CoinGecko API id
   final double basePrice; // Fallback price before live feed connects
   final double maxLeverage;
@@ -192,6 +193,7 @@ class TradingAsset {
     required this.symbol,
     required this.name,
     required this.binanceSymbol,
+    required this.coinbaseProductId,
     required this.coingeckoId,
     required this.basePrice,
     this.maxLeverage = 20,
@@ -202,6 +204,7 @@ class TradingAsset {
       symbol: 'BTC',
       name: 'Bitcoin',
       binanceSymbol: 'BTCUSDT',
+      coinbaseProductId: 'BTC-USD',
       coingeckoId: 'bitcoin',
       basePrice: 66000,
       maxLeverage: 100,
@@ -210,6 +213,7 @@ class TradingAsset {
       symbol: 'ETH',
       name: 'Ethereum',
       binanceSymbol: 'ETHUSDT',
+      coinbaseProductId: 'ETH-USD',
       coingeckoId: 'ethereum',
       basePrice: 2000,
       maxLeverage: 100,
@@ -218,6 +222,7 @@ class TradingAsset {
       symbol: 'SOL',
       name: 'Solana',
       binanceSymbol: 'SOLUSDT',
+      coinbaseProductId: 'SOL-USD',
       coingeckoId: 'solana',
       basePrice: 80,
       maxLeverage: 100,

@@ -5,59 +5,92 @@
 
   var charts = {};
 
-  // ── Klines data sources (backend proxy first, Binance direct fallback) ──
-  var KLINE_SOURCES = [
-    "https://solfight-backend.onrender.com/api/klines",
-    "https://api.binance.com/api/v3/klines",
-  ];
+  // ── Symbol mapping: Binance-style → Coinbase product ID ──
+  var COINBASE_PRODUCT_MAP = {
+    "BTCUSDT": "BTC-USD",
+    "ETHUSDT": "ETH-USD",
+    "SOLUSDT": "SOL-USD",
+  };
 
   // ── Fetch historical candles ──────────────────────────────────────────
+  // Tries Coinbase REST directly (CORS-friendly), then backend proxy as fallback.
   // Retries up to 3 times with 10s gaps (handles Render cold-starts).
   async function fetchCandles(id, symbol, series, chart) {
+    var productId = COINBASE_PRODUCT_MAP[symbol] || symbol;
+
     for (var attempt = 0; attempt < 3; attempt++) {
       if (attempt > 0) {
         await new Promise(function (r) { setTimeout(r, 10000); });
       }
-      // Bail if chart was destroyed while waiting.
       var s = charts[id];
       if (!s || s.series !== series) return;
 
-      for (var i = 0; i < KLINE_SOURCES.length; i++) {
-        try {
-          var base = KLINE_SOURCES[i];
-          var url =
-            base.indexOf("binance.com") !== -1
-              ? base + "?symbol=" + symbol + "&interval=1m&limit=300"
-              : base + "/" + symbol + "?interval=1m&limit=300";
-
-          var resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
-          if (!resp.ok) continue;
+      // Source 1: Coinbase REST (direct from browser, no proxy needed)
+      try {
+        var end = new Date().toISOString();
+        var start = new Date(Date.now() - 300 * 60 * 1000).toISOString();
+        var cbUrl = "https://api.exchange.coinbase.com/products/" + productId +
+                    "/candles?granularity=60&start=" + start + "&end=" + end;
+        var resp = await fetch(cbUrl, { signal: AbortSignal.timeout(8000) });
+        if (resp.ok) {
           var data = await resp.json();
-          if (!Array.isArray(data) || data.length === 0) continue;
+          if (Array.isArray(data) && data.length > 0) {
+            // CRITICAL: Coinbase returns [time_s, LOW, HIGH, open, close, volume]
+            // AND returns newest-first, so reverse.
+            var candles = data.reverse().map(function (k) {
+              return {
+                time: k[0],                  // already in seconds
+                open: parseFloat(k[3]),      // open is index 3
+                high: parseFloat(k[2]),      // high is index 2
+                low: parseFloat(k[1]),       // low is index 1
+                close: parseFloat(k[4]),     // close is index 4
+              };
+            });
 
-          var candles = data.map(function (k) {
-            return {
-              time: Math.floor(k[0] / 1000),
-              open: parseFloat(k[1]),
-              high: parseFloat(k[2]),
-              low: parseFloat(k[3]),
-              close: parseFloat(k[4]),
-            };
-          });
+            var s2 = charts[id];
+            if (!s2 || s2.series !== series) return;
 
-          // Bail if chart was replaced while fetching.
-          var s2 = charts[id];
-          if (!s2 || s2.series !== series) return;
-
-          series.setData(candles);
-          chart.timeScale().scrollToRealTime();
-          console.log("[LWChart] Loaded", candles.length, "candles for", symbol);
-          return;
-        } catch (e) {
-          console.warn("[LWChart] klines source", i, "failed:", e.message);
+            series.setData(candles);
+            chart.timeScale().scrollToRealTime();
+            console.log("[LWChart] Loaded", candles.length, "candles for", symbol, "via Coinbase");
+            return;
+          }
         }
+      } catch (e) {
+        console.warn("[LWChart] Coinbase direct failed:", e.message);
+      }
+
+      // Source 2: Backend proxy (returns Binance-format: [timeMs, open, high, low, close, ...])
+      try {
+        var proxyUrl = "https://solfight-backend.onrender.com/api/klines/" + symbol + "?interval=1m&limit=300";
+        var resp2 = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+        if (resp2.ok) {
+          var data2 = await resp2.json();
+          if (Array.isArray(data2) && data2.length > 0) {
+            var candles2 = data2.map(function (k) {
+              return {
+                time: Math.floor(k[0] / 1000),
+                open: parseFloat(k[1]),
+                high: parseFloat(k[2]),
+                low: parseFloat(k[3]),
+                close: parseFloat(k[4]),
+              };
+            });
+
+            var s3 = charts[id];
+            if (!s3 || s3.series !== series) return;
+
+            series.setData(candles2);
+            chart.timeScale().scrollToRealTime();
+            console.log("[LWChart] Loaded", candles2.length, "candles for", symbol, "via backend proxy");
+            return;
+          }
+        }
+      } catch (e2) {
+        console.warn("[LWChart] Backend proxy failed:", e2.message);
       }
     }
+
     // All attempts failed — still scroll to live edge so real-time ticks show.
     if (chart) {
       try { chart.timeScale().scrollToRealTime(); } catch (_) {}
@@ -84,7 +117,6 @@
         if (doc) {
           el = doc.getElementById(id);
           if (el) return el;
-          // Also search shadow DOMs inside iframes.
           el = searchShadowRoots(doc.body, id);
           if (el) return el;
         }
@@ -103,7 +135,6 @@
       if (sr) {
         var el = sr.getElementById(id);
         if (el) return el;
-        // Recurse into nested shadow roots.
         el = searchShadowRoots(sr, id);
         if (el) return el;
       }
@@ -112,11 +143,9 @@
   }
 
   // ── Create chart (with direct element reference from Dart) ──────────────
-  // Preferred path: Dart passes the actual HTMLDivElement, bypassing DOM search.
   window._createLWChartEl = function (containerId, containerEl, binanceSymbol) {
     window._destroyLWChart(containerId);
     if (containerEl) {
-      // Wait a tick for the element to get dimensions from CSS layout.
       setTimeout(function () {
         if (!charts[containerId]) {
           createInContainer(containerId, containerEl, binanceSymbol);
@@ -124,19 +153,16 @@
       }, 50);
       return;
     }
-    // Fallback: search the DOM (legacy path).
     window._createLWChart(containerId, binanceSymbol);
   };
 
   // ── Create chart (legacy DOM-search path) ──────────────────────────────
   window._createLWChart = function (containerId, binanceSymbol) {
-    // Destroy any previous chart in this container.
     window._destroyLWChart(containerId);
 
     var container = findContainer(containerId);
     if (!container) {
       console.warn("[LWChart] Container", containerId, "not in DOM yet — waiting…");
-      // Use MutationObserver to wait for the element to appear.
       var observer = new MutationObserver(function () {
         var el = findContainer(containerId);
         if (el) {
@@ -146,7 +172,6 @@
       });
       observer.observe(document.body, { childList: true, subtree: true });
 
-      // Safety timeout: give up after 8s.
       setTimeout(function () {
         observer.disconnect();
         var el = findContainer(containerId);
@@ -159,7 +184,6 @@
       return;
     }
 
-    // Container already exists — wait a tick for it to get dimensions.
     setTimeout(function () {
       if (!charts[containerId]) {
         createInContainer(containerId, findContainer(containerId) || container, binanceSymbol);
@@ -168,7 +192,6 @@
   };
 
   function createInContainer(id, container, symbol) {
-    // Ensure we're not double-creating.
     if (charts[id]) return;
 
     var w = container.clientWidth || 600;
@@ -215,7 +238,6 @@
       wickDownColor: "#ef5350",
     });
 
-    // ResizeObserver keeps the chart sized to its container.
     var ro = new ResizeObserver(function (entries) {
       var entry = entries[0];
       if (!entry) return;
@@ -233,6 +255,7 @@
       symbol: symbol || "BTCUSDT",
       currentCandle: null,
       positionLines: {},
+      markers: [],
       ro: ro,
     };
 
@@ -268,22 +291,21 @@
     if (s.symbol === binanceSymbol) return;
     s.symbol = binanceSymbol;
     s.currentCandle = null;
-    // Remove all position lines (they belong to the old symbol).
+    s.markers = [];
     window._removeAllPositionLines(containerId);
+    try { s.series.setMarkers([]); } catch (_) {}
     fetchCandles(containerId, binanceSymbol, s.series, s.chart);
   };
 
   // ── Live tick → candlestick ─────────────────────────────────────────────
-  // Builds 1-minute OHLC candles from individual price ticks.
   window._updateLWChartTick = function (containerId, price, timestampMs) {
     var s = charts[containerId];
     if (!s || !price || price <= 0) return;
 
-    var minute = Math.floor(timestampMs / 60000) * 60; // floor to minute boundary (seconds)
+    var minute = Math.floor(timestampMs / 60000) * 60;
 
     var c = s.currentCandle;
     if (!c || minute > c.time) {
-      // New minute — push old candle and start fresh.
       if (c) s.series.update(c);
       c = { time: minute, open: price, high: price, low: price, close: price };
       s.currentCandle = c;
@@ -367,5 +389,32 @@
       }
     });
     s.positionLines = {};
+  };
+
+  // ── Trade markers (entry/exit arrows on chart) ────────────────────────
+
+  window._addLWChartMarker = function (containerId, time, isEntry, isLong, text) {
+    var s = charts[containerId];
+    if (!s) return;
+
+    var marker = {
+      time: time,
+      position: isEntry ? "belowBar" : "aboveBar",
+      color: isLong ? "#26a69a" : "#ef5350",
+      shape: isEntry ? "arrowUp" : "arrowDown",
+      text: text || "",
+    };
+
+    s.markers.push(marker);
+    // Re-sort by time (required by lightweight-charts v5).
+    s.markers.sort(function (a, b) { return a.time - b.time; });
+    s.series.setMarkers(s.markers);
+  };
+
+  window._clearLWChartMarkers = function (containerId) {
+    var s = charts[containerId];
+    if (!s) return;
+    s.markers = [];
+    try { s.series.setMarkers([]); } catch (_) {}
   };
 })();

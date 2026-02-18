@@ -47,6 +47,13 @@ external void _jsRemoveLine(String containerId, String positionId);
 @JS('window._removeAllPositionLines')
 external void _jsRemoveAllLines(String containerId);
 
+@JS('window._addLWChartMarker')
+external void _jsAddMarker(
+    String containerId, int time, bool isEntry, bool isLong, String text);
+
+@JS('window._clearLWChartMarkers')
+external void _jsClearMarkers(String containerId);
+
 // ── Widget ──────────────────────────────────────────────────────────────────
 
 class LWChart extends ConsumerStatefulWidget {
@@ -69,6 +76,8 @@ class _LWChartState extends ConsumerState<LWChart> {
 
   String _assetSymbol = '';
   final Set<String> _drawnLines = {};
+  final Set<String> _drawnMarkerIds = {};
+  String? _lastMatchId;
 
   @override
   void initState() {
@@ -144,6 +153,7 @@ class _LWChartState extends ConsumerState<LWChart> {
     if (!_ready) return;
     _assetSymbol = asset.symbol;
     _drawnLines.clear();
+    _drawnMarkerIds.clear();
     _jsSetSymbol(_containerId, asset.binanceSymbol);
   }
 
@@ -184,6 +194,46 @@ class _LWChartState extends ConsumerState<LWChart> {
     }
   }
 
+  // ── Trade markers (entry/exit arrows) ──────────────────────────────────
+
+  void _syncMarkers(List<Position> positions, bool matchActive) {
+    if (!_ready) return;
+
+    if (!matchActive) return;
+
+    for (final p in positions) {
+      // Only mark positions for the current asset.
+      if (p.assetSymbol != _assetSymbol) continue;
+
+      // Entry marker.
+      final entryMarkerId = '${p.id}_entry';
+      if (!_drawnMarkerIds.contains(entryMarkerId)) {
+        final time = p.openedAt.millisecondsSinceEpoch ~/ 60000 * 60;
+        final text = p.isLong ? 'Long' : 'Short';
+        _jsAddMarker(_containerId, time, true, p.isLong, text);
+        _drawnMarkerIds.add(entryMarkerId);
+      }
+
+      // Exit marker (only when position is closed).
+      final exitMarkerId = '${p.id}_exit';
+      if (!p.isOpen && !_drawnMarkerIds.contains(exitMarkerId)) {
+        final exitTime =
+            (p.closedAt ?? DateTime.now()).millisecondsSinceEpoch ~/ 60000 * 60;
+        final pnlValue = p.pnl(p.exitPrice ?? p.entryPrice);
+        final sign = pnlValue >= 0 ? '+' : '';
+        final text = '$sign\$${pnlValue.toStringAsFixed(2)}';
+        _jsAddMarker(_containerId, exitTime, false, p.isLong, text);
+        _drawnMarkerIds.add(exitMarkerId);
+      }
+    }
+  }
+
+  void _onMatchReset() {
+    if (!_ready) return;
+    _jsClearMarkers(_containerId);
+    _drawnMarkerIds.clear();
+  }
+
   // ── Build ───────────────────────────────────────────────────────────────
 
   @override
@@ -196,7 +246,15 @@ class _LWChartState extends ConsumerState<LWChart> {
       if (prev == null || prev.selectedAssetIndex != next.selectedAssetIndex) {
         _onAssetChanged(next.selectedAsset);
       }
+
+      // Detect match reset (new match or match ended → started).
+      if (prev != null && next.matchId != _lastMatchId) {
+        _lastMatchId = next.matchId;
+        _onMatchReset();
+      }
+
       _syncLines(next.positions, next.matchActive);
+      _syncMarkers(next.positions, next.matchActive);
     });
 
     return HtmlElementView(viewType: _viewType);

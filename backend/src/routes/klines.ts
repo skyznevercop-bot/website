@@ -3,13 +3,20 @@ import { Router, Request, Response } from "express";
 /**
  * Klines (candlestick) proxy — fetches 1-minute OHLC data server-side.
  *
- * Uses Kraken as the primary source (no US geo-block) and Bybit as fallback.
+ * Uses Coinbase as primary (US-friendly, no geo-block), then Kraken, then Bybit.
  * Returns data in Binance klines format so the frontend JS needs no changes:
- *   [ [openTimeMs, open, high, low, close, ...], ... ]
+ *   [ [openTimeMs, open, high, low, close, volume], ... ]
  *
  * GET /api/klines/:symbol   (symbol e.g. "BTCUSDT")
  */
 const router = Router();
+
+// Map Binance-style symbols to Coinbase product IDs
+const COINBASE_PAIRS: Record<string, string> = {
+  BTCUSDT: "BTC-USD",
+  ETHUSDT: "ETH-USD",
+  SOLUSDT: "SOL-USD",
+};
 
 // Map Binance-style symbols to Kraken pairs
 const KRAKEN_PAIRS: Record<string, string> = {
@@ -24,6 +31,33 @@ const BYBIT_PAIRS: Record<string, string> = {
   ETHUSDT: "ETHUSDT",
   SOLUSDT: "SOLUSDT",
 };
+
+async function fetchCoinbase(symbol: string, limit: number): Promise<unknown[] | null> {
+  const productId = COINBASE_PAIRS[symbol];
+  if (!productId) return null;
+
+  const end = new Date();
+  const start = new Date(end.getTime() - limit * 60 * 1000);
+  const url = `https://api.exchange.coinbase.com/products/${productId}/candles?granularity=60&start=${start.toISOString()}&end=${end.toISOString()}`;
+
+  const resp = await fetch(url, { signal: AbortSignal.timeout(8_000) });
+  if (!resp.ok) return null;
+
+  const rows = await resp.json() as number[][];
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  // CRITICAL: Coinbase returns [time_s, LOW, HIGH, open, close, volume]
+  // AND returns newest-first, so reverse to oldest-first.
+  // Convert to Binance format: [openTimeMs, open, high, low, close, volume]
+  return rows.reverse().slice(-limit).map((r) => [
+    r[0] * 1000,    // time_s → openTimeMs
+    String(r[3]),    // open   (index 3 in Coinbase)
+    String(r[2]),    // high   (index 2 in Coinbase)
+    String(r[1]),    // low    (index 1 in Coinbase)
+    String(r[4]),    // close  (index 4 in Coinbase)
+    String(r[5]),    // volume (index 5 in Coinbase)
+  ]);
+}
 
 async function fetchKraken(symbol: string, limit: number): Promise<unknown[] | null> {
   const pair = KRAKEN_PAIRS[symbol];
@@ -84,10 +118,11 @@ router.get("/:symbol", async (req: Request, res: Response) => {
   const symbol = (req.params.symbol || "BTCUSDT").toUpperCase();
   const limit = Math.min(parseInt((req.query.limit as string) || "300", 10), 720);
 
-  // Try Kraken first, then Bybit
+  // Try Coinbase first (US-friendly), then Kraken, then Bybit
   for (const [name, fetcher] of [
-    ["Kraken", () => fetchKraken(symbol, limit)],
-    ["Bybit",  () => fetchBybit(symbol, limit)],
+    ["Coinbase", () => fetchCoinbase(symbol, limit)],
+    ["Kraken",   () => fetchKraken(symbol, limit)],
+    ["Bybit",    () => fetchBybit(symbol, limit)],
   ] as [string, () => Promise<unknown[] | null>][]) {
     try {
       const data = await fetcher();

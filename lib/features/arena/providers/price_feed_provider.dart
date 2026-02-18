@@ -12,14 +12,14 @@ import '../models/trading_models.dart';
 
 /// Provides real-time crypto prices via multiple sources.
 ///
-/// 1. Binance WebSocket aggTrade stream (real-time, fires on every trade).
+/// 1. Coinbase Exchange WebSocket ticker (real-time, fires on every trade).
 /// 2. CoinGecko REST API polling (CORS-friendly, no proxy needed).
 /// 3. Backend WebSocket relay (if connected).
 ///
 /// Incoming WS prices are buffered and flushed every 250ms to avoid
 /// excessive UI rebuilds while staying responsive.
 class PriceFeedNotifier extends Notifier<Map<String, double>> {
-  web.WebSocket? _binanceWs;
+  web.WebSocket? _coinbaseWs;
   Timer? _reconnectTimer;
   Timer? _pollTimer;
   Timer? _flushTimer;
@@ -27,15 +27,14 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   int _reconnectAttempts = 0;
   bool _started = false;
 
-
   /// Buffer for incoming WS prices — flushed to state periodically.
   final Map<String, double> _priceBuffer = {};
 
   static const _flushInterval = Duration(milliseconds: 250);
 
-  /// Map Binance trading pair symbols to our asset symbols.
+  /// Map Coinbase product_id → internal asset symbol.
   static final _symbolMap = {
-    for (final a in TradingAsset.all) a.binanceSymbol: a.symbol,
+    for (final a in TradingAsset.all) a.coinbaseProductId: a.symbol,
   };
 
   final _api = ApiClient.instance;
@@ -53,19 +52,19 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     // 1. Fetch prices from CoinGecko immediately (reliable, CORS-friendly).
     _fetchCoinGecko();
 
-    // 2. Connect Binance WebSocket for real-time streaming.
-    _connectBinanceWs();
+    // 2. Connect Coinbase WebSocket for real-time streaming.
+    _connectCoinbaseWs();
 
     // 3. Start flush timer for buffered WS prices.
     _flushTimer?.cancel();
     _flushTimer = Timer.periodic(_flushInterval, (_) => _flushBuffer());
 
-    // 4. Start polling as fallback — runs until WS is confirmed working.
+    // 4. Start polling as fallback — runs always as safety net.
     _startPolling();
 
     // 5. Always listen to backend WS price_update events.
     // The backend broadcasts prices to match rooms every 3s, so this works
-    // even when Binance WS / CoinGecko are unavailable from the client.
+    // even when Coinbase WS / CoinGecko are unavailable from the client.
     _backendWsSub?.cancel();
     _backendWsSub = _api.wsStream
         .where((d) => d['type'] == 'price_update')
@@ -81,8 +80,8 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
   void stop() {
     _started = false;
-    _binanceWs?.close();
-    _binanceWs = null;
+    _coinbaseWs?.close();
+    _coinbaseWs = null;
     _reconnectTimer?.cancel();
     _pollTimer?.cancel();
     _flushTimer?.cancel();
@@ -90,56 +89,68 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     _priceBuffer.clear();
   }
 
-  // ── Binance WebSocket (primary — real-time) ───────────────────────────────
+  // ── Coinbase WebSocket (primary — real-time, US-friendly) ─────────────────
 
-  void _connectBinanceWs() {
+  void _connectCoinbaseWs() {
     if (!_started) return;
 
-    _binanceWs?.close();
+    _coinbaseWs?.close();
 
-    final streams = TradingAsset.all
-        .map((a) => '${a.binanceSymbol.toLowerCase()}@aggTrade')
-        .join('/');
-    final url = 'wss://stream.binance.com:9443/stream?streams=$streams';
+    const url = 'wss://ws-feed.exchange.coinbase.com';
 
     try {
-      _binanceWs = web.WebSocket(url);
+      _coinbaseWs = web.WebSocket(url);
     } catch (e) {
-      debugPrint('[PriceFeed] WS create failed: $e');
+      debugPrint('[PriceFeed] Coinbase WS create failed: $e');
       return;
     }
 
-    _binanceWs!.onopen = ((web.Event e) {
+    _coinbaseWs!.onopen = ((web.Event e) {
       _reconnectAttempts = 0;
-      debugPrint('[PriceFeed] Binance aggTrade WS connected');
+      debugPrint('[PriceFeed] Coinbase WS connected — subscribing to ticker');
+
+      // Subscribe to ticker channel for all assets.
+      final productIds =
+          TradingAsset.all.map((a) => a.coinbaseProductId).toList();
+      final subMsg = json.encode({
+        'type': 'subscribe',
+        'channels': [
+          {'name': 'ticker', 'product_ids': productIds},
+        ],
+      });
+      _coinbaseWs!.send(subMsg.toJS);
     }).toJS;
 
-    _binanceWs!.onmessage = ((web.MessageEvent event) {
+    _coinbaseWs!.onmessage = ((web.MessageEvent event) {
       try {
-        // event.data is a JSAny — cast to JSString then convert to Dart.
         final raw = (event.data as JSString).toDart;
         final msg = json.decode(raw) as Map<String, dynamic>;
-        final data = msg['data'] as Map<String, dynamic>;
-        final symbol = data['s'] as String; // e.g. 'BTCUSDT'
-        final price = double.parse(data['p'] as String); // trade price
+        final type = msg['type'] as String?;
 
-        final assetSymbol = _symbolMap[symbol];
+        // Only process ticker messages (ignore subscriptions, heartbeat, etc.)
+        if (type != 'ticker') return;
+
+        final productId = msg['product_id'] as String; // e.g. 'BTC-USD'
+        final priceStr = msg['price'] as String;
+        final price = double.parse(priceStr);
+
+        final assetSymbol = _symbolMap[productId];
         if (assetSymbol != null) {
           _priceBuffer[assetSymbol] = price;
         }
       } catch (e) {
-        debugPrint('[PriceFeed] WS parse error: $e');
+        debugPrint('[PriceFeed] Coinbase WS parse error: $e');
       }
     }).toJS;
 
-    _binanceWs!.onclose = ((web.Event e) {
-      debugPrint('[PriceFeed] Binance WS disconnected');
-        if (_started) _scheduleReconnect();
+    _coinbaseWs!.onclose = ((web.Event e) {
+      debugPrint('[PriceFeed] Coinbase WS disconnected');
+      if (_started) _scheduleReconnect();
     }).toJS;
 
-    _binanceWs!.onerror = ((web.Event e) {
-      debugPrint('[PriceFeed] Binance WS error');
-        _binanceWs?.close();
+    _coinbaseWs!.onerror = ((web.Event e) {
+      debugPrint('[PriceFeed] Coinbase WS error');
+      _coinbaseWs?.close();
     }).toJS;
   }
 
@@ -150,7 +161,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     );
     _reconnectAttempts++;
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(delay, _connectBinanceWs);
+    _reconnectTimer = Timer(delay, _connectCoinbaseWs);
   }
 
   // ── CoinGecko REST (fallback — CORS-friendly, no proxy) ───────────────────
@@ -158,8 +169,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   void _startPolling() {
     _pollTimer?.cancel();
     // Poll every 3s always. When WS is working this serves as a safety net;
-    // when WS is down this keeps prices flowing. Previous 10s slow-down
-    // caused prices to appear frozen when WS silently dropped.
+    // when WS is down this keeps prices flowing.
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _fetchCoinGecko();
     });
