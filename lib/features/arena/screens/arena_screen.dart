@@ -1462,6 +1462,7 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
   bool _claiming = false;
   String? _claimTx;
   String? _claimError;
+  String? _claimStatus; // Non-error status shown while waiting for on-chain settlement.
   Timer? _pollTimer;
   int _pollCount = 0;
 
@@ -1561,11 +1562,39 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
     setState(() {
       _claiming = true;
       _claimError = null;
+      _claimStatus = null;
     });
 
     try {
-      final claimInfo =
-          await ApiClient.instance.get('/match/$matchId/claim-info');
+      // claim-info returns 400 while end_game is still confirming on-chain.
+      // The result overlay appears as soon as Firebase is updated (instant),
+      // but the on-chain TX takes several seconds. Retry up to 24 times
+      // (2 minutes total) before surfacing an error to the user.
+      Map<String, dynamic>? claimInfo;
+      for (var attempt = 0; attempt < 24; attempt++) {
+        try {
+          claimInfo = await ApiClient.instance.get('/match/$matchId/claim-info');
+          if (mounted) setState(() => _claimStatus = null);
+          break; // Got a 200 — proceed.
+        } on ApiException catch (e) {
+          if (e.statusCode == 400 && attempt < 23) {
+            if (mounted) {
+              setState(() => _claimStatus = 'Settling on-chain, please wait\u2026');
+            }
+            await Future.delayed(const Duration(seconds: 5));
+            if (!mounted) return;
+            continue;
+          }
+          rethrow; // Give up after 24 attempts or non-400 errors.
+        }
+      }
+
+      if (claimInfo == null) {
+        throw Exception(
+            'On-chain settlement timed out. Please tap Claim Prize again in a moment.');
+      }
+
+      if (mounted) setState(() => _claimStatus = 'Sending claim transaction\u2026');
 
       final wallet = ref.read(walletProvider);
       final walletName = wallet.walletType?.name ?? 'phantom';
@@ -1578,11 +1607,12 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
         treasuryAddress: claimInfo['treasuryAddress'] as String,
       );
 
-      if (mounted) setState(() => _claimTx = txSig);
+      if (mounted) setState(() { _claimTx = txSig; _claimStatus = null; });
     } catch (e) {
       if (mounted) {
         setState(() {
           _claimError = e.toString();
+          _claimStatus = null;
           _claiming = false; // Allow retry on error.
         });
       }
@@ -1902,7 +1932,21 @@ class _MatchResultOverlayState extends ConsumerState<_MatchResultOverlay> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            // On-chain settlement status (shown while waiting, not an error).
+          if (_claimStatus != null && _claiming) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _claimStatus!,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: AppTheme.textSecondary,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
           ],
 
           // Claim success
