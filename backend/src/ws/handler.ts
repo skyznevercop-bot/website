@@ -280,6 +280,13 @@ async function sendPendingMatchRecovery(
   const pending = await getAwaitingDepositMatchForPlayer(address);
   if (!pending || !pending.data.onChainGameId) return;
 
+  // Don't recover stale matches — if the deposit deadline has passed
+  // the timeout loop will cancel it. Sending match_found for a dead
+  // match would drop the player into a broken deposit dialog.
+  if (pending.data.depositDeadline && Date.now() > pending.data.depositDeadline) {
+    return;
+  }
+
   const match = pending.data;
   const opponentAddress = match.player1 === address ? match.player2 : match.player1;
 
