@@ -67,6 +67,15 @@ class MatchResult {
   final double betAmount;
   final DateTime completedAt;
 
+  // Optional detailed stats (available for locally-completed matches).
+  final int? totalTrades;
+  final double? winRate;
+  final double? bestTradePnl;
+  final String? bestTradeAsset;
+  final double? totalVolume;
+  final int? hotStreak;
+  final double? roi;
+
   const MatchResult({
     required this.id,
     required this.opponent,
@@ -75,6 +84,13 @@ class MatchResult {
     required this.pnl,
     this.betAmount = 0,
     required this.completedAt,
+    this.totalTrades,
+    this.winRate,
+    this.bestTradePnl,
+    this.bestTradeAsset,
+    this.totalVolume,
+    this.hotStreak,
+    this.roi,
   });
 
   bool get isWin => result == 'WIN';

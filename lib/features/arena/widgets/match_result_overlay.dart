@@ -10,6 +10,8 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
+import '../../../core/services/audio_service.dart';
+import '../../../core/services/settings_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../providers/trading_provider.dart';
@@ -229,10 +231,12 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
         timer.cancel();
         _showResult();
       } else {
-        // Screen shake on each tick.
-        _shakeCtrl.forward(from: 0).then((_) {
-          if (mounted) _shakeCtrl.reverse();
-        });
+        // Screen shake on each tick (if enabled).
+        if (ref.read(settingsProvider).screenShakeEnabled) {
+          _shakeCtrl.forward(from: 0).then((_) {
+            if (mounted) _shakeCtrl.reverse();
+          });
+        }
         setState(() => _countdownValue--);
       }
     });
@@ -241,6 +245,16 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   void _showResult() {
     setState(() => _phase = _RevealPhase.reveal);
     _resultCtrl.forward();
+
+    // Play result sound.
+    final audio = AudioService.instance;
+    if (widget.state.matchIsTie) {
+      audio.playMatchEnd();
+    } else if (_isWinner) {
+      audio.playVictory();
+    } else {
+      audio.playDefeat();
+    }
 
     // Start particles for victory.
     if (_isWinner) {
@@ -1048,30 +1062,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        ),
-
-        const SizedBox(width: 8),
-
-        // View Match — grayed out (future feature).
-        SizedBox(
-          width: 48,
-          height: 48,
-          child: Tooltip(
-            message: 'Match replay coming soon',
-            child: Container(
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceAlt.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                    color: AppTheme.border.withValues(alpha: 0.5)),
-              ),
-              child: const Center(
-                child: Icon(Icons.play_circle_outline_rounded,
-                    size: 18,
-                    color: AppTheme.textTertiary),
               ),
             ),
           ),

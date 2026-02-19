@@ -28,7 +28,7 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -41,6 +41,7 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
   Widget build(BuildContext context) {
     final open = widget.state.openPositions;
     final closed = widget.state.closedPositions;
+    final orders = widget.state.pendingOrders;
     final isMobile = Responsive.isMobile(context);
 
     return Container(
@@ -52,6 +53,7 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
             tabController: _tabController,
             openCount: open.length,
             closedCount: closed.length,
+            ordersCount: orders.length,
             totalUnrealizedPnl: widget.state.totalUnrealizedPnl,
             onCloseAll: open.isNotEmpty
                 ? () {
@@ -69,6 +71,26 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
             child: AnimatedBuilder(
               animation: _tabController,
               builder: (context, _) {
+                // Tab 2: Pending Orders.
+                if (_tabController.index == 2) {
+                  if (orders.isEmpty) {
+                    return const _EmptyOrdersState();
+                  }
+                  return ListView.builder(
+                    itemCount: orders.length,
+                    padding: const EdgeInsets.all(8),
+                    itemBuilder: (context, index) {
+                      final order = orders[index];
+                      return _LimitOrderCard(
+                        order: order,
+                        onCancel: () => ref
+                            .read(tradingProvider.notifier)
+                            .cancelLimitOrder(order.id),
+                      );
+                    },
+                  );
+                }
+
                 final isPositions = _tabController.index == 0;
                 final items = isPositions ? open : closed;
 
@@ -94,6 +116,11 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
                         onClose: () => ref
                             .read(tradingProvider.notifier)
                             .closePosition(pos.id),
+                        onPartialClose: isPositions
+                            ? () => ref
+                                .read(tradingProvider.notifier)
+                                .closePositionPartial(pos.id, 0.5)
+                            : null,
                       );
                     },
                   );
@@ -124,6 +151,9 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
                             onClose: () => ref
                                 .read(tradingProvider.notifier)
                                 .closePosition(pos.id),
+                            onPartialClose: () => ref
+                                .read(tradingProvider.notifier)
+                                .closePositionPartial(pos.id, 0.5),
                           );
                         },
                       ),
@@ -147,6 +177,7 @@ class _TabHeader extends StatelessWidget {
   final TabController tabController;
   final int openCount;
   final int closedCount;
+  final int ordersCount;
   final double totalUnrealizedPnl;
   final VoidCallback? onCloseAll;
 
@@ -154,6 +185,7 @@ class _TabHeader extends StatelessWidget {
     required this.tabController,
     required this.openCount,
     required this.closedCount,
+    this.ordersCount = 0,
     required this.totalUnrealizedPnl,
     this.onCloseAll,
   });
@@ -178,6 +210,12 @@ class _TabHeader extends StatelessWidget {
               label: 'History',
               index: 1,
               count: closedCount,
+              controller: tabController),
+          const SizedBox(width: 16),
+          _PosTab(
+              label: 'Orders',
+              index: 2,
+              count: ordersCount,
               controller: tabController),
 
           // Unrealized PnL summary.
@@ -384,6 +422,7 @@ class _PositionRow extends StatelessWidget {
   final bool isHovered;
   final ValueChanged<bool> onHover;
   final VoidCallback onClose;
+  final VoidCallback? onPartialClose;
 
   const _PositionRow({
     required this.position,
@@ -392,6 +431,7 @@ class _PositionRow extends StatelessWidget {
     required this.isHovered,
     required this.onHover,
     required this.onClose,
+    this.onPartialClose,
   });
 
   @override
@@ -582,47 +622,84 @@ class _PositionRow extends StatelessWidget {
               if (isOpen)
                 Expanded(
                   flex: 1,
-                  child: Center(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: onClose,
-                        child: Tooltip(
-                          message: 'Close at market',
-                          child: AnimatedContainer(
-                            duration:
-                                const Duration(milliseconds: 120),
-                            width: 28,
-                            height: 28,
-                            decoration: BoxDecoration(
-                              color: isHovered
-                                  ? AppTheme.error
-                                      .withValues(alpha: 0.2)
-                                  : AppTheme.error
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // 50% partial close button.
+                      if (onPartialClose != null)
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: onPartialClose,
+                            child: Tooltip(
+                              message: 'Close 50%',
+                              child: Container(
+                                width: 28,
+                                height: 28,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.warning
                                       .withValues(alpha: 0.1),
-                              borderRadius:
-                                  BorderRadius.circular(6),
-                              border: Border.all(
-                                  color: AppTheme.error
-                                      .withValues(alpha: 0.25)),
-                              boxShadow: isHovered
-                                  ? [
-                                      BoxShadow(
-                                        color: AppTheme.error
-                                            .withValues(alpha: 0.2),
-                                        blurRadius: 6,
-                                      ),
-                                    ]
-                                  : null,
+                                  borderRadius:
+                                      BorderRadius.circular(6),
+                                  border: Border.all(
+                                      color: AppTheme.warning
+                                          .withValues(alpha: 0.25)),
+                                ),
+                                child: Center(
+                                  child: Text('½',
+                                      style: interStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.warning)),
+                                ),
+                              ),
                             ),
-                            child: const Icon(
-                                Icons.close_rounded,
-                                size: 14,
-                                color: AppTheme.error),
+                          ),
+                        ),
+                      const SizedBox(width: 4),
+                      // Full close button.
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: onClose,
+                          child: Tooltip(
+                            message: 'Close at market',
+                            child: AnimatedContainer(
+                              duration:
+                                  const Duration(milliseconds: 120),
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: isHovered
+                                    ? AppTheme.error
+                                        .withValues(alpha: 0.2)
+                                    : AppTheme.error
+                                        .withValues(alpha: 0.1),
+                                borderRadius:
+                                    BorderRadius.circular(6),
+                                border: Border.all(
+                                    color: AppTheme.error
+                                        .withValues(alpha: 0.25)),
+                                boxShadow: isHovered
+                                    ? [
+                                        BoxShadow(
+                                          color: AppTheme.error
+                                              .withValues(alpha: 0.2),
+                                          blurRadius: 6,
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: const Icon(
+                                  Icons.close_rounded,
+                                  size: 14,
+                                  color: AppTheme.error),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               if (!isOpen)
@@ -648,12 +725,14 @@ class _PositionCard extends StatelessWidget {
   final double price;
   final bool isOpen;
   final VoidCallback onClose;
+  final VoidCallback? onPartialClose;
 
   const _PositionCard({
     required this.position,
     required this.price,
     required this.isOpen,
     required this.onClose,
+    this.onPartialClose,
   });
 
   @override
@@ -823,6 +902,30 @@ class _PositionCard extends StatelessWidget {
 
                 const Spacer(),
 
+                // Partial close button (open only).
+                if (isOpen && onPartialClose != null) ...[
+                  GestureDetector(
+                    onTap: onPartialClose,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.warning.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: AppTheme.warning
+                                .withValues(alpha: 0.25)),
+                      ),
+                      child: Text('50%',
+                          style: interStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.warning)),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+
                 // Close button (open only).
                 if (isOpen)
                   GestureDetector(
@@ -870,6 +973,7 @@ class _CloseReasonBadge extends StatelessWidget {
       'tp': 'TP',
       'liquidation': 'Liqd',
       'match_end': 'End',
+      'partial': '50%',
     };
     final colors = {
       'manual': AppTheme.textTertiary,
@@ -877,6 +981,7 @@ class _CloseReasonBadge extends StatelessWidget {
       'tp': AppTheme.success,
       'liquidation': AppTheme.error,
       'match_end': AppTheme.textTertiary,
+      'partial': AppTheme.warning,
     };
     final c = colors[reason] ?? AppTheme.textTertiary;
 
@@ -933,6 +1038,202 @@ class _EmptyState extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Empty Orders State
+// =============================================================================
+
+class _EmptyOrdersState extends StatelessWidget {
+  const _EmptyOrdersState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.pending_actions_rounded,
+              size: 32, color: AppTheme.textTertiary),
+          const SizedBox(height: 8),
+          Text('No pending orders',
+              style: interStyle(
+                  fontSize: 12, color: AppTheme.textTertiary)),
+          const SizedBox(height: 4),
+          Text('Place a limit order to trigger at a target price',
+              style: interStyle(
+                  fontSize: 10, color: AppTheme.textTertiary)),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Limit Order Card
+// =============================================================================
+
+class _LimitOrderCard extends StatelessWidget {
+  final LimitOrder order;
+  final VoidCallback onCancel;
+
+  const _LimitOrderCard({
+    required this.order,
+    required this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final sideColor = order.isLong ? AppTheme.success : AppTheme.error;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border(
+          left: BorderSide(
+            color: AppTheme.solanaPurple.withValues(alpha: 0.7),
+            width: 3,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          children: [
+            // Header: Asset + Side + Limit price.
+            Row(
+              children: [
+                Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: assetColor(order.assetSymbol)
+                        .withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(order.assetSymbol[0],
+                        style: interStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: assetColor(order.assetSymbol))),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Text(order.assetSymbol,
+                    style: interStyle(
+                        fontSize: 14, fontWeight: FontWeight.w700)),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: sideColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    order.isLong ? 'LONG' : 'SHORT',
+                    style: interStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: sideColor),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'LIMIT',
+                    style: interStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.solanaPurple),
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '\$${fmtPrice(order.limitPrice)}',
+                  style: interStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      tabularFigures: true),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Footer: Size + Leverage + Cancel.
+            Row(
+              children: [
+                Text(
+                  '\$${order.size.toStringAsFixed(0)}',
+                  style: interStyle(
+                      fontSize: 12,
+                      color: AppTheme.textSecondary,
+                      tabularFigures: true),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppTheme.surfaceAlt,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(fmtLeverage(order.leverage),
+                      style: interStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textSecondary)),
+                ),
+                if (order.stopLoss != null) ...[
+                  const SizedBox(width: 6),
+                  Text('SL \$${fmtPrice(order.stopLoss!)}',
+                      style: interStyle(
+                          fontSize: 9, color: AppTheme.error)),
+                ],
+                if (order.takeProfit != null) ...[
+                  const SizedBox(width: 6),
+                  Text('TP \$${fmtPrice(order.takeProfit!)}',
+                      style: interStyle(
+                          fontSize: 9, color: AppTheme.success)),
+                ],
+                const Spacer(),
+                GestureDetector(
+                  onTap: onCancel,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: AppTheme.error.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color:
+                                AppTheme.error.withValues(alpha: 0.25)),
+                      ),
+                      child: Text('Cancel',
+                          style: interStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.error)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }

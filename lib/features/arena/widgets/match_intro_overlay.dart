@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/services/audio_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../utils/arena_helpers.dart';
 
@@ -164,13 +165,16 @@ class _MatchIntroOverlayState extends State<MatchIntroOverlay>
     _numberCtrl.forward(from: 0);
     _pulseCtrl.forward(from: 0);
 
+    final audio = AudioService.instance;
     if (phase < 4) {
-      // 3 → 2 → 1: 800ms per number.
+      // 3 → 2 → 1: play countdown tick.
+      audio.playCountdown();
       _sequenceTimer = Timer(const Duration(milliseconds: 800), () {
         _showNumber(phase + 1);
       });
     } else {
-      // FIGHT!
+      // FIGHT! — play match start fanfare.
+      audio.playMatchStart();
       _fightCtrl.forward(from: 0);
       _sequenceTimer = Timer(const Duration(milliseconds: 900), () {
         _fadeOut();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/services/settings_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../models/trading_models.dart';
 import '../providers/trading_provider.dart';
@@ -94,10 +95,11 @@ class _PhaseBannerState extends ConsumerState<PhaseBanner>
     _slideCtrl.forward(from: 0);
 
     // Start secondary animations.
+    final shakeEnabled = ref.read(settingsProvider).screenShakeEnabled;
     if (phase == MatchPhase.finalSprint) {
       _pulseCtrl.repeat(reverse: true);
     } else if (phase == MatchPhase.lastStand) {
-      _shakeCtrl.repeat(reverse: true);
+      if (shakeEnabled) _shakeCtrl.repeat(reverse: true);
       _pulseCtrl.repeat(reverse: true);
     }
 

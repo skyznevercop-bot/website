@@ -4,6 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_client.dart';
+import '../../portfolio/models/transaction_models.dart';
+import '../../portfolio/providers/portfolio_provider.dart';
+import '../../wallet/providers/wallet_provider.dart';
 import '../models/trading_models.dart';
 import '../utils/arena_helpers.dart';
 import 'price_feed_provider.dart';
@@ -38,6 +41,9 @@ class TradingState {
   final int consecutiveWins;
   final int bestStreak;
 
+  // v3: Limit orders
+  final List<LimitOrder> pendingOrders;
+
   static const double demoBalance = 1000000;
 
   const TradingState({
@@ -66,6 +72,7 @@ class TradingState {
     this.leadChangeCount = 0,
     this.consecutiveWins = 0,
     this.bestStreak = 0,
+    this.pendingOrders = const [],
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -132,6 +139,7 @@ class TradingState {
     int? leadChangeCount,
     int? consecutiveWins,
     int? bestStreak,
+    List<LimitOrder>? pendingOrders,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -170,6 +178,7 @@ class TradingState {
       leadChangeCount: leadChangeCount ?? this.leadChangeCount,
       consecutiveWins: consecutiveWins ?? this.consecutiveWins,
       bestStreak: bestStreak ?? this.bestStreak,
+      pendingOrders: pendingOrders ?? this.pendingOrders,
     );
   }
 }
@@ -179,6 +188,8 @@ class TradingNotifier extends Notifier<TradingState> {
   Timer? _checkTimer;
   StreamSubscription? _wsSubscription;
   int _positionCounter = 0;
+  int _orderCounter = 0;
+  MatchPhase _lastCheckPhase = MatchPhase.intro;
 
   final _api = ApiClient.instance;
 
@@ -246,6 +257,7 @@ class TradingNotifier extends Notifier<TradingState> {
         leadChangeCount: 0,
         consecutiveWins: 0,
         bestStreak: 0,
+        pendingOrders: [],
       );
     }
 
@@ -270,12 +282,32 @@ class TradingNotifier extends Notifier<TradingState> {
           matchTimeRemainingSeconds: newRemaining,
           matchPhase: newPhase,
         );
+
+        // Restart check timer if phase changed (dynamic interval).
+        if (newPhase != _lastCheckPhase) {
+          _lastCheckPhase = newPhase;
+          _restartCheckTimer(newPhase);
+        }
       }
     });
 
-    // Check SL/TP/liquidation every 500ms.
+    // Check SL/TP/liquidation with phase-aware interval.
+    _lastCheckPhase = MatchPhase.intro;
+    _restartCheckTimer(MatchPhase.openingBell);
+  }
+
+  /// Phase-aware check interval: faster checks when match is more intense.
+  void _restartCheckTimer(MatchPhase phase) {
     _checkTimer?.cancel();
-    _checkTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    final ms = switch (phase) {
+      MatchPhase.intro => 500,
+      MatchPhase.openingBell => 500,
+      MatchPhase.midGame => 500,
+      MatchPhase.finalSprint => 350,
+      MatchPhase.lastStand => 200,
+      MatchPhase.ended => 500,
+    };
+    _checkTimer = Timer.periodic(Duration(milliseconds: ms), (_) {
       _checkPositions();
     });
   }
@@ -462,6 +494,26 @@ class TradingNotifier extends Notifier<TradingState> {
 
       final price = prices[p.assetSymbol] ?? p.entryPrice;
 
+      // ── Trailing stop-loss: move SL with price ──
+      if (p.trailingStopDistance != null && p.trailingStopDistance! > 0) {
+        p.trailingPeakPrice ??= p.entryPrice;
+        if (p.isLong) {
+          if (price > p.trailingPeakPrice!) p.trailingPeakPrice = price;
+          final newSl = p.trailingPeakPrice! - p.trailingStopDistance!;
+          if (p.stopLoss == null || newSl > p.stopLoss!) {
+            p.stopLoss = newSl;
+            changed = true;
+          }
+        } else {
+          if (price < p.trailingPeakPrice!) p.trailingPeakPrice = price;
+          final newSl = p.trailingPeakPrice! + p.trailingStopDistance!;
+          if (p.stopLoss == null || newSl < p.stopLoss!) {
+            p.stopLoss = newSl;
+            changed = true;
+          }
+        }
+      }
+
       // Check liquidation.
       final isLiquidated = p.isLong
           ? price <= p.liquidationPrice
@@ -513,6 +565,57 @@ class TradingNotifier extends Notifier<TradingState> {
       return p;
     }).toList();
 
+    // ── Check pending limit orders ──
+    bool ordersChanged = false;
+    final remainingOrders = <LimitOrder>[];
+    for (final order in state.pendingOrders) {
+      final price = prices[order.assetSymbol];
+      if (price == null) {
+        remainingOrders.add(order);
+        continue;
+      }
+      // Long limit: trigger when price drops to or below limit price.
+      // Short limit: trigger when price rises to or above limit price.
+      final triggered = order.isLong
+          ? price <= order.limitPrice
+          : price >= order.limitPrice;
+      if (triggered && order.size <= state.balance + balanceAdjust) {
+        _positionCounter++;
+        final pos = Position(
+          id: 'pos_$_positionCounter',
+          assetSymbol: order.assetSymbol,
+          isLong: order.isLong,
+          entryPrice: price,
+          size: order.size,
+          leverage: order.leverage,
+          openedAt: now,
+          stopLoss: order.stopLoss,
+          takeProfit: order.takeProfit,
+          trailingStopDistance: order.trailingStopDistance,
+        );
+        updatedPositions.add(pos);
+        balanceAdjust -= order.size;
+        ordersChanged = true;
+        changed = true;
+
+        if (state.matchId != null) {
+          _api.wsSend({
+            'type': 'open_position',
+            'matchId': state.matchId,
+            'positionId': pos.id,
+            'asset': order.assetSymbol,
+            'isLong': order.isLong,
+            'size': order.size,
+            'leverage': order.leverage,
+            'sl': order.stopLoss,
+            'tp': order.takeProfit,
+          });
+        }
+      } else {
+        remainingOrders.add(order);
+      }
+    }
+
     if (changed) {
       final newBalance = state.balance + balanceAdjust;
       // Recalculate equity for peak tracking.
@@ -544,6 +647,7 @@ class TradingNotifier extends Notifier<TradingState> {
             newEquity > state.peakEquity ? newEquity : null,
         consecutiveWins: newConsecutive,
         bestStreak: newBest,
+        pendingOrders: ordersChanged ? remainingOrders : null,
       );
     } else {
       // Even without position changes, track peak equity from price moves.
@@ -566,6 +670,7 @@ class TradingNotifier extends Notifier<TradingState> {
     required double leverage,
     double? stopLoss,
     double? takeProfit,
+    double? trailingStopDistance,
   }) {
     if (size > state.balance || size <= 0) return;
 
@@ -583,6 +688,7 @@ class TradingNotifier extends Notifier<TradingState> {
       openedAt: DateTime.now(),
       stopLoss: stopLoss,
       takeProfit: takeProfit,
+      trailingStopDistance: trailingStopDistance,
     );
 
     state = state.copyWith(
@@ -652,6 +758,116 @@ class TradingNotifier extends Notifier<TradingState> {
         'positionId': positionId,
       });
     }
+  }
+
+  /// Partially close a position (e.g. close 50%).
+  /// Creates a new closed Position for the partial amount, reduces the original.
+  void closePositionPartial(String positionId, double fraction) {
+    if (fraction <= 0 || fraction >= 1) {
+      closePosition(positionId);
+      return;
+    }
+
+    final now = DateTime.now();
+    final idx = state.positions.indexWhere(
+        (p) => p.id == positionId && p.isOpen);
+    if (idx == -1) return;
+
+    final original = state.positions[idx];
+    final currentPrice =
+        state.currentPrices[original.assetSymbol] ?? original.entryPrice;
+    final partialSize = original.size * fraction;
+    final partialPnl =
+        partialSize * original.leverage *
+        ((currentPrice - original.entryPrice) / original.entryPrice) *
+        (original.isLong ? 1.0 : -1.0);
+
+    // Create closed position for the partial amount.
+    _positionCounter++;
+    final closedPart = Position(
+      id: 'pos_$_positionCounter',
+      assetSymbol: original.assetSymbol,
+      isLong: original.isLong,
+      entryPrice: original.entryPrice,
+      size: partialSize,
+      leverage: original.leverage,
+      openedAt: original.openedAt,
+      exitPrice: currentPrice,
+      closedAt: now,
+      closeReason: 'partial',
+    );
+
+    // Reduce original position's size.
+    original.size -= partialSize;
+
+    final balanceReturn = partialSize + partialPnl;
+    final updatedPositions = [...state.positions, closedPart];
+
+    // Track consecutive wins/losses.
+    int newConsecutive = state.consecutiveWins;
+    int newBest = state.bestStreak;
+    if (partialPnl >= 0) {
+      newConsecutive++;
+      if (newConsecutive > newBest) newBest = newConsecutive;
+    } else {
+      newConsecutive = 0;
+    }
+
+    state = state.copyWith(
+      positions: updatedPositions,
+      balance: state.balance + balanceReturn,
+      consecutiveWins: newConsecutive,
+      bestStreak: newBest,
+    );
+
+    if (state.matchId != null) {
+      _api.wsSend({
+        'type': 'partial_close',
+        'matchId': state.matchId,
+        'positionId': positionId,
+        'fraction': fraction,
+      });
+    }
+  }
+
+  /// Place a pending limit order.
+  void placeLimitOrder({
+    required String assetSymbol,
+    required bool isLong,
+    required double limitPrice,
+    required double size,
+    required double leverage,
+    double? stopLoss,
+    double? takeProfit,
+    double? trailingStopDistance,
+  }) {
+    if (size <= 0) return;
+
+    _orderCounter++;
+    final order = LimitOrder(
+      id: 'ord_$_orderCounter',
+      assetSymbol: assetSymbol,
+      isLong: isLong,
+      limitPrice: limitPrice,
+      size: size,
+      leverage: leverage,
+      stopLoss: stopLoss,
+      takeProfit: takeProfit,
+      trailingStopDistance: trailingStopDistance,
+      createdAt: DateTime.now(),
+    );
+
+    state = state.copyWith(
+      pendingOrders: [...state.pendingOrders, order],
+    );
+  }
+
+  /// Cancel a pending limit order.
+  void cancelLimitOrder(String orderId) {
+    state = state.copyWith(
+      pendingOrders:
+          state.pendingOrders.where((o) => o.id != orderId).toList(),
+    );
   }
 
   /// Check if the player has an active match on the backend.
@@ -789,7 +1005,49 @@ class TradingNotifier extends Notifier<TradingState> {
       _startResultPolling();
     } else {
       _resultPollTimer?.cancel();
+      _persistMatchResult(stats, resolvedWinner, resolvedIsTie);
     }
+  }
+
+  /// Persist match result into portfolio history for the match history tab.
+  void _persistMatchResult(
+      MatchStats stats, String? winner, bool isTie) {
+    final wallet = ref.read(walletProvider);
+    final isWin =
+        !isTie && winner != null && winner == wallet.address;
+    final result = isTie
+        ? 'TIE'
+        : isWin
+            ? 'WIN'
+            : 'LOSS';
+
+    final pnl = state.initialBalance > 0
+        ? state.equity - state.initialBalance
+        : 0.0;
+
+    final durationMin = state.totalDurationSeconds ~/ 60;
+    final durationLabel = durationMin >= 60
+        ? '${durationMin ~/ 60}h'
+        : '${durationMin}m';
+
+    ref.read(portfolioProvider.notifier).addMatchResult(
+          MatchResult(
+            id: state.matchId ?? 'local_${DateTime.now().millisecondsSinceEpoch}',
+            opponent: state.opponentGamerTag ?? 'Unknown',
+            duration: durationLabel,
+            result: result,
+            pnl: pnl,
+            betAmount: 0,
+            completedAt: DateTime.now(),
+            totalTrades: stats.totalTrades,
+            winRate: stats.winRate,
+            bestTradePnl: stats.bestTradePnl,
+            bestTradeAsset: stats.bestTradeAsset,
+            totalVolume: stats.totalVolume,
+            hotStreak: stats.hotStreak,
+            roi: stats.roi,
+          ),
+        );
   }
 
   void _startResultPolling() {

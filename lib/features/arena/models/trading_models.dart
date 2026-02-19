@@ -230,20 +230,50 @@ class TradingAsset {
   ];
 }
 
+/// A pending limit order waiting to trigger at a target price.
+class LimitOrder {
+  final String id;
+  final String assetSymbol;
+  final bool isLong;
+  final double limitPrice;
+  final double size;
+  final double leverage;
+  final double? stopLoss;
+  final double? takeProfit;
+  final double? trailingStopDistance;
+  final DateTime createdAt;
+
+  const LimitOrder({
+    required this.id,
+    required this.assetSymbol,
+    required this.isLong,
+    required this.limitPrice,
+    required this.size,
+    required this.leverage,
+    this.stopLoss,
+    this.takeProfit,
+    this.trailingStopDistance,
+    required this.createdAt,
+  });
+}
+
 /// Represents an open or closed trading position.
 class Position {
   final String id;
   final String assetSymbol;
   final bool isLong;
   final double entryPrice;
-  final double size; // margin in USDC
+  double size; // margin in USDC (mutable for partial close)
   final double leverage;
   final DateTime openedAt;
-  final double? stopLoss;
+  double? stopLoss;
   final double? takeProfit;
+  final double? trailingStopDistance;
+  /// Peak favorable price since open — used for trailing stop calculation.
+  double? trailingPeakPrice;
   double? exitPrice;
   DateTime? closedAt;
-  String? closeReason; // 'manual', 'sl', 'tp', 'liquidation', 'match_end'
+  String? closeReason; // 'manual', 'sl', 'tp', 'liquidation', 'match_end', 'partial'
 
   Position({
     required this.id,
@@ -255,6 +285,8 @@ class Position {
     required this.openedAt,
     this.stopLoss,
     this.takeProfit,
+    this.trailingStopDistance,
+    this.trailingPeakPrice,
     this.exitPrice,
     this.closedAt,
     this.closeReason,

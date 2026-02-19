@@ -309,6 +309,17 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     }
   }
 
+  /// Add a locally-completed match result to the history.
+  void addMatchResult(MatchResult result) {
+    // Avoid duplicates (same matchId).
+    final existing = state.matchHistory.any((m) => m.id == result.id);
+    if (existing) return;
+
+    state = state.copyWith(
+      matchHistory: [result, ...state.matchHistory],
+    );
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }

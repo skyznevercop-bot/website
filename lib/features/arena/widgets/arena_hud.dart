@@ -65,20 +65,8 @@ class ArenaHud extends ConsumerWidget {
           ),
           child: Row(
             children: [
-              // ── Left: Back + Player stats ──
+              // ── Left: Back ──
               _BackButton(state: state, isMobile: isMobile),
-              const SizedBox(width: 8),
-              if (!isMobile) ...[
-                _PlayerBadge(
-                  equity: state.equity,
-                  roi: roi,
-                  balance: state.balance,
-                ),
-                const SizedBox(width: 8),
-              ] else ...[
-                _CompactRoiBadge(roi: roi),
-                const SizedBox(width: 6),
-              ],
 
               const Spacer(),
 
@@ -93,7 +81,7 @@ class ArenaHud extends ConsumerWidget {
 
               const Spacer(),
 
-              // ── Right: Opponent + Chat ──
+              // ── Right: Opponent + Player stats + Equity + Chat ──
               if (state.matchActive && state.opponentGamerTag != null) ...[
                 _OpponentBadge(
                   tag: state.opponentGamerTag!,
@@ -104,11 +92,24 @@ class ArenaHud extends ConsumerWidget {
                 const SizedBox(width: 8),
               ],
               if (!isMobile) ...[
+                _PlayerBadge(
+                  equity: state.equity,
+                  roi: roi,
+                  balance: state.balance,
+                ),
+                const SizedBox(width: 8),
                 _StatChip(
                   label: 'Equity',
                   value: fmtBalance(state.equity),
                 ),
                 const SizedBox(width: 8),
+              ] else ...[
+                _MobileStatCycler(
+                  roi: roi,
+                  balance: state.balance,
+                  equity: state.equity,
+                ),
+                const SizedBox(width: 6),
               ],
               _ChatToggle(isOpen: chatOpen, onTap: onChatToggle),
             ],
@@ -272,31 +273,92 @@ class _PlayerBadge extends StatelessWidget {
 }
 
 // =============================================================================
-// Compact ROI Badge — mobile version (just the ROI pill)
+// Mobile Stat Cycler — tap to cycle through ROI / Balance / Equity
 // =============================================================================
 
-class _CompactRoiBadge extends StatelessWidget {
+class _MobileStatCycler extends StatefulWidget {
   final double roi;
+  final double balance;
+  final double equity;
 
-  const _CompactRoiBadge({required this.roi});
+  const _MobileStatCycler({
+    required this.roi,
+    required this.balance,
+    required this.equity,
+  });
+
+  @override
+  State<_MobileStatCycler> createState() => _MobileStatCyclerState();
+}
+
+class _MobileStatCyclerState extends State<_MobileStatCycler> {
+  int _index = 0; // 0=ROI, 1=Balance, 2=Equity
+
+  String get _label => const ['ROI', 'Balance', 'Equity'][_index];
+
+  String get _value {
+    switch (_index) {
+      case 0:
+        return fmtPercent(widget.roi);
+      case 1:
+        return fmtBalance(widget.balance);
+      case 2:
+        return fmtBalance(widget.equity);
+      default:
+        return '';
+    }
+  }
+
+  Color get _color => _index == 0 ? pnlColor(widget.roi) : AppTheme.textPrimary;
 
   @override
   Widget build(BuildContext context) {
-    final col = pnlColor(roi);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: col.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: col.withValues(alpha: 0.2)),
-      ),
-      child: Text(
-        fmtPercent(roi),
-        style: interStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w700,
-          color: col,
-          tabularFigures: true,
+    return GestureDetector(
+      onTap: () => setState(() => _index = (_index + 1) % 3),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Container(
+            key: ValueKey(_index),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: (_index == 0
+                      ? pnlColor(widget.roi)
+                      : AppTheme.solanaPurple)
+                  .withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                color: (_index == 0
+                        ? pnlColor(widget.roi)
+                        : AppTheme.solanaPurple)
+                    .withValues(alpha: 0.2),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _label,
+                  style: interStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textTertiary,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _value,
+                  style: interStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _color,
+                    tabularFigures: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

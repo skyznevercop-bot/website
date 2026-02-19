@@ -27,6 +27,10 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   int _reconnectAttempts = 0;
   bool _started = false;
 
+  /// Tracks Coinbase WS health to skip CoinGecko when healthy.
+  bool _coinbaseHealthy = false;
+  DateTime? _lastCoinbaseTick;
+
   /// Buffer for incoming WS prices — flushed to state periodically.
   final Map<String, double> _priceBuffer = {};
 
@@ -107,6 +111,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
 
     _coinbaseWs!.onopen = ((web.Event e) {
       _reconnectAttempts = 0;
+      _coinbaseHealthy = true;
       debugPrint('[PriceFeed] Coinbase WS connected — subscribing to ticker');
 
       // Subscribe to ticker channel for all assets.
@@ -137,6 +142,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
         final assetSymbol = _symbolMap[productId];
         if (assetSymbol != null) {
           _priceBuffer[assetSymbol] = price;
+          _lastCoinbaseTick = DateTime.now();
         }
       } catch (e) {
         debugPrint('[PriceFeed] Coinbase WS parse error: $e');
@@ -144,6 +150,7 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
     }).toJS;
 
     _coinbaseWs!.onclose = ((web.Event e) {
+      _coinbaseHealthy = false;
       debugPrint('[PriceFeed] Coinbase WS disconnected');
       if (_started) _scheduleReconnect();
     }).toJS;
@@ -176,6 +183,12 @@ class PriceFeedNotifier extends Notifier<Map<String, double>> {
   }
 
   Future<void> _fetchCoinGecko() async {
+    // Skip polling when Coinbase WS is healthy and recently ticking.
+    if (_coinbaseHealthy && _lastCoinbaseTick != null) {
+      final age = DateTime.now().difference(_lastCoinbaseTick!);
+      if (age.inSeconds < 5) return;
+    }
+
     try {
       final ids = TradingAsset.all.map((a) => a.coingeckoId).join(',');
       final uri = Uri.parse(

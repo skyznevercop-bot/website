@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../../../core/services/audio_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../providers/trading_provider.dart';
@@ -26,10 +27,13 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
   final _sizeCtrl = TextEditingController(text: '10000');
   final _slCtrl = TextEditingController();
   final _tpCtrl = TextEditingController();
+  final _limitPriceCtrl = TextEditingController();
   double _leverage = 10;
   bool _isLong = true;
   bool _showSlTp = false;
   bool _actionHovered = false;
+  bool _isLimitOrder = false;
+  bool _trailingSl = false;
 
   // Price flash animation.
   late final AnimationController _priceFlashCtrl;
@@ -62,6 +66,7 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
     _sizeCtrl.dispose();
     _slCtrl.dispose();
     _tpCtrl.dispose();
+    _limitPriceCtrl.dispose();
     super.dispose();
   }
 
@@ -82,21 +87,106 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
       return;
     }
 
+    // Extreme leverage confirmation (>= 50x).
+    if (_leverage >= 50) {
+      _showLeverageConfirmation(size);
+      return;
+    }
+
+    _executeOrder(size);
+  }
+
+  void _showLeverageConfirmation(double size) {
+    final currentPrice = widget.state.currentPrice;
+    final liqPrice = _isLong
+        ? currentPrice * (1 - (1 / _leverage) * 0.9)
+        : currentPrice * (1 + (1 / _leverage) * 0.9);
+    final liqDist = ((currentPrice - liqPrice).abs() / currentPrice * 100);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded,
+                color: AppTheme.warning, size: 22),
+            const SizedBox(width: 8),
+            Text('Extreme Leverage',
+                style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: AppTheme.textPrimary)),
+          ],
+        ),
+        content: Text(
+          'You\'re about to open a ${_isLong ? "LONG" : "SHORT"} position at ${_leverage.toStringAsFixed(0)}x leverage. '
+          'Liquidation is only ${liqDist.toStringAsFixed(1)}% away from entry.',
+          style: GoogleFonts.inter(
+              fontSize: 14, color: AppTheme.textSecondary),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.error),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _executeOrder(size);
+            },
+            child: Text('Confirm ${_leverage.toStringAsFixed(0)}x',
+                style: GoogleFonts.inter(fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _executeOrder(double size) {
     final sl = double.tryParse(_slCtrl.text);
     final tp = double.tryParse(_tpCtrl.text);
+    final trailingDist = _trailingSl ? sl : null;
+    final effectiveSl = _trailingSl ? null : sl;
 
-    ref.read(tradingProvider.notifier).openPosition(
-          assetSymbol: widget.state.selectedAsset.symbol,
-          isLong: _isLong,
-          size: size,
-          leverage: _leverage,
-          stopLoss: sl,
-          takeProfit: tp,
-        );
+    AudioService.instance.playTradeOpen();
+
+    if (_isLimitOrder) {
+      final limitPrice = double.tryParse(_limitPriceCtrl.text);
+      if (limitPrice == null || limitPrice <= 0) return;
+
+      ref.read(tradingProvider.notifier).placeLimitOrder(
+            assetSymbol: widget.state.selectedAsset.symbol,
+            isLong: _isLong,
+            limitPrice: limitPrice,
+            size: size,
+            leverage: _leverage,
+            stopLoss: effectiveSl,
+            takeProfit: tp,
+            trailingStopDistance: trailingDist,
+          );
+    } else {
+      ref.read(tradingProvider.notifier).openPosition(
+            assetSymbol: widget.state.selectedAsset.symbol,
+            isLong: _isLong,
+            size: size,
+            leverage: _leverage,
+            stopLoss: effectiveSl,
+            takeProfit: tp,
+            trailingStopDistance: trailingDist,
+          );
+    }
 
     _slCtrl.clear();
     _tpCtrl.clear();
-    setState(() => _showSlTp = false);
+    _limitPriceCtrl.clear();
+    setState(() {
+      _showSlTp = false;
+      _trailingSl = false;
+    });
   }
 
   bool _isPctActive(int pct, double balance) {
@@ -141,42 +231,96 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Market order header + live price ──
+                  // ── Order type toggle + live price ──
                   Row(
                     children: [
-                      Text('MARKET ORDER',
-                          style: interStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.textTertiary,
-                            letterSpacing: 1,
-                          )),
-                      const Spacer(),
-                      // Animated price flash.
-                      AnimatedBuilder(
-                        animation: _priceFlashCtrl,
-                        builder: (context, _) {
-                          final flashColor = _priceDirection == 1
-                              ? AppTheme.success
-                              : _priceDirection == -1
-                                  ? AppTheme.error
-                                  : AppTheme.textPrimary;
-                          final color = Color.lerp(
-                            flashColor,
-                            AppTheme.textPrimary,
-                            _priceFlashCtrl.value,
-                          )!;
-                          return Text(
-                            '\$${fmtPrice(currentPrice)}',
-                            style: interStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              color: color,
-                              tabularFigures: true,
+                      // Market / Limit toggle.
+                      Container(
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: AppTheme.surfaceAlt,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppTheme.border),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _OrderTypeTab(
+                              label: 'MARKET',
+                              isActive: !_isLimitOrder,
+                              onTap: () =>
+                                  setState(() => _isLimitOrder = false),
                             ),
-                          );
-                        },
+                            _OrderTypeTab(
+                              label: 'LIMIT',
+                              isActive: _isLimitOrder,
+                              onTap: () =>
+                                  setState(() => _isLimitOrder = true),
+                            ),
+                          ],
+                        ),
                       ),
+                      const Spacer(),
+                      // Animated price flash or limit price input.
+                      if (!_isLimitOrder)
+                        AnimatedBuilder(
+                          animation: _priceFlashCtrl,
+                          builder: (context, _) {
+                            final flashColor = _priceDirection == 1
+                                ? AppTheme.success
+                                : _priceDirection == -1
+                                    ? AppTheme.error
+                                    : AppTheme.textPrimary;
+                            final color = Color.lerp(
+                              flashColor,
+                              AppTheme.textPrimary,
+                              _priceFlashCtrl.value,
+                            )!;
+                            return Text(
+                              '\$${fmtPrice(currentPrice)}',
+                              style: interStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.w700,
+                                color: color,
+                                tabularFigures: true,
+                              ),
+                            );
+                          },
+                        )
+                      else
+                        SizedBox(
+                          width: 140,
+                          child: TextField(
+                            controller: _limitPriceCtrl,
+                            keyboardType: TextInputType.number,
+                            textAlign: TextAlign.right,
+                            style: interStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.solanaPurple,
+                            ),
+                            inputFormatters: [
+                              FilteringTextInputFormatter.allow(
+                                  RegExp(r'^\d+\.?\d{0,2}')),
+                            ],
+                            decoration: InputDecoration(
+                              hintText: fmtPrice(currentPrice),
+                              hintStyle: interStyle(
+                                  fontSize: 18,
+                                  color: AppTheme.textTertiary),
+                              contentPadding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 4),
+                              isDense: true,
+                              prefixText: '\$',
+                              prefixStyle: interStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.solanaPurple,
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -326,12 +470,48 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
 
                   // ── TP/SL toggle ──
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('Take Profit / Stop Loss',
                           style: interStyle(
                               fontSize: 12,
                               color: AppTheme.textSecondary)),
+                      const Spacer(),
+                      if (_showSlTp)
+                        GestureDetector(
+                          onTap: () =>
+                              setState(() => _trailingSl = !_trailingSl),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: _trailingSl
+                                    ? AppTheme.solanaPurple
+                                        .withValues(alpha: 0.12)
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: _trailingSl
+                                      ? AppTheme.solanaPurple
+                                          .withValues(alpha: 0.3)
+                                      : AppTheme.border,
+                                ),
+                              ),
+                              child: Text(
+                                'Trailing',
+                                style: interStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: _trailingSl
+                                      ? AppTheme.solanaPurple
+                                      : AppTheme.textTertiary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       SizedBox(
                         height: 24,
                         width: 40,
@@ -354,6 +534,7 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
                       tpCtrl: _tpCtrl,
                       isLong: _isLong,
                       currentPrice: currentPrice,
+                      isTrailing: _trailingSl,
                     ),
                     crossFadeState: _showSlTp
                         ? CrossFadeState.showSecond
@@ -425,7 +606,7 @@ class _OrderPanelState extends ConsumerState<OrderPanel>
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  '${_isLong ? "LONG" : "SHORT"} ${asset.symbol} @ ${fmtLeverage(_leverage)}',
+                                  '${_isLimitOrder ? "LIMIT " : ""}${_isLong ? "LONG" : "SHORT"} ${asset.symbol} @ ${fmtLeverage(_leverage)}',
                                   style: interStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
@@ -736,12 +917,14 @@ class _SlTpInputs extends StatelessWidget {
   final TextEditingController tpCtrl;
   final bool isLong;
   final double currentPrice;
+  final bool isTrailing;
 
   const _SlTpInputs({
     required this.slCtrl,
     required this.tpCtrl,
     required this.isLong,
     required this.currentPrice,
+    this.isTrailing = false,
   });
 
   @override
@@ -749,9 +932,11 @@ class _SlTpInputs extends StatelessWidget {
     final tpHint = isLong
         ? (currentPrice * 1.02).toStringAsFixed(2)
         : (currentPrice * 0.98).toStringAsFixed(2);
-    final slHint = isLong
-        ? (currentPrice * 0.98).toStringAsFixed(2)
-        : (currentPrice * 1.02).toStringAsFixed(2);
+    final slHint = isTrailing
+        ? (currentPrice * 0.02).toStringAsFixed(2)
+        : isLong
+            ? (currentPrice * 0.98).toStringAsFixed(2)
+            : (currentPrice * 1.02).toStringAsFixed(2);
 
     return Padding(
       padding: const EdgeInsets.only(top: 10),
@@ -793,9 +978,12 @@ class _SlTpInputs extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('SL Price',
+                Text(isTrailing ? 'Trail Dist' : 'SL Price',
                     style: interStyle(
-                        fontSize: 10, color: AppTheme.error)),
+                        fontSize: 10,
+                        color: isTrailing
+                            ? AppTheme.solanaPurple
+                            : AppTheme.error)),
                 const SizedBox(height: 4),
                 TextField(
                   controller: slCtrl,
@@ -821,6 +1009,52 @@ class _SlTpInputs extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Order Type Tab (Market / Limit)
+// =============================================================================
+
+class _OrderTypeTab extends StatelessWidget {
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+
+  const _OrderTypeTab({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: isActive
+                ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            label,
+            style: interStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: isActive
+                  ? AppTheme.solanaPurple
+                  : AppTheme.textTertiary,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
       ),
     );
   }

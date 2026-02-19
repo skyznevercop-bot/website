@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/services/audio_service.dart';
 import '../models/match_event.dart';
 import '../models/trading_models.dart';
 import '../utils/arena_helpers.dart';
@@ -40,6 +41,10 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
   int _prevOpponentPositionCount = 0;
   double _prevEquity = TradingState.demoBalance;
   bool _wasMatchActive = false;
+
+  // Big move tracking: previous prices and cooldown per asset.
+  Map<String, double> _prevPrices = {};
+  final Map<String, DateTime> _bigMoveCooldown = {};
 
   @override
   MatchEventsState build() {
@@ -141,6 +146,32 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
     }
     _prevOpponentPositionCount = next.opponentPositionCount;
 
+    // ── Big price moves (>= 2% per asset, 10s cooldown) ──
+    final now = DateTime.now();
+    for (final entry in next.currentPrices.entries) {
+      final symbol = entry.key;
+      final price = entry.value;
+      final prev = _prevPrices[symbol];
+      if (prev != null && prev > 0) {
+        final pctChange = (price - prev) / prev * 100;
+        if (pctChange.abs() >= 2.0) {
+          final cooldownEnd = _bigMoveCooldown[symbol];
+          if (cooldownEnd == null || now.isAfter(cooldownEnd)) {
+            final direction = pctChange > 0 ? 'surged' : 'dropped';
+            final sign = pctChange > 0 ? '+' : '';
+            _addEvent(
+              EventType.bigMove,
+              '$symbol $direction $sign${pctChange.toStringAsFixed(1)}%!',
+            );
+            _bigMoveCooldown[symbol] = now.add(const Duration(seconds: 10));
+            _prevPrices[symbol] = price;
+          }
+        }
+      } else {
+        _prevPrices[symbol] = price;
+      }
+    }
+
     // ── ROI milestones (every 5%) ──
     final roi = next.initialBalance > 0
         ? (next.equity - next.initialBalance) / next.initialBalance * 100
@@ -179,6 +210,32 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
       color: eventColor(type),
     );
 
+    // Play sound for the event.
+    final audio = AudioService.instance;
+    switch (type) {
+      case EventType.phaseChange:
+        audio.playPhaseChange();
+      case EventType.leadChange:
+        audio.playLeadChange();
+      case EventType.streak:
+        audio.playStreak();
+      case EventType.tradeResult:
+        // Win or loss determined by message content.
+        if (message.contains('+')) {
+          audio.playWin();
+        } else {
+          audio.playLoss();
+        }
+      case EventType.liquidation:
+        audio.playLiquidation();
+      case EventType.milestone:
+        audio.playMilestone();
+      case EventType.bigMove:
+        audio.playPhaseChange();
+      case EventType.opponentTrade:
+        break; // No sound for opponent activity.
+    }
+
     // Keep rolling list of last 50 events.
     final updated = [...state.events, event];
     if (updated.length > 50) {
@@ -199,6 +256,8 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
     _prevClosedCount = 0;
     _prevOpponentPositionCount = 0;
     _prevEquity = TradingState.demoBalance;
+    _prevPrices = {};
+    _bigMoveCooldown.clear();
     state = const MatchEventsState();
   }
 
