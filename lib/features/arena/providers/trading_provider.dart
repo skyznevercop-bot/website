@@ -548,7 +548,7 @@ class TradingNotifier extends Notifier<TradingState> {
         p.closedAt = now;
         p.closeReason = 'liquidation';
         final pnl = p.pnl(p.liquidationPrice);
-        balanceAdjust += p.size + pnl;
+        balanceAdjust += (p.size + pnl).clamp(0.0, double.infinity);
         closedPnls.add(pnl);
         changed = true;
         return p;
@@ -563,7 +563,7 @@ class TradingNotifier extends Notifier<TradingState> {
           p.closedAt = now;
           p.closeReason = 'sl';
           final pnl = p.pnl(p.stopLoss!);
-          balanceAdjust += p.size + pnl;
+          balanceAdjust += (p.size + pnl).clamp(0.0, double.infinity);
           closedPnls.add(pnl);
           changed = true;
           return p;
@@ -579,7 +579,7 @@ class TradingNotifier extends Notifier<TradingState> {
           p.closedAt = now;
           p.closeReason = 'tp';
           final pnl = p.pnl(p.takeProfit!);
-          balanceAdjust += p.size + pnl;
+          balanceAdjust += (p.size + pnl).clamp(0.0, double.infinity);
           closedPnls.add(pnl);
           changed = true;
           return p;
@@ -641,7 +641,7 @@ class TradingNotifier extends Notifier<TradingState> {
     }
 
     if (changed) {
-      final newBalance = state.balance + balanceAdjust;
+      final newBalance = (state.balance + balanceAdjust).clamp(0.0, double.infinity);
       // Recalculate equity for peak tracking.
       double unrealized = 0;
       for (final p in updatedPositions) {
@@ -746,11 +746,19 @@ class TradingNotifier extends Notifier<TradingState> {
       if (p.id == positionId && p.isOpen) {
         final currentPrice =
             state.currentPrices[p.assetSymbol] ?? p.entryPrice;
-        p.exitPrice = currentPrice;
+
+        // If price is past liquidation, close at liquidation price instead.
+        final pastLiq = p.isLong
+            ? currentPrice <= p.liquidationPrice
+            : currentPrice >= p.liquidationPrice;
+        final exitPrice = pastLiq ? p.liquidationPrice : currentPrice;
+
+        p.exitPrice = exitPrice;
         p.closedAt = now;
-        p.closeReason = 'manual';
-        closedPnl = p.pnl(currentPrice);
-        balanceReturn = p.size + closedPnl!;
+        p.closeReason = pastLiq ? 'liquidation' : 'manual';
+        closedPnl = p.pnl(exitPrice);
+        // Never return less than zero to prevent negative balance.
+        balanceReturn = (p.size + closedPnl!).clamp(0.0, double.infinity);
       }
       return p;
     }).toList();
@@ -800,10 +808,17 @@ class TradingNotifier extends Notifier<TradingState> {
     final original = state.positions[idx];
     final currentPrice =
         state.currentPrices[original.assetSymbol] ?? original.entryPrice;
+
+    // If price is past liquidation, close at liquidation price instead.
+    final pastLiq = original.isLong
+        ? currentPrice <= original.liquidationPrice
+        : currentPrice >= original.liquidationPrice;
+    final exitPrice = pastLiq ? original.liquidationPrice : currentPrice;
+
     final partialSize = original.size * fraction;
     final partialPnl =
         partialSize * original.leverage *
-        ((currentPrice - original.entryPrice) / original.entryPrice) *
+        ((exitPrice - original.entryPrice) / original.entryPrice) *
         (original.isLong ? 1.0 : -1.0);
 
     // Create closed position for the partial amount.
@@ -816,15 +831,15 @@ class TradingNotifier extends Notifier<TradingState> {
       size: partialSize,
       leverage: original.leverage,
       openedAt: original.openedAt,
-      exitPrice: currentPrice,
+      exitPrice: exitPrice,
       closedAt: now,
-      closeReason: 'partial',
+      closeReason: pastLiq ? 'liquidation' : 'partial',
     );
 
     // Reduce original position's size.
     original.size -= partialSize;
 
-    final balanceReturn = partialSize + partialPnl;
+    final balanceReturn = (partialSize + partialPnl).clamp(0.0, double.infinity);
     final updatedPositions = [...state.positions, closedPart];
 
     // Track consecutive wins/losses.

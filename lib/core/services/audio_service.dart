@@ -2,10 +2,11 @@ import 'dart:js_interop';
 
 import 'package:web/web.dart' as web;
 
-/// Lightweight audio service using the Web Audio API.
+/// Arcade-style audio service using the Web Audio API.
 ///
-/// Generates short synthesized tones — no audio asset files required.
-/// Each method is fire-and-forget; the OscillatorNode auto-disposes.
+/// Generates punchy 8-bit sound effects with square/sawtooth waveforms,
+/// fast arpeggios, and layered tones for a retro gaming feel.
+/// Fire-and-forget — OscillatorNodes auto-dispose.
 class AudioService {
   AudioService._();
   static final instance = AudioService._();
@@ -16,7 +17,6 @@ class AudioService {
 
   web.AudioContext get _audioCtx {
     _ctx ??= web.AudioContext();
-    // Resume context if suspended (browsers require user gesture first).
     if (_ctx!.state == 'suspended') {
       _ctx!.resume().toDart.ignore();
     }
@@ -30,131 +30,224 @@ class AudioService {
 
   // ── Public sound methods ──────────────────────────────────────────────────
 
-  /// Short ascending tone — position opened.
-  void playTradeOpen() => _playTone(
-        frequency: 520,
-        duration: 0.08,
-        ramp: 680,
-        type: 'sine',
-      );
+  /// Snappy 8-bit chirp — position opened.
+  void playTradeOpen() {
+    // Quick ascending arpeggio: C5 → E5 → G5
+    _playTone(frequency: 523, duration: 0.04, type: 'square', gain: 0.35);
+    Future.delayed(const Duration(milliseconds: 40), () {
+      _playTone(frequency: 659, duration: 0.04, type: 'square', gain: 0.30);
+    });
+    Future.delayed(const Duration(milliseconds: 80), () {
+      _playTone(frequency: 784, duration: 0.06, type: 'square', gain: 0.25);
+    });
+  }
 
-  /// Short descending tone — position closed.
-  void playTradeClose() => _playTone(
-        frequency: 680,
-        duration: 0.08,
-        ramp: 520,
-        type: 'sine',
-      );
+  /// Quick descending chirp — position closed.
+  void playTradeClose() {
+    _playTone(frequency: 784, duration: 0.04, type: 'square', gain: 0.30);
+    Future.delayed(const Duration(milliseconds: 40), () {
+      _playTone(frequency: 587, duration: 0.05, type: 'square', gain: 0.25);
+    });
+  }
 
-  /// Pleasant double-beep — winning trade.
+  /// Coin-collect chime — winning trade.
   void playWin() {
-    _playTone(frequency: 660, duration: 0.07, type: 'sine');
-    Future.delayed(const Duration(milliseconds: 90), () {
-      _playTone(frequency: 880, duration: 0.10, type: 'sine');
+    // Classic coin sound: E6 → B6 with layered harmonics
+    _playTone(frequency: 1319, duration: 0.06, type: 'square', gain: 0.25);
+    _playTone(frequency: 659, duration: 0.06, type: 'square', gain: 0.15);
+    Future.delayed(const Duration(milliseconds: 60), () {
+      _playTone(frequency: 1976, duration: 0.10, type: 'square', gain: 0.25);
+      _playTone(frequency: 988, duration: 0.10, type: 'square', gain: 0.15);
     });
   }
 
-  /// Low buzz — losing trade.
-  void playLoss() => _playTone(
+  /// 8-bit boop — losing trade.
+  void playLoss() {
+    // Short descending boop
+    _playTone(
+        frequency: 330, duration: 0.08, ramp: 165, type: 'square', gain: 0.30);
+    _playTone(
         frequency: 220,
-        duration: 0.15,
+        duration: 0.10,
+        ramp: 110,
         type: 'sawtooth',
-        gain: 0.3,
-      );
+        gain: 0.15);
+  }
 
-  /// Warning alarm — liquidation.
+  /// Dramatic 8-bit alarm with tremolo — liquidation.
   void playLiquidation() {
-    _playTone(frequency: 440, duration: 0.08, type: 'square', gain: 0.4);
-    Future.delayed(const Duration(milliseconds: 100), () {
-      _playTone(frequency: 330, duration: 0.08, type: 'square', gain: 0.4);
-    });
-    Future.delayed(const Duration(milliseconds: 200), () {
-      _playTone(frequency: 220, duration: 0.15, type: 'square', gain: 0.4);
-    });
-  }
-
-  /// Bell chime — phase change.
-  void playPhaseChange() {
-    _playTone(frequency: 784, duration: 0.06, type: 'sine');
-    Future.delayed(const Duration(milliseconds: 70), () {
-      _playTone(frequency: 1047, duration: 0.10, type: 'sine');
-    });
-  }
-
-  /// Dramatic swoosh — lead change.
-  void playLeadChange() => _playTone(
-        frequency: 300,
-        duration: 0.20,
-        ramp: 900,
-        type: 'sine',
-        gain: 0.5,
-      );
-
-  /// Short tick — countdown.
-  void playCountdown() => _playTone(
-        frequency: 1000,
-        duration: 0.04,
-        type: 'sine',
-        gain: 0.4,
-      );
-
-  /// Fanfare — match start.
-  void playMatchStart() {
-    const notes = [523.0, 659.0, 784.0, 1047.0];
-    for (var i = 0; i < notes.length; i++) {
-      Future.delayed(Duration(milliseconds: i * 80), () {
-        _playTone(frequency: notes[i], duration: 0.12, type: 'sine');
+    // Rapid alternating alarm: high-low-high-low
+    const pairs = [
+      [880.0, 0.25],
+      [440.0, 0.25],
+      [880.0, 0.20],
+      [440.0, 0.20],
+      [660.0, 0.15],
+      [330.0, 0.15],
+    ];
+    for (var i = 0; i < pairs.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 55), () {
+        _playTone(
+          frequency: pairs[i][0],
+          duration: 0.05,
+          type: 'square',
+          gain: pairs[i][1],
+        );
       });
     }
   }
 
-  /// Finale tone — match end.
-  void playMatchEnd() {
-    _playTone(frequency: 784, duration: 0.10, type: 'sine');
-    Future.delayed(const Duration(milliseconds: 120), () {
-      _playTone(frequency: 659, duration: 0.10, type: 'sine');
-    });
-    Future.delayed(const Duration(milliseconds: 240), () {
-      _playTone(frequency: 523, duration: 0.20, type: 'sine');
-    });
-  }
-
-  /// Triumphant chord — victory.
-  void playVictory() {
-    const chord = [523.0, 659.0, 784.0];
-    for (final freq in chord) {
-      _playTone(frequency: freq, duration: 0.4, type: 'sine', gain: 0.35);
-    }
-    Future.delayed(const Duration(milliseconds: 300), () {
-      _playTone(frequency: 1047, duration: 0.5, type: 'sine', gain: 0.45);
-    });
-  }
-
-  /// Somber tone — defeat.
-  void playDefeat() {
-    _playTone(frequency: 392, duration: 0.25, type: 'sine', gain: 0.4);
-    Future.delayed(const Duration(milliseconds: 250), () {
-      _playTone(frequency: 330, duration: 0.25, type: 'sine', gain: 0.35);
-    });
-    Future.delayed(const Duration(milliseconds: 500), () {
-      _playTone(frequency: 262, duration: 0.4, type: 'sine', gain: 0.3);
-    });
-  }
-
-  /// Milestone chime — ROI boundary crossed.
-  void playMilestone() {
-    _playTone(frequency: 880, duration: 0.06, type: 'sine');
-    Future.delayed(const Duration(milliseconds: 80), () {
-      _playTone(frequency: 1100, duration: 0.08, type: 'sine');
-    });
-  }
-
-  /// Streak sound — consecutive wins.
-  void playStreak() {
-    const notes = [660.0, 784.0, 880.0];
+  /// Retro level-up jingle — phase change.
+  void playPhaseChange() {
+    // 4-note ascending: G5 → A5 → B5 → D6
+    const notes = [784.0, 880.0, 988.0, 1175.0];
     for (var i = 0; i < notes.length; i++) {
-      Future.delayed(Duration(milliseconds: i * 60), () {
-        _playTone(frequency: notes[i], duration: 0.08, type: 'sine');
+      Future.delayed(Duration(milliseconds: i * 50), () {
+        _playTone(
+          frequency: notes[i],
+          duration: 0.07,
+          type: 'square',
+          gain: 0.25,
+        );
+      });
+    }
+  }
+
+  /// Power-up sweep + chime — lead change.
+  void playLeadChange() {
+    // Fast sweep up
+    _playTone(
+        frequency: 220, duration: 0.15, ramp: 1320, type: 'square', gain: 0.3);
+    // Accent chime at the top
+    Future.delayed(const Duration(milliseconds: 120), () {
+      _playTone(frequency: 1320, duration: 0.08, type: 'square', gain: 0.25);
+      _playTone(frequency: 1760, duration: 0.10, type: 'square', gain: 0.15);
+    });
+  }
+
+  /// Punchy metronome tick — countdown.
+  void playCountdown() {
+    // Short square burst with sub-bass layer
+    _playTone(frequency: 880, duration: 0.03, type: 'square', gain: 0.35);
+    _playTone(frequency: 220, duration: 0.04, type: 'square', gain: 0.20);
+  }
+
+  /// 8-bit fanfare — match start (FIGHT!).
+  void playMatchStart() {
+    // Staccato arpeggio: C5-E5-G5-C6 with harmony layer
+    const melody = [523.0, 659.0, 784.0, 1047.0, 1319.0];
+    const harmony = [262.0, 330.0, 392.0, 523.0, 659.0];
+    for (var i = 0; i < melody.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 55), () {
+        _playTone(
+            frequency: melody[i], duration: 0.07, type: 'square', gain: 0.28);
+        _playTone(
+            frequency: harmony[i], duration: 0.07, type: 'square', gain: 0.14);
+      });
+    }
+    // Final sustain chord
+    Future.delayed(const Duration(milliseconds: 280), () {
+      _playTone(frequency: 1047, duration: 0.15, type: 'square', gain: 0.22);
+      _playTone(frequency: 784, duration: 0.15, type: 'square', gain: 0.14);
+      _playTone(frequency: 523, duration: 0.15, type: 'square', gain: 0.10);
+    });
+  }
+
+  /// Game-over style descending arpeggio — match end.
+  void playMatchEnd() {
+    const notes = [1047.0, 880.0, 784.0, 659.0, 523.0];
+    for (var i = 0; i < notes.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 70), () {
+        _playTone(
+          frequency: notes[i],
+          duration: 0.08,
+          type: 'square',
+          gain: 0.25 - i * 0.02,
+        );
+      });
+    }
+  }
+
+  /// Triumphant 8-bit victory jingle.
+  void playVictory() {
+    // Classic victory melody: C-E-G, C-E-G, C6 hold
+    const melody = [
+      [523.0, 0.08],
+      [659.0, 0.08],
+      [784.0, 0.08],
+      [523.0, 0.06],
+      [659.0, 0.06],
+      [784.0, 0.06],
+      [1047.0, 0.25],
+    ];
+    const delays = [0, 80, 160, 280, 340, 400, 500];
+    for (var i = 0; i < melody.length; i++) {
+      Future.delayed(Duration(milliseconds: delays[i]), () {
+        _playTone(
+          frequency: melody[i][0],
+          duration: melody[i][1],
+          type: 'square',
+          gain: i == melody.length - 1 ? 0.30 : 0.25,
+        );
+        // Harmony on final note
+        if (i == melody.length - 1) {
+          _playTone(
+              frequency: 659, duration: 0.25, type: 'square', gain: 0.15);
+          _playTone(
+              frequency: 784, duration: 0.25, type: 'square', gain: 0.12);
+        }
+      });
+    }
+  }
+
+  /// Sad 8-bit melody (minor key) — defeat.
+  void playDefeat() {
+    // Descending minor: E4 → D4 → C4 → B3
+    const notes = [330.0, 294.0, 262.0, 247.0];
+    for (var i = 0; i < notes.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 150), () {
+        _playTone(
+          frequency: notes[i],
+          duration: 0.14,
+          type: 'sawtooth',
+          gain: 0.28 - i * 0.04,
+        );
+        // Sub octave for depth
+        _playTone(
+          frequency: notes[i] / 2,
+          duration: 0.14,
+          type: 'square',
+          gain: 0.10,
+        );
+      });
+    }
+  }
+
+  /// Achievement unlock chime — ROI milestone.
+  void playMilestone() {
+    // Bright ascending chime: A5 → C#6 → E6
+    _playTone(frequency: 880, duration: 0.05, type: 'square', gain: 0.25);
+    Future.delayed(const Duration(milliseconds: 50), () {
+      _playTone(frequency: 1109, duration: 0.05, type: 'square', gain: 0.25);
+    });
+    Future.delayed(const Duration(milliseconds: 100), () {
+      _playTone(frequency: 1319, duration: 0.10, type: 'square', gain: 0.30);
+      _playTone(frequency: 659, duration: 0.10, type: 'square', gain: 0.12);
+    });
+  }
+
+  /// Combo streak — escalating staccato burst.
+  void playStreak() {
+    // Rapid ascending burst: getting higher and faster
+    const notes = [523.0, 659.0, 784.0, 988.0, 1175.0];
+    for (var i = 0; i < notes.length; i++) {
+      Future.delayed(Duration(milliseconds: i * 40), () {
+        _playTone(
+          frequency: notes[i],
+          duration: 0.04,
+          type: 'square',
+          gain: 0.20 + i * 0.03,
+        );
       });
     }
   }
@@ -164,7 +257,7 @@ class AudioService {
   void _playTone({
     required double frequency,
     required double duration,
-    String type = 'sine',
+    String type = 'square',
     double? ramp,
     double? gain,
   }) {
@@ -173,9 +266,8 @@ class AudioService {
     try {
       final ctx = _audioCtx;
       final now = ctx.currentTime;
-      final effectiveGain = (gain ?? 0.5) * _volume;
+      final effectiveGain = (gain ?? 0.3) * _volume;
 
-      // Create oscillator.
       final osc = ctx.createOscillator();
       osc.type = type;
       osc.frequency.setValueAtTime(frequency, now);
@@ -183,14 +275,13 @@ class AudioService {
         osc.frequency.linearRampToValueAtTime(ramp, now + duration);
       }
 
-      // Create gain envelope (attack + release to avoid clicks).
+      // Punchy envelope: fast attack, clean release.
       final gainNode = ctx.createGain();
       gainNode.gain.setValueAtTime(0, now);
-      gainNode.gain.linearRampToValueAtTime(effectiveGain, now + 0.01);
-      gainNode.gain.setValueAtTime(effectiveGain, now + duration - 0.02);
+      gainNode.gain.linearRampToValueAtTime(effectiveGain, now + 0.005);
+      gainNode.gain.setValueAtTime(effectiveGain, now + duration - 0.015);
       gainNode.gain.linearRampToValueAtTime(0, now + duration);
 
-      // Connect and play.
       osc.connect(gainNode);
       gainNode.connect(ctx.destination);
       osc.start(now);

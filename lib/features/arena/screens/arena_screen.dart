@@ -170,7 +170,10 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           // ── Match result overlay ──
           if (showOverlay)
             Positioned.fill(
-              child: MatchResultOverlay(state: state),
+              child: MatchResultOverlay(
+                state: state,
+                betAmount: widget.betAmount,
+              ),
             ),
         ],
       ),

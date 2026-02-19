@@ -44,10 +44,7 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
 
   late AnimationController _fadeCtrl;
 
-  late AnimationController _countdownCtrl;
-
-  int _countdown = 3;
-  Timer? _countdownTimer;
+  Timer? _navigateTimer;
 
   @override
   void initState() {
@@ -88,12 +85,6 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
       duration: const Duration(milliseconds: 300),
     );
 
-    // Countdown pulse.
-    _countdownCtrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-
     // Start animation sequence.
     _fadeCtrl.forward();
     _slideCtrl.forward();
@@ -101,9 +92,9 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
       if (mounted) _vsCtrl.forward();
     });
 
-    // Start countdown after animations complete.
-    Future.delayed(const Duration(milliseconds: 1200), () {
-      if (mounted) _startCountdown();
+    // Auto-navigate to arena after animations complete.
+    _navigateTimer = Timer(const Duration(milliseconds: 2500), () {
+      if (mounted) _navigateToArena();
     });
   }
 
@@ -112,25 +103,10 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
     _slideCtrl.dispose();
     _vsCtrl.dispose();
     _fadeCtrl.dispose();
-    _countdownCtrl.dispose();
-    _countdownTimer?.cancel();
+    _navigateTimer?.cancel();
     super.dispose();
   }
 
-  void _startCountdown() {
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) {
-        _countdownTimer?.cancel();
-        return;
-      }
-      setState(() => _countdown--);
-      _countdownCtrl.forward(from: 0);
-      if (_countdown <= 0) {
-        _countdownTimer?.cancel();
-        _navigateToArena();
-      }
-    });
-  }
 
   void _navigateToArena() {
     final match = widget.match;
@@ -213,8 +189,14 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
 
                       const SizedBox(height: 32),
 
-                      // ── Countdown ──
-                      _buildCountdown(),
+                      // ── Entering arena label ──
+                      Text(
+                        'Entering Arena...',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.white38,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -373,44 +355,6 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
           ),
         ],
       ),
-    );
-  }
-
-  // ── Countdown display ──
-
-  Widget _buildCountdown() {
-    return Column(
-      children: [
-        AnimatedBuilder(
-          animation: _countdownCtrl,
-          builder: (context, child) {
-            final scale = 1.0 + (1.0 - _countdownCtrl.value) * 0.3;
-            return Transform.scale(
-              scale: _countdown > 0 ? scale : 1.0,
-              child: child,
-            );
-          },
-          child: Text(
-            _countdown > 0 ? '$_countdown' : 'GO!',
-            style: GoogleFonts.inter(
-              fontSize: _countdown > 0 ? 48 : 56,
-              fontWeight: FontWeight.w900,
-              color: _countdown > 0
-                  ? Colors.white
-                  : AppTheme.solanaGreen,
-              letterSpacing: 2,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _countdown > 0 ? 'Match starting...' : 'Entering Arena...',
-          style: GoogleFonts.inter(
-            fontSize: 14,
-            color: Colors.white38,
-          ),
-        ),
-      ],
     );
   }
 

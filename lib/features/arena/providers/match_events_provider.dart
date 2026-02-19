@@ -173,6 +173,7 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
     }
 
     // ── ROI milestones (every 5%) ──
+    // equity = balance + totalUnrealizedPnl (includes open positions).
     final roi = next.initialBalance > 0
         ? (next.equity - next.initialBalance) / next.initialBalance * 100
         : 0.0;
@@ -183,16 +184,17 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
     final currentBucket = (roi / 5).floor();
     final prevBucket = (prevRoi / 5).floor();
     if (currentBucket != prevBucket && currentBucket != 0) {
-      final milestone = currentBucket * 5;
-      if (milestone > 0) {
+      // Show actual ROI (not just the bucket boundary) for accuracy.
+      final roiStr = roi.toStringAsFixed(1);
+      if (roi > 0) {
         _addEvent(
           EventType.milestone,
-          'You\'re up ${milestone.abs()}%!',
+          'ROI hit +$roiStr%!',
         );
       } else {
         _addEvent(
           EventType.milestone,
-          'You\'re down ${milestone.abs()}%',
+          'ROI dropped to $roiStr%',
         );
       }
     }

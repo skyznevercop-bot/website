@@ -2,10 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -17,6 +15,7 @@ import '../../../core/utils/responsive.dart';
 import '../providers/trading_provider.dart';
 import '../utils/arena_helpers.dart';
 import '../../wallet/providers/wallet_provider.dart';
+import 'share_card.dart';
 
 // =============================================================================
 // Match Result Overlay — Cinematic victory ceremony with match highlights
@@ -24,8 +23,13 @@ import '../../wallet/providers/wallet_provider.dart';
 
 class MatchResultOverlay extends ConsumerStatefulWidget {
   final TradingState state;
+  final double betAmount;
 
-  const MatchResultOverlay({super.key, required this.state});
+  const MatchResultOverlay({
+    super.key,
+    required this.state,
+    this.betAmount = 0,
+  });
 
   @override
   ConsumerState<MatchResultOverlay> createState() =>
@@ -562,7 +566,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
             ),
             child: Container(
               width: double.infinity,
-              padding: EdgeInsets.symmetric(vertical: isMobile ? 28 : 36),
+              padding: EdgeInsets.symmetric(vertical: isMobile ? 18 : 24),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   colors: [
@@ -580,8 +584,8 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                 children: [
                   // Icon with glow for victory.
                   Container(
-                    width: 64,
-                    height: 64,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: _resultColor.withValues(alpha: 0.12),
@@ -589,26 +593,26 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                           ? [
                               BoxShadow(
                                 color: _gold.withValues(alpha: 0.3),
-                                blurRadius: 24,
-                                spreadRadius: 4,
+                                blurRadius: 20,
+                                spreadRadius: 3,
                               ),
                             ]
                           : null,
                     ),
-                    child: Icon(resultIcon, size: 36, color: _resultColor),
+                    child: Icon(resultIcon, size: 28, color: _resultColor),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
                   Text(
                     resultText,
                     style: interStyle(
-                      fontSize: isMobile ? 36 : 44,
+                      fontSize: isMobile ? 28 : 36,
                       fontWeight: FontWeight.w900,
                       color: _resultColor,
                       letterSpacing: 4,
                       height: 1,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 6),
                   Text(
                     subtitleText,
                     style: interStyle(
@@ -642,11 +646,11 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                 child: Column(
                   children: [
                     _buildMatchHighlights(),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 12),
                     _buildClaimSection(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 12),
                     _buildActionButtons(context),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 14),
                   ],
                 ),
               ),
@@ -665,7 +669,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     final isLoser = _isLoser;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.background,
         borderRadius: BorderRadius.circular(16),
@@ -682,14 +686,14 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
               letterSpacing: 2,
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
 
           // ── Visual ROI bar comparison ──
           _RoiBarComparison(
             myRoi: _animatedMyRoi,
             oppRoi: _animatedOppRoi,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
 
           IntrinsicHeight(
             child: Row(
@@ -862,19 +866,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     }
 
     highlights.add(_HighlightEntry(
-      icon: Icons.trending_up_rounded,
-      iconColor: AppTheme.success,
-      label: 'Peak ROI',
-      value: fmtPercent(
-          stats.peakEquity > 0 && widget.state.initialBalance > 0
-              ? (stats.peakEquity - widget.state.initialBalance) /
-                  widget.state.initialBalance *
-                  100
-              : 0),
-      valueColor: AppTheme.success,
-    ));
-
-    highlights.add(_HighlightEntry(
       icon: Icons.swap_vert_rounded,
       iconColor: AppTheme.textSecondary,
       label: 'Total Trades',
@@ -889,9 +880,14 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
       value: '${fmtBalance(stats.totalVolume)} notional',
     ));
 
+    // Cap at 4 highlights to keep the card compact.
+    if (highlights.length > 4) {
+      highlights.removeRange(4, highlights.length);
+    }
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppTheme.background,
         borderRadius: BorderRadius.circular(16),
@@ -918,7 +914,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
           ),
           const SizedBox(height: 4),
           Container(height: 1, color: AppTheme.border),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
           // Staggered highlight rows.
           ...List.generate(highlights.length, (i) {
@@ -952,7 +948,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     if (isTie) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: AppTheme.textTertiary.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(12),
@@ -979,7 +975,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     if (!isWinner) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: AppTheme.error.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(12),
@@ -1007,7 +1003,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     // Winner — instant payout
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [
           AppTheme.success.withValues(alpha: 0.12),
@@ -1120,52 +1116,24 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   }
 
   void _shareResult() {
-    final isWinner = _isWinner;
-    final isTie = widget.state.matchIsTie;
-    final myRoi = _myRoi;
-    final oppRoi = _oppRoi;
-    final stats = widget.state.matchStats;
+    final myTag =
+        ref.read(walletProvider).gamerTag ?? 'You';
+    final oppTag = widget.state.opponentGamerTag ?? 'Opponent';
 
-    final result = isTie
-        ? 'Drew'
-        : isWinner
-            ? 'Won'
-            : 'Lost';
-
-    final buf = StringBuffer();
-    buf.writeln('SolFight Arena $result');
-    buf.writeln('');
-    buf.writeln(
-        'My ROI: ${myRoi >= 0 ? '+' : ''}${myRoi.toStringAsFixed(2)}%');
-    buf.writeln(
-        'Opponent ROI: ${oppRoi >= 0 ? '+' : ''}${oppRoi.toStringAsFixed(2)}%');
-    if (stats != null && stats.totalTrades > 0) {
-      buf.writeln('');
-      buf.writeln(
-          'Trades: ${stats.totalTrades} (${stats.winRate.toStringAsFixed(0)}% win rate)');
-      buf.writeln(
-          'Best Trade: ${fmtPnl(stats.bestTradePnl)} on ${stats.bestTradeAsset ?? '?'}');
-      if (stats.hotStreak > 1) {
-        buf.writeln('Win Streak: ${stats.hotStreak}');
-      }
-      buf.writeln('Volume: ${fmtBalance(stats.totalVolume)}');
-    }
-    buf.writeln('');
-    buf.writeln('Play at solfight.club');
-
-    Clipboard.setData(ClipboardData(text: buf.toString()));
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Result copied to clipboard',
-              style: GoogleFonts.inter(fontSize: 13)),
-          backgroundColor: AppTheme.surface,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
+    showShareCardDialog(
+      context,
+      ShareCardData(
+        isWinner: _isWinner,
+        isTie: widget.state.matchIsTie,
+        myRoi: _myRoi,
+        oppRoi: _oppRoi,
+        myTag: myTag,
+        oppTag: oppTag,
+        durationSeconds: widget.state.totalDurationSeconds,
+        betAmount: widget.betAmount,
+        stats: widget.state.matchStats,
+      ),
+    );
   }
 }
 
@@ -1197,12 +1165,12 @@ class _HighlightRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
           Container(
-            width: 28,
-            height: 28,
+            width: 24,
+            height: 24,
             decoration: BoxDecoration(
               color: entry.iconColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
