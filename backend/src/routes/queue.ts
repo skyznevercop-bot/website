@@ -42,10 +42,10 @@ router.delete("/leave", requireAuth, async (req: AuthRequest, res) => {
 
 /** Known duration labels in the same order as the frontend's AppConstants.durations. */
 const DURATION_INDEX: Record<string, number> = {
-  "15m": 0,
-  "1h": 1,
-  "4h": 2,
-  "12h": 3,
+  "5m": 0,
+  "15m": 1,
+  "1h": 2,
+  "4h": 3,
   "24h": 4,
 };
 

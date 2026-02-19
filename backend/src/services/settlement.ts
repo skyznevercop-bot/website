@@ -9,7 +9,7 @@ import {
   DbPosition,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch, broadcastToAll } from "../ws/rooms";
+import { broadcastToMatch, broadcastToAll, isUserConnected } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
 
 const DEMO_BALANCE = config.demoInitialBalance;
@@ -112,11 +112,19 @@ export async function settleByForfeit(
   matchId: string,
   disconnectedPlayer: string
 ): Promise<void> {
+  // Guard: player may have reconnected during the async gap between the
+  // setTimeout callback and this function call.
+  if (isUserConnected(disconnectedPlayer)) return;
+
   const snap = await matchesRef.child(matchId).once("value");
   if (!snap.exists()) return;
 
   const match = snap.val();
   if (match.status !== "active") return;
+
+  // Guard: re-check after the async Firebase read — the player may have
+  // reconnected while we were awaiting the database.
+  if (isUserConnected(disconnectedPlayer)) return;
 
   const winner =
     disconnectedPlayer === match.player1 ? match.player2 : match.player1;

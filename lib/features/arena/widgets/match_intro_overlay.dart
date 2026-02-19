@@ -165,20 +165,19 @@ class _MatchIntroOverlayState extends State<MatchIntroOverlay>
     _numberCtrl.forward(from: 0);
     _pulseCtrl.forward(from: 0);
 
-    final audio = AudioService.instance;
     if (phase < 4) {
-      // 3 → 2 → 1: play countdown tick.
-      audio.playCountdown();
+      // 3 → 2 → 1: schedule next phase FIRST, then play audio.
       _sequenceTimer = Timer(const Duration(milliseconds: 800), () {
         _showNumber(phase + 1);
       });
+      try { AudioService.instance.playCountdown(); } catch (_) {}
     } else {
-      // FIGHT! — play match start fanfare.
-      audio.playMatchStart();
+      // FIGHT! — schedule fade-out FIRST, then play audio.
       _fightCtrl.forward(from: 0);
       _sequenceTimer = Timer(const Duration(milliseconds: 900), () {
         _fadeOut();
       });
+      try { AudioService.instance.playMatchStart(); } catch (_) {}
     }
   }
 

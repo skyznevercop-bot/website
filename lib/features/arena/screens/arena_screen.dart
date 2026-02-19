@@ -155,13 +155,15 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
           if (state.matchActive && !_showIntro) const PhaseBanner(),
 
           // ── Match intro overlay (3-2-1 FIGHT) ──
-          if (_showIntro && state.matchActive)
+          if (_showIntro)
             Positioned.fill(
               child: MatchIntroOverlay(
                 opponentTag: state.opponentGamerTag,
                 durationSeconds: widget.durationSeconds,
                 betAmount: widget.betAmount,
-                onComplete: () => setState(() => _showIntro = false),
+                onComplete: () {
+                  if (mounted) setState(() => _showIntro = false);
+                },
               ),
             ),
 

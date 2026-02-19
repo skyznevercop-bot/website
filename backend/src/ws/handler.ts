@@ -26,7 +26,7 @@ import { settleByForfeit } from "../services/settlement";
 import { getBalance } from "../services/balance";
 
 const DEMO_BALANCE = config.demoInitialBalance;
-const FORFEIT_GRACE_MS = 30_000; // 30 seconds
+const FORFEIT_GRACE_MS = 60_000; // 60 seconds
 
 /** Guard against double-close: position IDs currently being closed. */
 const _closingPositions = new Set<string>();
@@ -209,13 +209,13 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
   if (forfeitTimers.has(key)) return;
 
   console.log(
-    `[WS] Disconnect detected: ${playerAddress.slice(0, 8)}… in match ${matchId} — 30s grace period`
+    `[WS] Disconnect detected: ${playerAddress.slice(0, 8)}… in match ${matchId} — 60s grace period`
   );
 
   broadcastToMatch(matchId, {
     type: "opponent_disconnected",
     player: playerAddress,
-    graceSeconds: 30,
+    graceSeconds: 60,
   });
 
   const timer = setTimeout(async () => {

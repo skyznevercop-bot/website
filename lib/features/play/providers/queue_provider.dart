@@ -457,7 +457,7 @@ class QueueNotifier extends Notifier<QueueState> {
     'BullRunner', 'ChartWizard', 'StackSats', 'Mev_Andy',
   ];
 
-  static const _demoDurations = ['15m', '1h', '4h', '12h', '24h'];
+  static const _demoDurations = ['5m', '15m', '1h', '4h', '24h'];
 
   void _seedDemoData() {
     _demoPlayers = 1200 + _rng.nextInt(200);

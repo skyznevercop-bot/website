@@ -13,7 +13,7 @@ class LeaderboardScreen extends ConsumerWidget {
   const LeaderboardScreen({super.key});
 
   static const _periods = ['Weekly', 'Monthly', 'All Time'];
-  static const _timeframes = ['All', '15m', '1h', '4h', '12h', '24h'];
+  static const _timeframes = ['All', '5m', '15m', '1h', '4h', '24h'];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

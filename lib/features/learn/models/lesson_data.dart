@@ -810,7 +810,7 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Leaderboard Filters',
             body:
-                'You can filter the leaderboard by:\n\n• Time Period: Weekly, Monthly, or All Time.\n• Match Duration: All, 15m, 1h, 4h, 12h, or 24h.\n\nThis lets you find the best players in your preferred match type. A player who dominates 15m scalping matches might not appear on the 24h leaderboard, and vice versa.',
+                'You can filter the leaderboard by:\n\n• Time Period: Weekly, Monthly, or All Time.\n• Match Duration: All, 5m, 15m, 1h, 4h, or 24h.\n\nThis lets you find the best players in your preferred match type. A player who dominates 15m scalping matches might not appear on the 24h leaderboard, and vice versa.',
           ),
           LessonSection(
             heading: 'Stats Tracked',

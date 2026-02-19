@@ -8,10 +8,10 @@ class AppConstants {
 
   // ── Match Durations ────────────────────────────────────────────────────
   static const List<QueueDuration> durations = [
+    QueueDuration(label: '5m', length: Duration(minutes: 5)),
     QueueDuration(label: '15m', length: Duration(minutes: 15)),
     QueueDuration(label: '1h', length: Duration(hours: 1)),
     QueueDuration(label: '4h', length: Duration(hours: 4)),
-    QueueDuration(label: '12h', length: Duration(hours: 12)),
     QueueDuration(label: '24h', length: Duration(hours: 24)),
   ];
 
