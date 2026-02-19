@@ -48,12 +48,21 @@ export interface BalanceTransaction {
  */
 export async function getBalance(address: string): Promise<BalanceInfo> {
   const user = await getUser(address);
-  const balance = user?.balance ?? 0;
+  const rawBalance = user?.balance ?? 0;
   const frozenBalance = user?.frozenBalance ?? 0;
+
+  // Clamp negative balances to 0 (safety net).
+  const balance = Math.max(0, rawBalance);
+
+  // If the stored balance was negative, fix it in the database.
+  if (rawBalance < 0) {
+    await usersRef.child(address).update({ balance: 0 });
+  }
+
   return {
     balance,
     frozenBalance,
-    available: balance - frozenBalance,
+    available: Math.max(0, balance - frozenBalance),
   };
 }
 
@@ -187,7 +196,7 @@ export async function settleMatchBalances(
         const balance = current.balance ?? 0;
         return {
           ...current,
-          balance: balance - betAmount, // deduct the lost bet
+          balance: Math.max(0, balance - betAmount), // deduct the lost bet (clamped to 0)
           frozenBalance: Math.max(0, frozenBalance - betAmount),
         };
       });

@@ -77,22 +77,71 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Balance row
+                  // Platform balance (what you play with)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.solanaPurple.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(AppTheme.radiusSm),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.sports_esports_rounded,
+                          size: 18,
+                          color: AppTheme.solanaPurple,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Platform',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: AppTheme.textTertiary,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '\$${wallet.availableBalance.toStringAsFixed(2)} USDC',
+                          style: GoogleFonts.inter(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.solanaPurple,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Wallet USDC balance (what you can deposit)
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: AppTheme.solanaGreen.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(AppTheme.radiusSm),
+                      borderRadius: BorderRadius.vertical(
+                        bottom: Radius.circular(AppTheme.radiusSm),
+                      ),
                     ),
                     child: Row(
                       children: [
                         const Icon(
-                          Icons.monetization_on_rounded,
+                          Icons.account_balance_wallet_rounded,
                           size: 18,
                           color: AppTheme.solanaGreenDark,
                         ),
                         const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Wallet',
+                            style: GoogleFonts.inter(
+                              fontSize: 12,
+                              color: AppTheme.textTertiary,
+                            ),
+                          ),
+                        ),
                         Text(
                           '${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
                           style: GoogleFonts.inter(
@@ -208,12 +257,32 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                       color: AppTheme.textPrimary,
                     ),
                   ),
-                  Text(
-                    '${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      color: AppTheme.textTertiary,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '\$${wallet.availableBalance.toStringAsFixed(2)}',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.solanaPurple,
+                        ),
+                      ),
+                      Text(
+                        '  ·  ',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppTheme.textTertiary.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      Text(
+                        '${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
