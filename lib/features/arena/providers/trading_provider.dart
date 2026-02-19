@@ -33,6 +33,10 @@ class TradingState {
   final double peakEquity;
   final MatchStats? matchStats;
 
+  // Server-authoritative ROI values (from match_end event).
+  final double? serverMyRoi;
+  final double? serverOppRoi;
+
   // v2: Phase & momentum tracking (computed client-side)
   final MatchPhase matchPhase;
   final int totalDurationSeconds;
@@ -73,6 +77,8 @@ class TradingState {
     this.consecutiveWins = 0,
     this.bestStreak = 0,
     this.pendingOrders = const [],
+    this.serverMyRoi,
+    this.serverOppRoi,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -140,6 +146,8 @@ class TradingState {
     int? consecutiveWins,
     int? bestStreak,
     List<LimitOrder>? pendingOrders,
+    Object? serverMyRoi = _unchanged,
+    Object? serverOppRoi = _unchanged,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -179,6 +187,12 @@ class TradingState {
       consecutiveWins: consecutiveWins ?? this.consecutiveWins,
       bestStreak: bestStreak ?? this.bestStreak,
       pendingOrders: pendingOrders ?? this.pendingOrders,
+      serverMyRoi: serverMyRoi == _unchanged
+          ? this.serverMyRoi
+          : serverMyRoi as double?,
+      serverOppRoi: serverOppRoi == _unchanged
+          ? this.serverOppRoi
+          : serverOppRoi as double?,
     );
   }
 }
@@ -258,6 +272,8 @@ class TradingNotifier extends Notifier<TradingState> {
         consecutiveWins: 0,
         bestStreak: 0,
         pendingOrders: [],
+        serverMyRoi: null,
+        serverOppRoi: null,
       );
     }
 
@@ -403,10 +419,18 @@ class TradingNotifier extends Notifier<TradingState> {
         break;
 
       case 'match_end':
+        // Determine which ROI belongs to us vs our opponent.
+        final p1Roi = (data['p1Roi'] as num?)?.toDouble();
+        final p2Roi = (data['p2Roi'] as num?)?.toDouble();
+        final player1Addr = data['player1'] as String?;
+        final walletAddr = ref.read(walletProvider).address;
+        final isP1 = player1Addr != null && player1Addr == walletAddr;
         endMatch(
           winner: data['winner'] as String?,
           isTie: data['isTie'] as bool? ?? false,
           isForfeit: data['isForfeit'] as bool? ?? false,
+          serverMyRoi: isP1 ? p1Roi : p2Roi,
+          serverOppRoi: isP1 ? p2Roi : p1Roi,
         );
         break;
 
@@ -941,6 +965,8 @@ class TradingNotifier extends Notifier<TradingState> {
     String? winner,
     bool? isTie,
     bool? isForfeit,
+    double? serverMyRoi,
+    double? serverOppRoi,
   }) {
     _matchTimer?.cancel();
     _checkTimer?.cancel();
@@ -982,6 +1008,8 @@ class TradingNotifier extends Notifier<TradingState> {
     final String? resolvedWinner = winner ?? state.matchWinner;
     final bool resolvedIsTie = isTie ?? state.matchIsTie;
     final bool resolvedIsForfeit = isForfeit ?? state.matchIsForfeit;
+    final double? resolvedMyRoi = serverMyRoi ?? state.serverMyRoi;
+    final double? resolvedOppRoi = serverOppRoi ?? state.serverOppRoi;
 
     state = state.copyWith(
       positions: updatedPositions,
@@ -993,6 +1021,8 @@ class TradingNotifier extends Notifier<TradingState> {
       matchIsForfeit: resolvedIsForfeit,
       matchStats: stats,
       matchPhase: MatchPhase.ended,
+      serverMyRoi: resolvedMyRoi,
+      serverOppRoi: resolvedOppRoi,
     );
 
     // If we still don't have a winner/tie result (client timer fired before
@@ -1080,10 +1110,20 @@ class TradingNotifier extends Notifier<TradingState> {
           status == 'forfeited') {
         _resultPollTimer?.cancel();
         final w = result['winner'] as String?;
+        // Extract server ROI (stored as decimal in Firebase).
+        final p1Roi = (result['player1Roi'] as num?)?.toDouble();
+        final p2Roi = (result['player2Roi'] as num?)?.toDouble();
+        final player1Addr = result['player1'] as String?;
+        final walletAddr = ref.read(walletProvider).address;
+        final isP1 = player1Addr != null && player1Addr == walletAddr;
+        final myRoi = isP1 ? p1Roi : p2Roi;
+        final oppRoi = isP1 ? p2Roi : p1Roi;
         state = state.copyWith(
           matchWinner: w,
           matchIsTie: status == 'tied',
           matchIsForfeit: status == 'forfeited',
+          serverMyRoi: myRoi != null ? myRoi * 100 : null,
+          serverOppRoi: oppRoi != null ? oppRoi * 100 : null,
         );
         return;
       }

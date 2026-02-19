@@ -158,11 +158,20 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
         widget.state.matchWinner != wallet.address;
   }
 
-  double get _myRoi => widget.state.initialBalance > 0
-      ? (widget.state.equity - widget.state.initialBalance) /
-          widget.state.initialBalance *
-          100
-      : 0;
+  double get _myRoi {
+    // Prefer server-authoritative ROI when available.
+    if (widget.state.serverMyRoi != null) return widget.state.serverMyRoi!;
+    return widget.state.initialBalance > 0
+        ? (widget.state.equity - widget.state.initialBalance) /
+            widget.state.initialBalance *
+            100
+        : 0;
+  }
+
+  double get _oppRoi {
+    if (widget.state.serverOppRoi != null) return widget.state.serverOppRoi!;
+    return widget.state.opponentRoi;
+  }
 
   Color get _resultColor {
     if (widget.state.matchIsTie) return AppTheme.textSecondary;
@@ -199,14 +208,29 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
       if (!mounted || _hasResult) return;
       final status = data['status'] as String?;
       if (status == 'completed' || status == 'forfeited') {
+        // Extract server ROI from REST response.
+        final p1Roi = (data['player1Roi'] as num?)?.toDouble();
+        final p2Roi = (data['player2Roi'] as num?)?.toDouble();
+        final player1Addr = data['player1'] as String?;
+        final walletAddr = ref.read(walletProvider).address;
+        final isP1 = player1Addr != null && player1Addr == walletAddr;
+        // Convert from decimal to percentage (Firebase stores decimal).
+        final myRoi = isP1 ? p1Roi : p2Roi;
+        final oppRoi = isP1 ? p2Roi : p1Roi;
         ref.read(tradingProvider.notifier).endMatch(
               winner: data['winner'] as String?,
               isTie: false,
               isForfeit: status == 'forfeited',
+              serverMyRoi: myRoi != null ? myRoi * 100 : null,
+              serverOppRoi: oppRoi != null ? oppRoi * 100 : null,
             );
         _pollTimer?.cancel();
       } else if (status == 'tied') {
-        ref.read(tradingProvider.notifier).endMatch(isTie: true);
+        ref.read(tradingProvider.notifier).endMatch(
+              isTie: true,
+              serverMyRoi: 0,
+              serverOppRoi: 0,
+            );
         _pollTimer?.cancel();
       } else if (status == 'cancelled') {
         _pollTimer?.cancel();
@@ -278,7 +302,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     final t = Curves.easeOutCubic.transform(_roiAnimCtrl.value);
     setState(() {
       _animatedMyRoi = _myRoi * t;
-      _animatedOppRoi = widget.state.opponentRoi * t;
+      _animatedOppRoi = _oppRoi * t;
     });
   }
 
@@ -1099,7 +1123,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     final isWinner = _isWinner;
     final isTie = widget.state.matchIsTie;
     final myRoi = _myRoi;
-    final oppRoi = widget.state.opponentRoi;
+    final oppRoi = _oppRoi;
     final stats = widget.state.matchStats;
 
     final result = isTie

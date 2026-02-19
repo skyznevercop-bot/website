@@ -154,9 +154,13 @@ class _FaceOffScreenState extends ConsumerState<FaceOffScreen>
 
     if (mounted) {
       ref.read(queueProvider.notifier).resetSearchPhase();
-      context.go(
-        Uri(path: AppConstants.arenaRoute, queryParameters: params).toString(),
-      );
+      final uri =
+          Uri(path: AppConstants.arenaRoute, queryParameters: params).toString();
+      // Pop the dialog overlay first, then navigate. Without this, the dialog
+      // stays on top of the GoRouter route and the user gets stuck.
+      final router = GoRouter.of(context);
+      Navigator.of(context, rootNavigator: true).pop();
+      router.go(uri);
     }
   }
 
