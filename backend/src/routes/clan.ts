@@ -4,10 +4,68 @@ import { clansRef, getUser, updateUser } from "../services/firebase";
 
 const router = Router();
 
-/** GET /api/clan — List all clans. */
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+interface MemberStats {
+  address: string;
+  gamerTag: string;
+  role: string;
+  wins: number;
+  losses: number;
+  ties: number;
+  totalPnl: number;
+  currentStreak: number;
+  gamesPlayed: number;
+  joinedAt: string;
+}
+
+/** Fetch full stats for every member in a clan. */
+async function buildMembers(
+  membersObj: Record<string, { role: string; joinedAt: number }>
+): Promise<MemberStats[]> {
+  const addresses = Object.keys(membersObj);
+  return Promise.all(
+    addresses.map(async (addr) => {
+      const u = await getUser(addr);
+      return {
+        address: addr,
+        gamerTag: u?.gamerTag || addr.slice(0, 8),
+        role: membersObj[addr].role,
+        wins: u?.wins || 0,
+        losses: u?.losses || 0,
+        ties: u?.ties || 0,
+        totalPnl: u?.totalPnl || 0,
+        currentStreak: u?.currentStreak || 0,
+        gamesPlayed: u?.gamesPlayed || 0,
+        joinedAt: new Date(membersObj[addr].joinedAt).toISOString(),
+      };
+    })
+  );
+}
+
+/** Compute aggregated stats from a list of members. */
+function computeAggregates(members: MemberStats[]) {
+  const totalWins = members.reduce((s, m) => s + m.wins, 0);
+  const totalLosses = members.reduce((s, m) => s + m.losses, 0);
+  const totalTies = members.reduce((s, m) => s + m.ties, 0);
+  const totalPnl = members.reduce((s, m) => s + m.totalPnl, 0);
+  const totalGamesPlayed = members.reduce((s, m) => s + m.gamesPlayed, 0);
+  const bestStreak = members.length > 0
+    ? Math.max(...members.map((m) => m.currentStreak))
+    : 0;
+  const winRate =
+    totalGamesPlayed > 0 ? Math.round((totalWins / totalGamesPlayed) * 100) : 0;
+
+  return { totalWins, totalLosses, totalTies, totalPnl, totalGamesPlayed, bestStreak, winRate };
+}
+
+// ── Routes ───────────────────────────────────────────────────────────────────
+
+/** GET /api/clan — List all clans with computed stats. */
 router.get("/", async (req, res) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
+  const sortBy = (req.query.sortBy as string) || "winRate";
 
   const snap = await clansRef.once("value");
   if (!snap.exists()) {
@@ -15,26 +73,51 @@ router.get("/", async (req, res) => {
     return;
   }
 
-  const clans: Array<Record<string, unknown>> = [];
+  const entries: Array<{ key: string; val: Record<string, unknown> }> = [];
   snap.forEach((child) => {
-    const c = child.val();
-    const members = c.members ? Object.keys(c.members) : [];
-    clans.push({
-      id: child.key,
-      name: c.name,
-      tag: c.tag,
-      description: c.description || "",
-      leaderAddress: c.leaderAddress,
-      memberCount: members.length,
-      maxMembers: c.maxMembers || 50,
-      totalWins: c.totalWins || 0,
-      totalLosses: c.totalLosses || 0,
-      trophies: c.trophies || 0,
-      createdAt: new Date(c.createdAt).toISOString(),
-    });
+    entries.push({ key: child.key!, val: child.val() });
   });
 
-  clans.sort((a, b) => (b.trophies as number) - (a.trophies as number));
+  const clans = await Promise.all(
+    entries.map(async ({ key, val: c }) => {
+      const membersObj = (c.members || {}) as Record<string, { role: string; joinedAt: number }>;
+      const members = await buildMembers(membersObj);
+      const agg = computeAggregates(members);
+
+      return {
+        id: key,
+        name: c.name as string,
+        tag: c.tag as string,
+        description: (c.description as string) || "",
+        leaderAddress: c.leaderAddress as string,
+        memberCount: members.length,
+        maxMembers: (c.maxMembers as number) || 50,
+        totalWins: agg.totalWins,
+        totalLosses: agg.totalLosses,
+        totalPnl: agg.totalPnl,
+        totalGamesPlayed: agg.totalGamesPlayed,
+        winRate: agg.winRate,
+        createdAt: new Date(c.createdAt as number).toISOString(),
+      };
+    })
+  );
+
+  // Sort by chosen criterion.
+  switch (sortBy) {
+    case "pnl":
+      clans.sort((a, b) => b.totalPnl - a.totalPnl);
+      break;
+    case "wins":
+      clans.sort((a, b) => b.totalWins - a.totalWins);
+      break;
+    case "members":
+      clans.sort((a, b) => b.memberCount - a.memberCount);
+      break;
+    case "winRate":
+    default:
+      clans.sort((a, b) => b.winRate - a.winRate);
+      break;
+  }
 
   const total = clans.length;
   const start = (page - 1) * limit;
@@ -47,7 +130,7 @@ router.get("/", async (req, res) => {
   });
 });
 
-/** GET /api/clan/my — Get the authenticated user's clan. */
+/** GET /api/clan/my — Get the authenticated user's clan with full stats. */
 router.get("/my", requireAuth, async (req: AuthRequest, res) => {
   const user = await getUser(req.userAddress!);
   if (!user || !user.clanId) {
@@ -65,21 +148,8 @@ router.get("/my", requireAuth, async (req: AuthRequest, res) => {
 
   const clan = snap.val();
   const membersObj = clan.members || {};
-  const memberAddresses = Object.keys(membersObj);
-
-  const members = await Promise.all(
-    memberAddresses.map(async (addr) => {
-      const memberUser = await getUser(addr);
-      return {
-        address: addr,
-        gamerTag: memberUser?.gamerTag || addr.slice(0, 8),
-        role: membersObj[addr].role,
-        wins: memberUser?.wins || 0,
-        losses: memberUser?.losses || 0,
-        joinedAt: new Date(membersObj[addr].joinedAt).toISOString(),
-      };
-    })
-  );
+  const members = await buildMembers(membersObj);
+  const agg = computeAggregates(members);
 
   res.json({
     clan: {
@@ -90,16 +160,20 @@ router.get("/my", requireAuth, async (req: AuthRequest, res) => {
       leaderAddress: clan.leaderAddress,
       memberCount: members.length,
       maxMembers: clan.maxMembers || 50,
-      totalWins: clan.totalWins || 0,
-      totalLosses: clan.totalLosses || 0,
-      trophies: clan.trophies || 0,
+      totalWins: agg.totalWins,
+      totalLosses: agg.totalLosses,
+      totalTies: agg.totalTies,
+      totalPnl: agg.totalPnl,
+      totalGamesPlayed: agg.totalGamesPlayed,
+      bestStreak: agg.bestStreak,
+      winRate: agg.winRate,
       createdAt: new Date(clan.createdAt).toISOString(),
       members,
     },
   });
 });
 
-/** GET /api/clan/:id — Get clan details. */
+/** GET /api/clan/:id — Get clan details with full stats. */
 router.get("/:id", async (req, res) => {
   const snap = await clansRef.child(req.params.id).once("value");
 
@@ -110,21 +184,8 @@ router.get("/:id", async (req, res) => {
 
   const clan = snap.val();
   const membersObj = clan.members || {};
-  const memberAddresses = Object.keys(membersObj);
-
-  const members = await Promise.all(
-    memberAddresses.map(async (addr) => {
-      const user = await getUser(addr);
-      return {
-        address: addr,
-        gamerTag: user?.gamerTag || addr.slice(0, 8),
-        role: membersObj[addr].role,
-        wins: user?.wins || 0,
-        losses: user?.losses || 0,
-        joinedAt: new Date(membersObj[addr].joinedAt).toISOString(),
-      };
-    })
-  );
+  const members = await buildMembers(membersObj);
+  const agg = computeAggregates(members);
 
   res.json({
     id: req.params.id,
@@ -134,9 +195,13 @@ router.get("/:id", async (req, res) => {
     leaderAddress: clan.leaderAddress,
     memberCount: members.length,
     maxMembers: clan.maxMembers || 50,
-    totalWins: clan.totalWins || 0,
-    totalLosses: clan.totalLosses || 0,
-    trophies: clan.trophies || 0,
+    totalWins: agg.totalWins,
+    totalLosses: agg.totalLosses,
+    totalTies: agg.totalTies,
+    totalPnl: agg.totalPnl,
+    totalGamesPlayed: agg.totalGamesPlayed,
+    bestStreak: agg.bestStreak,
+    winRate: agg.winRate,
     createdAt: new Date(clan.createdAt).toISOString(),
     members,
   });
@@ -166,9 +231,6 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     description: description || null,
     leaderAddress: req.userAddress!,
     maxMembers: 50,
-    totalWins: 0,
-    totalLosses: 0,
-    trophies: 0,
     createdAt: now,
     members: {
       [req.userAddress!]: {

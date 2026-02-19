@@ -22,8 +22,7 @@ class ClanNotifier extends Notifier<ClanState> {
 
   // ── Helpers ──────────────────────────────────────────────
 
-  static int _calcWinRate(int wins, int losses) {
-    final total = wins + losses;
+  static int _calcWinRate(int wins, int total) {
     if (total == 0) return 0;
     return ((wins / total) * 100).round();
   }
@@ -43,6 +42,10 @@ class ClanNotifier extends Notifier<ClanState> {
 
   /// Parse a clan JSON map into a Clan object.
   Clan _parseClan(Map<String, dynamic> c, {List<ClanMember>? members}) {
+    final totalWins = (c['totalWins'] as int?) ?? 0;
+    final totalLosses = (c['totalLosses'] as int?) ?? 0;
+    final totalGamesPlayed = (c['totalGamesPlayed'] as int?) ?? 0;
+
     return Clan(
       id: c['id'] as String,
       name: c['name'] as String,
@@ -51,13 +54,14 @@ class ClanNotifier extends Notifier<ClanState> {
       leaderAddress: (c['leaderAddress'] as String?) ?? '',
       memberCount: (c['memberCount'] as int?) ?? members?.length ?? 1,
       maxMembers: (c['maxMembers'] as int?) ?? 50,
-      winRate: _calcWinRate(
-        (c['totalWins'] as int?) ?? 0,
-        (c['totalLosses'] as int?) ?? 0,
-      ),
-      totalWins: (c['totalWins'] as int?) ?? 0,
-      totalLosses: (c['totalLosses'] as int?) ?? 0,
-      trophies: (c['trophies'] as int?) ?? 0,
+      winRate: (c['winRate'] as int?) ??
+          _calcWinRate(totalWins, totalGamesPlayed > 0 ? totalGamesPlayed : totalWins + totalLosses),
+      totalWins: totalWins,
+      totalLosses: totalLosses,
+      totalTies: (c['totalTies'] as int?) ?? 0,
+      totalPnl: ((c['totalPnl'] as num?) ?? 0).toDouble(),
+      totalGamesPlayed: totalGamesPlayed,
+      bestStreak: (c['bestStreak'] as int?) ?? 0,
       members: members ?? const [],
       createdAt: DateTime.tryParse(c['createdAt'] as String? ?? '') ??
           DateTime.now(),
@@ -72,7 +76,12 @@ class ClanNotifier extends Notifier<ClanState> {
         address: member['address'] as String,
         gamerTag: (member['gamerTag'] as String?) ?? 'Unknown',
         role: _parseRole(member['role'] as String),
-        trophies: (member['wins'] as int?) ?? 0,
+        wins: (member['wins'] as int?) ?? 0,
+        losses: (member['losses'] as int?) ?? 0,
+        ties: (member['ties'] as int?) ?? 0,
+        totalPnl: ((member['totalPnl'] as num?) ?? 0).toDouble(),
+        currentStreak: (member['currentStreak'] as int?) ?? 0,
+        gamesPlayed: (member['gamesPlayed'] as int?) ?? 0,
         joinedAt: DateTime.tryParse(member['joinedAt'] as String? ?? '') ??
             DateTime.now(),
       );
@@ -107,11 +116,12 @@ class ClanNotifier extends Notifier<ClanState> {
   }
 
   /// Fetch all clans from the backend.
-  Future<void> loadClans() async {
-    state = state.copyWith(isLoading: true);
+  Future<void> loadClans({String? sortBy}) async {
+    final sort = sortBy ?? state.sortBy;
+    state = state.copyWith(isLoading: true, sortBy: sort);
 
     try {
-      final response = await _api.get('/clan');
+      final response = await _api.get('/clan?sortBy=$sort');
       final clansJson = response['clans'] as List<dynamic>;
       _allClans = clansJson.map((json) {
         final c = json as Map<String, dynamic>;

@@ -14,10 +14,9 @@ import '../widgets/create_clan_modal.dart';
 const _gold = Color(0xFFFFD700);
 const _goldDark = Color(0xFFD4A800);
 const _goldDim = Color(0xFFB8860B);
-const _warRed = Color(0xFFFF4444);
 const _warOrange = Color(0xFFFF8C00);
 
-/// Clan screen — Clash Royale-inspired clan hub.
+/// Clan screen — data-driven clan hub with real trading stats.
 class ClanScreen extends ConsumerWidget {
   const ClanScreen({super.key});
 
@@ -58,18 +57,6 @@ class ClanScreen extends ConsumerWidget {
 
           const SizedBox(height: 24),
 
-          // ── Clan War Status (only when in clan) ────────────────────
-          if (isConnected && state.hasClan) ...[
-            Padding(
-              padding: Responsive.horizontalPadding(context),
-              child: _ClanWarBanner(
-                clan: state.userClan!,
-                isMobile: isMobile,
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-
           // ── Members Section (only when in clan) ────────────────────
           if (isConnected && state.hasClan && state.userClan!.members.isNotEmpty) ...[
             Padding(
@@ -90,19 +77,22 @@ class ClanScreen extends ConsumerWidget {
             const SizedBox(height: 24),
           ],
 
-          // ── War Log (only when in clan with war history) ───────────
-          if (isConnected && state.hasClan && state.userClan!.warLog.isNotEmpty) ...[
+          // ── Clan Leaderboard (only when in clan with 2+ members) ──
+          if (isConnected && state.hasClan && state.userClan!.members.length > 1) ...[
             Padding(
               padding: Responsive.horizontalPadding(context),
-              child: _SectionHeader(
-                title: 'War Log',
-                trailing: '${state.userClan!.clanWarWins} wins',
+              child: const _SectionHeader(
+                title: 'Clan Leaderboard',
+                trailing: 'Top Performers',
               ),
             ),
             const SizedBox(height: 10),
             Padding(
               padding: Responsive.horizontalPadding(context),
-              child: _WarLog(warLog: state.userClan!.warLog),
+              child: _ClanLeaderboard(
+                members: state.userClan!.members,
+                isMobile: isMobile,
+              ),
             ),
             const SizedBox(height: 24),
           ],
@@ -136,7 +126,19 @@ class ClanScreen extends ConsumerWidget {
               onChanged: (q) => ref.read(clanProvider.notifier).searchClans(q),
             ),
           ),
+          const SizedBox(height: 10),
+
+          // ── Sort Controls ──────────────────────────────────────────
+          Padding(
+            padding: Responsive.horizontalPadding(context),
+            child: _SortChips(
+              selected: state.sortBy,
+              onSelected: (sortBy) =>
+                  ref.read(clanProvider.notifier).loadClans(sortBy: sortBy),
+            ),
+          ),
           const SizedBox(height: 14),
+
           Padding(
             padding: Responsive.horizontalPadding(context),
             child: state.isLoading
@@ -253,7 +255,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// My Clan Banner — the big Clash Royale-style clan card
+// My Clan Banner — the big showcase card with real stats
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _MyClanBanner extends StatelessWidget {
@@ -296,7 +298,7 @@ class _MyClanBanner extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // Background pattern — subtle diagonal lines
+          // Background pattern
           Positioned.fill(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
@@ -349,12 +351,12 @@ class _MyClanBanner extends StatelessWidget {
             padding: EdgeInsets.all(isMobile ? 20 : 28),
             child: Column(
               children: [
-                // ── Top Row: Shield + Name + Level ──────────────────
+                // ── Top Row: Shield + Name ──────────────────
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Clan Shield
-                    _ClanShield(level: clan.level, size: isMobile ? 60 : 72),
+                    _ClanShield(size: isMobile ? 60 : 72),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -409,33 +411,35 @@ class _MyClanBanner extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                           const SizedBox(height: 8),
-                          // Trophy count
+                          // Battles + Best Streak
                           Row(
                             children: [
-                              Icon(Icons.emoji_events_rounded,
+                              Icon(Icons.sports_esports_rounded,
                                   size: 16, color: _gold),
                               const SizedBox(width: 4),
                               Text(
-                                _formatNumber(clan.trophies),
-                                style: GoogleFonts.inter(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                  color: _gold,
-                                ),
-                              ),
-                              const SizedBox(width: 16),
-                              Icon(Icons.military_tech_rounded,
-                                  size: 16,
-                                  color: Colors.white.withValues(alpha: 0.4)),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Lv. ${clan.level}',
+                                '${clan.totalGamesPlayed} battles',
                                 style: GoogleFonts.inter(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
-                                  color: Colors.white.withValues(alpha: 0.6),
+                                  color: _gold,
                                 ),
                               ),
+                              if (clan.bestStreak > 0) ...[
+                                const SizedBox(width: 16),
+                                Icon(Icons.local_fire_department_rounded,
+                                    size: 16,
+                                    color: Colors.white.withValues(alpha: 0.4)),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Best streak: ${clan.bestStreak}',
+                                  style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white.withValues(alpha: 0.6),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ],
@@ -491,18 +495,13 @@ class _MyClanBanner extends StatelessWidget {
   }
 
   List<Widget> _buildStats() {
+    final pnlColor = clan.totalPnl >= 0 ? AppTheme.solanaGreen : AppTheme.error;
     return [
       _StatItem(
         icon: Icons.people_rounded,
         iconColor: AppTheme.solanaPurple,
         label: 'Members',
         value: '${clan.memberCount}/${clan.maxMembers}',
-      ),
-      _StatItem(
-        icon: Icons.local_fire_department_rounded,
-        iconColor: _warOrange,
-        label: 'War Wins',
-        value: '${clan.clanWarWins}',
       ),
       _StatItem(
         icon: Icons.trending_up_rounded,
@@ -514,20 +513,25 @@ class _MyClanBanner extends StatelessWidget {
         icon: Icons.shield_rounded,
         iconColor: _gold,
         label: 'Record',
-        value: '${clan.totalWins}W ${clan.totalLosses}L',
+        value: '${clan.totalWins}W-${clan.totalLosses}L',
+      ),
+      _StatItem(
+        icon: Icons.account_balance_wallet_rounded,
+        iconColor: pnlColor,
+        label: 'Total P&L',
+        value: '${clan.totalPnl >= 0 ? "+" : ""}\$${clan.totalPnl.toStringAsFixed(2)}',
       ),
     ];
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Clan Shield — the emblem with level ring
+// Clan Shield — decorative emblem
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _ClanShield extends StatelessWidget {
-  final int level;
   final double size;
-  const _ClanShield({required this.level, this.size = 72});
+  const _ClanShield({this.size = 72});
 
   @override
   Widget build(BuildContext context) {
@@ -562,34 +566,10 @@ class _ClanShield extends StatelessWidget {
           ),
         ],
       ),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          Icon(
-            Icons.shield_rounded,
-            size: size * 0.5,
-            color: _gold,
-          ),
-          Positioned(
-            bottom: 2,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1A1520),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: _gold.withValues(alpha: 0.4)),
-              ),
-              child: Text(
-                '$level',
-                style: GoogleFonts.inter(
-                  fontSize: size * 0.14,
-                  fontWeight: FontWeight.w900,
-                  color: _gold,
-                ),
-              ),
-            ),
-          ),
-        ],
+      child: Icon(
+        Icons.shield_rounded,
+        size: size * 0.5,
+        color: _gold,
       ),
     );
   }
@@ -665,338 +645,6 @@ class _StatItem extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Clan War Banner
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _ClanWarBanner extends StatelessWidget {
-  final Clan clan;
-  final bool isMobile;
-  const _ClanWarBanner({required this.clan, required this.isMobile});
-
-  @override
-  Widget build(BuildContext context) {
-    if (!clan.isWarActive) {
-      // No active war — subtle card
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        decoration: BoxDecoration(
-          color: AppTheme.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.border),
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: AppTheme.textTertiary.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.shield_outlined,
-                  size: 20, color: AppTheme.textTertiary),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'No Active Clan War',
-                    style: GoogleFonts.inter(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                  Text(
-                    'Start a war to battle other clans for trophies',
-                    style: GoogleFonts.inter(
-                      fontSize: 12,
-                      color: AppTheme.textTertiary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            _ActionChip(label: 'Start War', color: AppTheme.solanaPurple),
-          ],
-        ),
-      );
-    }
-
-    // Active war — fiery banner
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF351010), Color(0xFF451818), Color(0xFF351010)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _warRed.withValues(alpha: 0.3), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: _warRed.withValues(alpha: 0.12),
-            blurRadius: 30,
-            spreadRadius: 2,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: _warOrange.withValues(alpha: 0.06),
-            blurRadius: 50,
-            spreadRadius: -5,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Fire glow left
-          Positioned(
-            left: -30,
-            top: -30,
-            child: Container(
-              width: 140,
-              height: 140,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    _warOrange.withValues(alpha: 0.15),
-                    _warOrange.withValues(alpha: 0.05),
-                    _warOrange.withValues(alpha: 0),
-                  ],
-                  stops: const [0, 0.4, 1],
-                ),
-              ),
-            ),
-          ),
-          // Fire glow right
-          Positioned(
-            right: -20,
-            bottom: -20,
-            child: Container(
-              width: 120,
-              height: 120,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    _warRed.withValues(alpha: 0.12),
-                    _warRed.withValues(alpha: 0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Center fire glow
-          Positioned(
-            left: 0,
-            right: 0,
-            top: -20,
-            child: Center(
-              child: Container(
-                width: 200,
-                height: 80,
-                decoration: BoxDecoration(
-                  shape: BoxShape.rectangle,
-                  borderRadius: BorderRadius.circular(40),
-                  gradient: RadialGradient(
-                    colors: [
-                      _warOrange.withValues(alpha: 0.06),
-                      _warOrange.withValues(alpha: 0),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        _warRed.withValues(alpha: 0.3),
-                        _warOrange.withValues(alpha: 0.2),
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: _warOrange.withValues(alpha: 0.35)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _warOrange.withValues(alpha: 0.2),
-                        blurRadius: 14,
-                        spreadRadius: 1,
-                      ),
-                    ],
-                  ),
-                  child: const Icon(
-                    Icons.local_fire_department_rounded,
-                    size: 22,
-                    color: _warOrange,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'CLAN WAR',
-                            style: GoogleFonts.inter(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w900,
-                              color: _warOrange,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          _PulsingDot(color: _warRed),
-                          const SizedBox(width: 4),
-                          Text(
-                            'ACTIVE',
-                            style: GoogleFonts.inter(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: _warRed,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Battle in progress — fight for your clan!',
-                        style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: Colors.white.withValues(alpha: 0.45),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                _ActionChip(label: 'Battle', color: _warRed),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Pulsing Dot — animated war indicator
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _PulsingDot extends StatefulWidget {
-  final Color color;
-  const _PulsingDot({required this.color});
-
-  @override
-  State<_PulsingDot> createState() => _PulsingDotState();
-}
-
-class _PulsingDotState extends State<_PulsingDot>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, _) => Container(
-        width: 6,
-        height: 6,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: widget.color.withValues(alpha: 0.5 + _controller.value * 0.5),
-          boxShadow: [
-            BoxShadow(
-              color: widget.color.withValues(alpha: _controller.value * 0.4),
-              blurRadius: 6,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Action Chip — small CTA button
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _ActionChip extends StatefulWidget {
-  final String label;
-  final Color color;
-  const _ActionChip({required this.label, required this.color});
-
-  @override
-  State<_ActionChip> createState() => _ActionChipState();
-}
-
-class _ActionChipState extends State<_ActionChip> {
-  bool _hovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-        decoration: BoxDecoration(
-          color: _hovered
-              ? widget.color.withValues(alpha: 0.25)
-              : widget.color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: widget.color.withValues(alpha: _hovered ? 0.5 : 0.2),
-          ),
-        ),
-        child: Text(
-          widget.label,
-          style: GoogleFonts.inter(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: _hovered ? Colors.white : widget.color,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
 // Members List
 // ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1014,14 +662,83 @@ class _MembersList extends StatelessWidget {
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(
-        children: List.generate(members.length, (i) {
-          final m = members[i];
-          return _MemberRow(
-            member: m,
-            isLast: i == members.length - 1,
-            isMobile: isMobile,
-          );
-        }),
+        children: [
+          // Header row
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 14 : 18,
+              vertical: 10,
+            ),
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceAlt,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 44), // role badge space
+                Expanded(
+                  child: Text(
+                    'Player',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ),
+                if (!isMobile) ...[
+                  SizedBox(
+                    width: 70,
+                    child: Text(
+                      'Record',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textTertiary,
+                      ),
+                      textAlign: TextAlign.right,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                SizedBox(
+                  width: 42,
+                  child: Text(
+                    'Win%',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 70,
+                  child: Text(
+                    'P&L',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.textTertiary,
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+                const SizedBox(width: 36), // streak space
+              ],
+            ),
+          ),
+          ...List.generate(members.length, (i) {
+            final m = members[i];
+            return _MemberRow(
+              member: m,
+              isLast: i == members.length - 1,
+              isMobile: isMobile,
+            );
+          }),
+        ],
       ),
     );
   }
@@ -1083,12 +800,19 @@ class _MemberRowState extends State<_MemberRow> {
     }
   }
 
+  Color _winRateColor(int rate) {
+    if (rate >= 60) return AppTheme.success;
+    if (rate >= 50) return AppTheme.warning;
+    return AppTheme.error;
+  }
+
   @override
   Widget build(BuildContext context) {
     final m = widget.member;
     final roleColor = _roleColor(m.role);
     final isHighRank =
         m.role == ClanRole.leader || m.role == ClanRole.coLeader;
+    final wrInt = m.winRate.round();
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -1173,38 +897,85 @@ class _MemberRowState extends State<_MemberRow> {
               ),
             ),
 
-            // Trophies
+            // W-L record (desktop)
             if (!widget.isMobile) ...[
-              Icon(Icons.emoji_events_rounded,
-                  size: 14, color: _gold.withValues(alpha: 0.6)),
-              const SizedBox(width: 4),
               SizedBox(
-                width: 50,
+                width: 70,
                 child: Text(
-                  _formatNumber(m.trophies),
+                  '${m.wins}W-${m.losses}L',
                   style: GoogleFonts.inter(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textSecondary,
                   ),
+                  textAlign: TextAlign.right,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: 12),
             ],
 
-            // Donations
-            Icon(Icons.volunteer_activism_rounded,
-                size: 14,
-                color: AppTheme.solanaGreen.withValues(alpha: 0.6)),
-            const SizedBox(width: 4),
-            Text(
-              '${m.donations}',
-              style: GoogleFonts.inter(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textSecondary,
+            // Win rate
+            SizedBox(
+              width: 42,
+              child: Text(
+                '$wrInt%',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: m.gamesPlayed > 0
+                      ? _winRateColor(wrInt)
+                      : AppTheme.textTertiary,
+                ),
+                textAlign: TextAlign.right,
               ),
             ),
+            const SizedBox(width: 12),
+
+            // P&L
+            SizedBox(
+              width: 70,
+              child: Text(
+                '${m.totalPnl >= 0 ? "+" : ""}\$${m.totalPnl.toStringAsFixed(2)}',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: m.totalPnl >= 0
+                      ? AppTheme.solanaGreen
+                      : AppTheme.error,
+                ),
+                textAlign: TextAlign.right,
+              ),
+            ),
+
+            // Streak badge
+            if (m.currentStreak >= 2) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _warOrange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: _warOrange.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.local_fire_department_rounded,
+                        size: 10, color: _warOrange),
+                    const SizedBox(width: 2),
+                    Text(
+                      '${m.currentStreak}',
+                      style: GoogleFonts.inter(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: _warOrange,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else
+              const SizedBox(width: 36),
           ],
         ),
       ),
@@ -1213,15 +984,84 @@ class _MemberRowState extends State<_MemberRow> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// War Log
+// Clan Leaderboard — internal ranking of members
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _WarLog extends StatelessWidget {
-  final List<ClanWarResult> warLog;
-  const _WarLog({required this.warLog});
+class _ClanLeaderboard extends StatefulWidget {
+  final List<ClanMember> members;
+  final bool isMobile;
+  const _ClanLeaderboard({required this.members, required this.isMobile});
+
+  @override
+  State<_ClanLeaderboard> createState() => _ClanLeaderboardState();
+}
+
+class _ClanLeaderboardState extends State<_ClanLeaderboard> {
+  String _sortBy = 'pnl';
+
+  static const _sortOptions = [
+    ('pnl', 'P&L'),
+    ('winRate', 'Win Rate'),
+    ('wins', 'Wins'),
+    ('streak', 'Streak'),
+  ];
+
+  static const _rankColors = [
+    Color(0xFFFFD700), // gold
+    Color(0xFFA8B4C0), // silver
+    Color(0xFFCD7F32), // bronze
+  ];
+
+  List<ClanMember> get _sorted {
+    final list = List<ClanMember>.from(widget.members);
+    switch (_sortBy) {
+      case 'winRate':
+        list.sort((a, b) => b.winRate.compareTo(a.winRate));
+      case 'wins':
+        list.sort((a, b) => b.wins.compareTo(a.wins));
+      case 'streak':
+        list.sort((a, b) => b.currentStreak.compareTo(a.currentStreak));
+      case 'pnl':
+      default:
+        list.sort((a, b) => b.totalPnl.compareTo(a.totalPnl));
+    }
+    return list;
+  }
+
+  String _valueFor(ClanMember m) {
+    switch (_sortBy) {
+      case 'winRate':
+        return '${m.winRate.round()}%';
+      case 'wins':
+        return '${m.wins}';
+      case 'streak':
+        return '${m.currentStreak}';
+      case 'pnl':
+      default:
+        return '${m.totalPnl >= 0 ? "+" : ""}\$${m.totalPnl.toStringAsFixed(2)}';
+    }
+  }
+
+  Color _valueColor(ClanMember m) {
+    switch (_sortBy) {
+      case 'winRate':
+        if (m.winRate >= 60) return AppTheme.success;
+        if (m.winRate >= 50) return AppTheme.warning;
+        return AppTheme.error;
+      case 'wins':
+        return AppTheme.solanaGreen;
+      case 'streak':
+        return _warOrange;
+      case 'pnl':
+      default:
+        return m.totalPnl >= 0 ? AppTheme.solanaGreen : AppTheme.error;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final sorted = _sorted;
+
     return Container(
       decoration: BoxDecoration(
         color: AppTheme.surface,
@@ -1229,167 +1069,136 @@ class _WarLog extends StatelessWidget {
         border: Border.all(color: AppTheme.border),
       ),
       child: Column(
-        children: List.generate(warLog.length, (i) {
-          final w = warLog[i];
-          return _WarLogRow(war: w, isLast: i == warLog.length - 1);
-        }),
-      ),
-    );
-  }
-}
-
-class _WarLogRow extends StatelessWidget {
-  final ClanWarResult war;
-  final bool isLast;
-  const _WarLogRow({required this.war, required this.isLast});
-
-  @override
-  Widget build(BuildContext context) {
-    final resultColor = war.won ? AppTheme.success : AppTheme.error;
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            resultColor.withValues(alpha: 0.04),
-            Colors.transparent,
-          ],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          stops: const [0, 0.4],
-        ),
-        border: isLast
-            ? null
-            : Border(
-                bottom:
-                    BorderSide(color: AppTheme.border.withValues(alpha: 0.5)),
-              ),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Colored side accent strip
-          Container(
-            width: 3,
-            decoration: BoxDecoration(
-              color: resultColor,
-              borderRadius: isLast
-                  ? const BorderRadius.only(bottomLeft: Radius.circular(14))
-                  : null,
-              boxShadow: [
-                BoxShadow(
-                  color: resultColor.withValues(alpha: 0.3),
-                  blurRadius: 6,
+          // Sort chips
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+            child: Row(
+              children: [
+                Text(
+                  'Rank by',
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textTertiary,
+                  ),
                 ),
+                const SizedBox(width: 8),
+                ..._sortOptions.map((opt) {
+                  final isSelected = opt.$1 == _sortBy;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: GestureDetector(
+                      onTap: () => setState(() => _sortBy = opt.$1),
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 160),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                                : Colors.white.withValues(alpha: 0.03),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppTheme.solanaPurple.withValues(alpha: 0.3)
+                                  : Colors.white.withValues(alpha: 0.06),
+                            ),
+                          ),
+                          child: Text(
+                            opt.$2,
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isSelected
+                                  ? AppTheme.solanaPurple
+                                  : AppTheme.textTertiary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
           ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
+          const Divider(height: 1),
+
+          // Rows
+          ...List.generate(sorted.length, (i) {
+            final m = sorted[i];
+            final isTop3 = i < 3;
+            return Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.isMobile ? 14 : 18,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                border: i < sorted.length - 1
+                    ? Border(
+                        bottom: BorderSide(
+                            color: AppTheme.border.withValues(alpha: 0.5)),
+                      )
+                    : null,
+              ),
               child: Row(
                 children: [
-                  // Result icon
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration: BoxDecoration(
-                      color: resultColor.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(9),
-                      border: Border.all(
-                          color: resultColor.withValues(alpha: 0.25)),
-                      boxShadow: [
-                        BoxShadow(
-                          color: resultColor.withValues(alpha: 0.12),
-                          blurRadius: 8,
-                        ),
-                      ],
-                    ),
-                    child: Icon(
-                      war.won
-                          ? Icons.emoji_events_rounded
-                          : Icons.close_rounded,
-                      size: 16,
-                      color: resultColor,
+                  // Rank
+                  SizedBox(
+                    width: 28,
+                    child: Text(
+                      '${i + 1}',
+                      style: GoogleFonts.inter(
+                        fontSize: isTop3 ? 15 : 13,
+                        fontWeight: isTop3 ? FontWeight.w900 : FontWeight.w600,
+                        color: isTop3
+                            ? _rankColors[i]
+                            : AppTheme.textTertiary,
+                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-                  const SizedBox(width: 14),
-
-                  // Opponent
+                  const SizedBox(width: 12),
+                  // Name
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              war.won ? 'Victory' : 'Defeat',
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: resultColor,
-                              ),
-                            ),
-                            Text(
-                              '  vs  ',
-                              style: GoogleFonts.inter(
-                                fontSize: 11,
-                                color: AppTheme.textTertiary,
-                              ),
-                            ),
-                            Text(
-                              war.opponentName,
-                              style: GoogleFonts.inter(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textPrimary,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '${_daysAgo(war.date)}  ·  [${war.opponentTag}]',
-                          style: GoogleFonts.inter(
-                            fontSize: 11,
-                            color: AppTheme.textTertiary,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      m.gamerTag,
+                      style: GoogleFonts.inter(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: i == 0 ? _gold : AppTheme.textPrimary,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-
-                  // Stars
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.star_rounded, size: 14, color: _gold),
-                      const SizedBox(width: 2),
-                      Text(
-                        '${war.starsEarned}',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: _gold,
-                        ),
+                  // Games
+                  if (!widget.isMobile) ...[
+                    Text(
+                      '${m.gamesPlayed} games',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        color: AppTheme.textTertiary,
                       ),
-                      Text(
-                        ' - ${war.starsOpponent}',
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.textTertiary,
-                        ),
-                      ),
-                    ],
+                    ),
+                    const SizedBox(width: 16),
+                  ],
+                  // Value
+                  Text(
+                    _valueFor(m),
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: _valueColor(m),
+                    ),
                   ),
                 ],
               ),
-            ),
-          ),
+            );
+          }),
         ],
-      ),
       ),
     );
   }
@@ -1448,14 +1257,14 @@ class _NoClanBanner extends StatelessWidget {
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _ClanShield(level: 0, size: 56),
+                      _ClanShield(size: 56),
                       const SizedBox(height: 16),
                       _noClanText(context),
                     ],
                   )
                 : Row(
                     children: [
-                      _ClanShield(level: 0, size: 64),
+                      _ClanShield(size: 64),
                       const SizedBox(width: 24),
                       Expanded(child: _noClanText(context)),
                     ],
@@ -1481,7 +1290,7 @@ class _NoClanBanner extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          'Team up with traders, battle in clan wars, and earn trophies together.',
+          'Team up with traders and climb the leaderboard together.',
           style: GoogleFonts.inter(
             fontSize: 13,
             color: Colors.white.withValues(alpha: 0.45),
@@ -1595,7 +1404,7 @@ class _ConnectWalletBanner extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Gold Button — Clash-style CTA
+// Gold Button — CTA
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _GoldButton extends StatefulWidget {
@@ -1711,7 +1520,69 @@ class _SearchBar extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Clan Card — clean browse list item
+// Sort Chips — browse list sort controls
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _SortChips extends StatelessWidget {
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  const _SortChips({required this.selected, required this.onSelected});
+
+  static const _options = [
+    ('winRate', 'Win Rate'),
+    ('pnl', 'Total P&L'),
+    ('wins', 'Most Wins'),
+    ('members', 'Most Members'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: _options.map((opt) {
+        final isActive = opt.$1 == selected;
+        return Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () => onSelected(opt.$1),
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                      : AppTheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isActive
+                        ? AppTheme.solanaPurple.withValues(alpha: 0.3)
+                        : AppTheme.border,
+                  ),
+                ),
+                child: Text(
+                  opt.$2,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isActive
+                        ? AppTheme.solanaPurple
+                        : AppTheme.textTertiary,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Clan Card — browse list item with real stats
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _ClanCard extends ConsumerStatefulWidget {
@@ -1740,6 +1611,12 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
     Color(0xFFA8B4C0), // silver
     Color(0xFFCD7F32), // bronze
   ];
+
+  Color _winRateColor(int rate) {
+    if (rate >= 60) return AppTheme.success;
+    if (rate >= 50) return AppTheme.warning;
+    return AppTheme.error;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1774,27 +1651,18 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
             // ── Rank ────────────────────────────────────────────
             SizedBox(
               width: 28,
-              child: isTop3
-                  ? Center(
-                      child: Text(
-                        '$rank',
-                        style: GoogleFonts.inter(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w900,
-                          color: _rankColors[rank - 1],
-                        ),
-                      ),
-                    )
-                  : Center(
-                      child: Text(
-                        '$rank',
-                        style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textTertiary,
-                        ),
-                      ),
-                    ),
+              child: Center(
+                child: Text(
+                  '$rank',
+                  style: GoogleFonts.inter(
+                    fontSize: isTop3 ? 15 : 13,
+                    fontWeight: isTop3 ? FontWeight.w900 : FontWeight.w600,
+                    color: isTop3
+                        ? _rankColors[rank - 1]
+                        : AppTheme.textTertiary,
+                  ),
+                ),
+              ),
             ),
             const SizedBox(width: 12),
 
@@ -1828,23 +1696,6 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
                           color: AppTheme.textTertiary,
                         ),
                       ),
-                      if (clan.isWarActive) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: _warRed,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: _warRed.withValues(alpha: 0.4),
-                                blurRadius: 4,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -1853,34 +1704,38 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
                   Row(
                     children: [
                       _MiniStat(
-                        icon: Icons.emoji_events_rounded,
-                        iconColor: _gold.withValues(alpha: 0.5),
-                        text: _formatNumber(clan.trophies),
-                      ),
-                      const SizedBox(width: 12),
-                      _MiniStat(
                         icon: Icons.people_rounded,
                         iconColor: AppTheme.textTertiary,
                         text: '${clan.memberCount}/${clan.maxMembers}',
                         textColor: isFull ? AppTheme.error : null,
                       ),
+                      const SizedBox(width: 12),
+                      _MiniStat(
+                        icon: Icons.trending_up_rounded,
+                        iconColor: _winRateColor(clan.winRate)
+                            .withValues(alpha: 0.6),
+                        text: '${clan.winRate}%',
+                        textColor: _winRateColor(clan.winRate),
+                      ),
                       if (!widget.isMobile) ...[
                         const SizedBox(width: 12),
                         _MiniStat(
-                          icon: Icons.trending_up_rounded,
-                          iconColor: _winRateColor(clan.winRate)
-                              .withValues(alpha: 0.6),
-                          text: '${clan.winRate}%',
-                          textColor: _winRateColor(clan.winRate),
+                          icon: Icons.shield_rounded,
+                          iconColor: _gold.withValues(alpha: 0.5),
+                          text: '${clan.totalWins}W-${clan.totalLosses}L',
                         ),
-                        if (clan.requiredTrophies > 0) ...[
-                          const SizedBox(width: 12),
-                          _MiniStat(
-                            icon: Icons.lock_outline_rounded,
-                            iconColor: AppTheme.textTertiary,
-                            text: _formatNumber(clan.requiredTrophies),
-                          ),
-                        ],
+                        const SizedBox(width: 12),
+                        _MiniStat(
+                          icon: Icons.account_balance_wallet_rounded,
+                          iconColor: clan.totalPnl >= 0
+                              ? AppTheme.solanaGreen.withValues(alpha: 0.6)
+                              : AppTheme.error.withValues(alpha: 0.6),
+                          text:
+                              '${clan.totalPnl >= 0 ? "+" : ""}\$${clan.totalPnl.toStringAsFixed(1)}',
+                          textColor: clan.totalPnl >= 0
+                              ? AppTheme.solanaGreen
+                              : AppTheme.error,
+                        ),
                       ],
                     ],
                   ),
@@ -1889,7 +1744,7 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
             ),
             const SizedBox(width: 10),
 
-            // ── Level pill ──────────────────────────────────────
+            // ── Battles pill ─────────────────────────────────────
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -1899,7 +1754,7 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
                     color: Colors.white.withValues(alpha: 0.06)),
               ),
               child: Text(
-                'Lv${clan.level}',
+                '${clan.totalGamesPlayed} fights',
                 style: GoogleFonts.inter(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
@@ -1930,12 +1785,6 @@ class _ClanCardState extends ConsumerState<_ClanCard> {
         ),
       ),
     );
-  }
-
-  Color _winRateColor(int rate) {
-    if (rate >= 60) return AppTheme.success;
-    if (rate >= 50) return AppTheme.warning;
-    return AppTheme.error;
   }
 }
 
@@ -2140,20 +1989,3 @@ class _DiagonalPatternPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════════════════
-
-String _formatNumber(int n) {
-  if (n >= 1000) {
-    return '${(n / 1000).toStringAsFixed(1)}k';
-  }
-  return '$n';
-}
-
-String _daysAgo(DateTime date) {
-  final diff = DateTime.now().difference(date).inDays;
-  if (diff == 0) return 'Today';
-  if (diff == 1) return 'Yesterday';
-  return '${diff}d ago';
-}

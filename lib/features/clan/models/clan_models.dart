@@ -1,49 +1,40 @@
 /// Role of a member within a clan.
 enum ClanRole { leader, coLeader, elder, member }
 
-/// A single clan member.
+/// A single clan member with real trading stats.
 class ClanMember {
   final String address;
   final String gamerTag;
   final ClanRole role;
-  final int trophies;
-  final int donations;
+  final int wins;
+  final int losses;
+  final int ties;
+  final double totalPnl;
+  final int currentStreak;
+  final int gamesPlayed;
   final DateTime joinedAt;
 
   const ClanMember({
     required this.address,
     required this.gamerTag,
     required this.role,
-    this.trophies = 0,
-    this.donations = 0,
+    this.wins = 0,
+    this.losses = 0,
+    this.ties = 0,
+    this.totalPnl = 0,
+    this.currentStreak = 0,
+    this.gamesPlayed = 0,
     required this.joinedAt,
   });
+
+  double get winRate => gamesPlayed > 0 ? (wins / gamesPlayed * 100) : 0;
 }
 
-/// A recent clan war result.
-class ClanWarResult {
-  final String opponentName;
-  final String opponentTag;
-  final bool won;
-  final int starsEarned;
-  final int starsOpponent;
-  final DateTime date;
-
-  const ClanWarResult({
-    required this.opponentName,
-    required this.opponentTag,
-    required this.won,
-    required this.starsEarned,
-    required this.starsOpponent,
-    required this.date,
-  });
-}
-
-/// Represents a clan.
+/// Represents a clan with aggregated stats computed from member data.
 class Clan {
   final String id;
   final String name;
-  final String tag; // 3-5 char abbreviation
+  final String tag;
   final String description;
   final String leaderAddress;
   final int memberCount;
@@ -51,13 +42,11 @@ class Clan {
   final int winRate;
   final int totalWins;
   final int totalLosses;
-  final int trophies;
-  final int level;
-  final int clanWarWins;
-  final int requiredTrophies;
-  final bool isWarActive;
+  final int totalTies;
+  final double totalPnl;
+  final int totalGamesPlayed;
+  final int bestStreak;
   final List<ClanMember> members;
-  final List<ClanWarResult> warLog;
   final DateTime createdAt;
 
   const Clan({
@@ -68,16 +57,14 @@ class Clan {
     this.leaderAddress = '',
     required this.memberCount,
     this.maxMembers = 50,
-    required this.winRate,
+    this.winRate = 0,
     this.totalWins = 0,
     this.totalLosses = 0,
-    this.trophies = 0,
-    this.level = 1,
-    this.clanWarWins = 0,
-    this.requiredTrophies = 0,
-    this.isWarActive = false,
+    this.totalTies = 0,
+    this.totalPnl = 0,
+    this.totalGamesPlayed = 0,
+    this.bestStreak = 0,
     this.members = const [],
-    this.warLog = const [],
     required this.createdAt,
   });
 
@@ -92,13 +79,11 @@ class Clan {
     int? winRate,
     int? totalWins,
     int? totalLosses,
-    int? trophies,
-    int? level,
-    int? clanWarWins,
-    int? requiredTrophies,
-    bool? isWarActive,
+    int? totalTies,
+    double? totalPnl,
+    int? totalGamesPlayed,
+    int? bestStreak,
     List<ClanMember>? members,
-    List<ClanWarResult>? warLog,
     DateTime? createdAt,
   }) {
     return Clan(
@@ -112,13 +97,11 @@ class Clan {
       winRate: winRate ?? this.winRate,
       totalWins: totalWins ?? this.totalWins,
       totalLosses: totalLosses ?? this.totalLosses,
-      trophies: trophies ?? this.trophies,
-      level: level ?? this.level,
-      clanWarWins: clanWarWins ?? this.clanWarWins,
-      requiredTrophies: requiredTrophies ?? this.requiredTrophies,
-      isWarActive: isWarActive ?? this.isWarActive,
+      totalTies: totalTies ?? this.totalTies,
+      totalPnl: totalPnl ?? this.totalPnl,
+      totalGamesPlayed: totalGamesPlayed ?? this.totalGamesPlayed,
+      bestStreak: bestStreak ?? this.bestStreak,
       members: members ?? this.members,
-      warLog: warLog ?? this.warLog,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -129,6 +112,7 @@ class ClanState {
   final Clan? userClan;
   final List<Clan> browseClansList;
   final String searchQuery;
+  final String sortBy;
   final bool isLoading;
   final bool isCreating;
   final String? errorMessage;
@@ -137,6 +121,7 @@ class ClanState {
     this.userClan,
     this.browseClansList = const [],
     this.searchQuery = '',
+    this.sortBy = 'winRate',
     this.isLoading = false,
     this.isCreating = false,
     this.errorMessage,
@@ -149,6 +134,7 @@ class ClanState {
     bool clearUserClan = false,
     List<Clan>? browseClansList,
     String? searchQuery,
+    String? sortBy,
     bool? isLoading,
     bool? isCreating,
     String? errorMessage,
@@ -158,6 +144,7 @@ class ClanState {
       userClan: clearUserClan ? null : (userClan ?? this.userClan),
       browseClansList: browseClansList ?? this.browseClansList,
       searchQuery: searchQuery ?? this.searchQuery,
+      sortBy: sortBy ?? this.sortBy,
       isLoading: isLoading ?? this.isLoading,
       isCreating: isCreating ?? this.isCreating,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
