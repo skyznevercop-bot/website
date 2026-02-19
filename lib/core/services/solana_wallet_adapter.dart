@@ -116,11 +116,41 @@ class SolanaWalletAdapter {
         '$walletName wallet not found. Please install the $walletName browser extension.');
   }
 
+  /// Eagerly reconnect to a wallet that was previously approved.
+  /// Uses `{ onlyIfTrusted: true }` so no popup is shown — the call
+  /// silently succeeds if the user previously approved this dapp,
+  /// or throws if not trusted / extension not installed.
+  static Future<WalletConnectionResult> connectEagerly(
+      String walletName) async {
+    final provider = _getProvider(walletName);
+    if (provider != null) {
+      return _connectLegacy(provider, walletName, onlyIfTrusted: true);
+    }
+
+    // Wallet Standard — try normal connect; most adapters remember approval.
+    if (_walletStandardBridge != null) {
+      return _connectWalletStandard(walletName);
+    }
+
+    throw WalletException('$walletName wallet not available for reconnection.');
+  }
+
   /// Connect via a legacy injected provider.
   static Future<WalletConnectionResult> _connectLegacy(
-      JSObject provider, String walletName) async {
-    final connectResult =
-        provider.callMethod('connect'.toJS) as JSPromise;
+      JSObject provider, String walletName,
+      {bool onlyIfTrusted = false}) async {
+    final JSPromise connectResult;
+    if (onlyIfTrusted) {
+      // Pass { onlyIfTrusted: true } — Phantom / Solflare will auto-approve
+      // if the user previously connected, or reject without showing a popup.
+      final options = JSObject();
+      options.setProperty('onlyIfTrusted'.toJS, true.toJS);
+      connectResult =
+          provider.callMethod('connect'.toJS, options) as JSPromise;
+    } else {
+      connectResult =
+          provider.callMethod('connect'.toJS) as JSPromise;
+    }
     final result = await connectResult.toDart;
 
     // Some wallets (Phantom) return { publicKey } from connect().

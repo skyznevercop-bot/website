@@ -4,17 +4,25 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/config/environment.dart';
 import '../../../core/services/api_client.dart';
 import '../../../core/services/solana_wallet_adapter.dart';
 import '../models/wallet_state.dart';
 
+/// SharedPreferences key for the last connected wallet type.
+const _walletTypeKey = 'solfight_wallet_type';
+
 /// Manages wallet connection lifecycle with real Solana wallet extensions
 /// and backend JWT authentication.
 class WalletNotifier extends Notifier<WalletState> {
   @override
-  WalletState build() => const WalletState();
+  WalletState build() {
+    // Attempt silent reconnection on startup.
+    Future.microtask(() => tryReconnect());
+    return const WalletState();
+  }
 
   final _api = ApiClient.instance;
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
@@ -94,6 +102,10 @@ class WalletNotifier extends Notifier<WalletState> {
 
       _backendConnected = backendAvailable;
 
+      // Persist wallet type so we can reconnect after page refresh.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_walletTypeKey, walletName);
+
       // Mark as connected immediately — don't block on balance fetches.
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
@@ -143,7 +155,92 @@ class WalletNotifier extends Notifier<WalletState> {
     _wsSubscription = null;
     _api.disconnectWebSocket();
     await _api.clearToken();
+
+    // Clear persisted wallet type so we don't try to reconnect.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_walletTypeKey);
+
     state = const WalletState();
+  }
+
+  /// Attempt to silently reconnect using a previously approved wallet.
+  /// Called automatically on app startup from [build].
+  /// Uses `connectEagerly` which passes `{ onlyIfTrusted: true }` so
+  /// no popup is shown — succeeds only if the user previously approved.
+  Future<void> tryReconnect() async {
+    // Don't reconnect if already connected or connecting.
+    if (state.isConnected || state.isConnecting) return;
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final walletName = prefs.getString(_walletTypeKey);
+      if (walletName == null) return; // No previous session.
+
+      // Need a stored JWT too — without it we can't auth with the backend.
+      if (!_api.hasToken) return;
+
+      debugPrint('[Wallet] Attempting silent reconnect to $walletName…');
+
+      // Eagerly connect — no popup, fails silently if not trusted.
+      final result = await SolanaWalletAdapter.connectEagerly(walletName);
+      final address = result.publicKey;
+
+      // Reconnect WebSocket with the existing JWT.
+      _api.connectWebSocket();
+
+      // Listen for balance_update events.
+      _wsSubscription?.cancel();
+      _wsSubscription = _api.wsStream.listen((data) {
+        if (data['type'] == 'balance_update') {
+          final bal = (data['balance'] as num?)?.toDouble();
+          final frozen = (data['frozenBalance'] as num?)?.toDouble();
+          if (bal != null) {
+            state = state.copyWith(
+              platformBalance: bal,
+              frozenBalance: frozen ?? state.frozenBalance,
+            );
+          }
+        }
+      });
+
+      // Fetch user profile.
+      String? gamerTag;
+      try {
+        final userResponse = await _api.get('/user/$address');
+        gamerTag = userResponse['gamerTag'] as String?;
+        _backendConnected = true;
+      } catch (_) {
+        _backendConnected = false;
+      }
+
+      // Resolve wallet type enum from stored string.
+      final walletType = WalletType.values.firstWhere(
+        (t) => t.name == walletName,
+        orElse: () => WalletType.phantom,
+      );
+
+      state = state.copyWith(
+        status: WalletConnectionStatus.connected,
+        walletType: walletType,
+        address: address,
+        usdcBalance: 0,
+        gamerTag: gamerTag,
+      );
+
+      debugPrint('[Wallet] Silent reconnect successful: ${address.substring(0, 8)}…');
+
+      // Fetch balances in background.
+      _fetchOnChainUsdcBalance(address).then((balance) {
+        state = state.copyWith(usdcBalance: balance);
+      }).catchError((_) {});
+
+      if (_backendConnected) {
+        _fetchPlatformBalance().catchError((_) {});
+      }
+    } catch (e) {
+      // Silent reconnect failed — user will need to connect manually.
+      debugPrint('[Wallet] Silent reconnect failed: $e');
+    }
   }
 
   /// Set the user's gamer tag (persisted to backend if available).

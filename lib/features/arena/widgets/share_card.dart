@@ -104,7 +104,7 @@ class _ShareCardDialogState extends State<_ShareCardDialog> {
 
     final text =
         'Just $result a SolFight match with $roiStr ROI vs ${d.oppTag}!\n\n'
-        'Play at solfight.club';
+        'Play at solfight.io';
 
     final url = Uri.parse(
         'https://twitter.com/intent/tweet?text=${Uri.encodeComponent(text)}');
@@ -122,10 +122,10 @@ class _ShareCardDialogState extends State<_ShareCardDialog> {
         '${d.myRoi >= 0 ? '+' : ''}${d.myRoi.toStringAsFixed(2)}%';
 
     final text =
-        'Just $result a SolFight match with $roiStr ROI! Play at solfight.club';
+        'Just $result a SolFight match with $roiStr ROI! Play at solfight.io';
 
     final url = Uri.parse(
-        'https://t.me/share/url?url=${Uri.encodeComponent('https://solfight.club')}&text=${Uri.encodeComponent(text)}');
+        'https://t.me/share/url?url=${Uri.encodeComponent('https://solfight.io')}&text=${Uri.encodeComponent(text)}');
     launchUrl(url, mode: LaunchMode.externalApplication);
   }
 
@@ -414,7 +414,7 @@ class _ShareCardContent extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: Text(
-                    'solfight.club',
+                    'solfight.io',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
