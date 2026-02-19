@@ -19,6 +19,8 @@ import referralRoutes from "./routes/referral";
 import clanRoutes from "./routes/clan";
 import rpcProxyRoutes from "./routes/rpc-proxy";
 import klinesRoutes from "./routes/klines";
+import friendsRoutes from "./routes/friends";
+import challengeRoutes from "./routes/challenge";
 
 const app = express();
 const server = createServer(app);
@@ -43,6 +45,8 @@ app.use("/api/referral", referralRoutes);
 app.use("/api/clan", clanRoutes);
 app.use("/api/rpc-proxy", rpcProxyRoutes);
 app.use("/api/klines", klinesRoutes);
+app.use("/api/friends", friendsRoutes);
+app.use("/api/challenge", challengeRoutes);
 
 // WebSocket
 setupWebSocket(server);

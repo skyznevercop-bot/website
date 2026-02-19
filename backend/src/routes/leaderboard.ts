@@ -37,18 +37,48 @@ router.get("/", async (req, res) => {
     }
   });
 
+  // Multi-level sort with tie-breakers so rankings are deterministic.
+  const multiSort = (
+    a: Record<string, unknown>,
+    b: Record<string, unknown>,
+    keys: Array<{ key: string; asc?: boolean }>
+  ): number => {
+    for (const { key, asc } of keys) {
+      const diff = (b[key] as number) - (a[key] as number);
+      if (diff !== 0) return asc ? -diff : diff;
+    }
+    return 0;
+  };
+
   switch (sortBy) {
     case "pnl":
-      players.sort((a, b) => (b.totalPnl as number) - (a.totalPnl as number));
+      players.sort((a, b) =>
+        multiSort(a, b, [
+          { key: "totalPnl" },
+          { key: "wins" },
+          { key: "winRate" },
+        ])
+      );
       break;
     case "streak":
-      players.sort(
-        (a, b) => (b.currentStreak as number) - (a.currentStreak as number)
+      players.sort((a, b) =>
+        multiSort(a, b, [
+          { key: "currentStreak" },
+          { key: "wins" },
+          { key: "totalPnl" },
+        ])
       );
       break;
     case "wins":
     default:
-      players.sort((a, b) => (b.wins as number) - (a.wins as number));
+      players.sort((a, b) =>
+        multiSort(a, b, [
+          { key: "wins" },
+          { key: "winRate" },
+          { key: "losses", asc: true },
+          { key: "totalPnl" },
+        ])
+      );
       break;
   }
 

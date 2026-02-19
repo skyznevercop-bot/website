@@ -7,6 +7,7 @@ import '../../features/leaderboard/screens/leaderboard_screen.dart';
 import '../../features/learn/screens/learn_screen.dart';
 import '../../features/play/screens/play_screen.dart';
 import '../../features/portfolio/screens/portfolio_screen.dart';
+import '../../features/friends/screens/friends_screen.dart';
 import '../../features/referral/screens/referral_screen.dart';
 import '../../shared/widgets/app_shell.dart';
 import '../constants/app_constants.dart';
@@ -67,6 +68,12 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: AppConstants.learnRoute,
             pageBuilder: (context, state) => const NoTransitionPage(
               child: LearnScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.friendsRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: FriendsScreen(),
             ),
           ),
           GoRoute(

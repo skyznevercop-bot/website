@@ -172,29 +172,33 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
       }
     }
 
-    // ── ROI milestones (every 5%) ──
-    // equity = balance + totalUnrealizedPnl (includes open positions).
+    // ── Portfolio milestones (every 5% ROI change) ──
+    // Show the unrealized PnL of open trades instead of a raw ROI percentage,
+    // which is confusing when positions are still live.
     final roi = next.initialBalance > 0
         ? (next.equity - next.initialBalance) / next.initialBalance * 100
         : 0.0;
     final prevRoi = next.initialBalance > 0
         ? (_prevEquity - next.initialBalance) / next.initialBalance * 100
         : 0.0;
-    // Check if we crossed a 5% boundary.
     final currentBucket = (roi / 5).floor();
     final prevBucket = (prevRoi / 5).floor();
     if (currentBucket != prevBucket && currentBucket != 0) {
-      // Show actual ROI (not just the bucket boundary) for accuracy.
-      final roiStr = roi.toStringAsFixed(1);
-      if (roi > 0) {
+      final unrealizedPnl = next.totalUnrealizedPnl;
+      final openCount = next.openPositions.length;
+      if (openCount > 0) {
+        // Show open trades PnL — more useful than a raw ROI %.
+        final sign = unrealizedPnl >= 0 ? '+' : '';
         _addEvent(
           EventType.milestone,
-          'ROI hit +$roiStr%!',
+          'Open trades: $sign\$${unrealizedPnl.toStringAsFixed(0)} ($openCount pos.)',
         );
       } else {
+        // No open positions — show realized portfolio ROI.
+        final roiStr = roi.toStringAsFixed(1);
         _addEvent(
           EventType.milestone,
-          'ROI dropped to $roiStr%',
+          roi > 0 ? 'Portfolio: +$roiStr%' : 'Portfolio: $roiStr%',
         );
       }
     }

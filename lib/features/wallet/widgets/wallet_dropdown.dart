@@ -172,6 +172,11 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             value: 'copy_address',
           ),
           _buildMenuItem(
+            icon: Icons.people_rounded,
+            label: 'Friends',
+            value: 'friends',
+          ),
+          _buildMenuItem(
             icon: Icons.pie_chart_rounded,
             label: 'Portfolio',
             value: 'portfolio',
@@ -370,6 +375,9 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
         break;
       case 'referrals':
         context.go(AppConstants.referralRoute);
+        break;
+      case 'friends':
+        context.go(AppConstants.friendsRoute);
         break;
       case 'portfolio':
         context.go(AppConstants.portfolioRoute);

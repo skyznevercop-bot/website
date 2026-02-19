@@ -45,6 +45,8 @@ export const queuesRef = db.ref("solfight/queues");
 export const referralsRef = db.ref("solfight/referrals");
 export const clansRef = db.ref("solfight/clans");
 export const noncesRef = db.ref("solfight/nonces");
+export const friendsRef = db.ref("solfight/friends");
+export const challengesRef = db.ref("solfight/challenges");
 
 // ── User helpers ──────────────────────────────────────────────────
 

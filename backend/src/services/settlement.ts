@@ -11,6 +11,7 @@ import {
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch, broadcastToAll, isUserConnected } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
+import { expireStaleChallenges } from "../routes/challenge";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -65,12 +66,14 @@ export function startSettlementLoop(): void {
           void retryBalanceSettlement(child.key!, match);
         });
       }
+      // 3. Expire stale friend challenges (unfreeze bets).
+      await expireStaleChallenges();
     } catch (err) {
       console.error("[Settlement] Error:", err);
     }
   }, 5000);
 
-  console.log("[Settlement] Started — checking every 5s (with balance recovery)");
+  console.log("[Settlement] Started — checking every 5s (with balance recovery + challenge expiry)");
 }
 
 /**

@@ -130,6 +130,20 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     if (_phase == _RevealPhase.pending && _hasResult) {
       _startCountdown();
     }
+
+    // If server-authoritative ROI arrived after the animation completed,
+    // snap the displayed values to the correct server values.
+    if (_roiAnimCtrl.isCompleted) {
+      final newMyRoi = _myRoi;
+      final newOppRoi = _oppRoi;
+      if ((_animatedMyRoi - newMyRoi).abs() > 0.01 ||
+          (_animatedOppRoi - newOppRoi).abs() > 0.01) {
+        setState(() {
+          _animatedMyRoi = newMyRoi;
+          _animatedOppRoi = newOppRoi;
+        });
+      }
+    }
   }
 
   @override
