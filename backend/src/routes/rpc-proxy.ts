@@ -20,6 +20,7 @@ const RPC_ENDPOINTS = [
 
 router.post("/", async (req: Request, res: Response) => {
   const body = JSON.stringify(req.body);
+  const method = req.body?.method || "unknown";
 
   for (const rpc of RPC_ENDPOINTS) {
     try {
@@ -30,16 +31,21 @@ router.post("/", async (req: Request, res: Response) => {
         signal: AbortSignal.timeout(8_000),
       });
 
-      if (!upstream.ok) continue; // try next RPC
+      if (!upstream.ok) {
+        console.warn(`[RPC Proxy] ${rpc} returned ${upstream.status} for ${method}`);
+        continue;
+      }
 
       const data = await upstream.json();
+      console.log(`[RPC Proxy] ${method} succeeded via ${rpc}`);
       res.json(data);
       return;
-    } catch {
-      // RPC unreachable — try next
+    } catch (err) {
+      console.warn(`[RPC Proxy] ${rpc} failed for ${method}:`, (err as Error).message);
     }
   }
 
+  console.error(`[RPC Proxy] All RPCs failed for ${method}`);
   res.status(502).json({
     jsonrpc: "2.0",
     error: { code: -32000, message: "All upstream Solana RPCs failed" },

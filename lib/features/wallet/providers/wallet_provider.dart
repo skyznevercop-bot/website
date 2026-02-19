@@ -102,14 +102,19 @@ class WalletNotifier extends Notifier<WalletState> {
         gamerTag: gamerTag,
       );
 
-      // Fetch on-chain USDC balance in the background.
+      // Fetch on-chain USDC balance and platform balance concurrently.
+      // Don't block — update state as each resolves.
       _fetchOnChainUsdcBalance(address).then((onChainBalance) {
+        debugPrint('[Wallet] On-chain USDC balance resolved: $onChainBalance');
         state = state.copyWith(usdcBalance: onChainBalance);
-      }).catchError((_) {});
+      }).catchError((e) {
+        debugPrint('[Wallet] On-chain USDC balance fetch error: $e');
+      });
 
-      // Fetch platform balance from backend.
       if (backendAvailable) {
-        _fetchPlatformBalance().catchError((_) {});
+        _fetchPlatformBalance().catchError((e) {
+          debugPrint('[Wallet] Platform balance fetch error: $e');
+        });
       }
     } on WalletException catch (e) {
       state = state.copyWith(
@@ -201,17 +206,19 @@ class WalletNotifier extends Notifier<WalletState> {
     await _fetchPlatformBalance();
   }
 
-  /// Fetch USDC SPL token balance directly from Solana RPC via Dart HTTP.
-  /// Tries primary RPC first, falls back to secondary if it fails.
+  /// Fetch USDC SPL token balance from Solana RPC.
+  /// Uses backend proxy first (reliable, no CORS), falls back to direct RPC.
   static Future<double> _fetchOnChainUsdcBalance(String walletAddress) async {
-    // Try primary RPC, then fallback.
+    // Backend proxy first — guaranteed no CORS issues from browser.
+    // Direct RPC as fallback (may be CORS-blocked in some browsers).
     for (final rpcUrl in [
-      Environment.solanaRpcUrl,
       Environment.solanaRpcUrlFallback,
+      Environment.solanaRpcUrl,
     ]) {
       final result = await _queryUsdcBalance(walletAddress, rpcUrl);
       if (result != null) return result;
     }
+    debugPrint('[Wallet] All RPCs failed for $walletAddress — returning 0');
     return 0;
   }
 
@@ -220,6 +227,7 @@ class WalletNotifier extends Notifier<WalletState> {
   static Future<double?> _queryUsdcBalance(
       String walletAddress, String rpcUrl) async {
     try {
+      debugPrint('[Wallet] Querying USDC balance from $rpcUrl for ${walletAddress.substring(0, 8)}…');
       final response = await http.post(
         Uri.parse(rpcUrl),
         headers: {'Content-Type': 'application/json'},
@@ -233,16 +241,25 @@ class WalletNotifier extends Notifier<WalletState> {
             {'encoding': 'jsonParsed'},
           ],
         }),
-      ).timeout(const Duration(seconds: 5));
+      ).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode != 200) return null;
+      if (response.statusCode != 200) {
+        debugPrint('[Wallet] RPC $rpcUrl returned status ${response.statusCode}');
+        return null;
+      }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      if (data.containsKey('error')) return null;
+      if (data.containsKey('error')) {
+        debugPrint('[Wallet] RPC $rpcUrl returned error: ${data['error']}');
+        return null;
+      }
 
       final result = data['result'] as Map<String, dynamic>?;
       final accounts = result?['value'] as List<dynamic>?;
-      if (accounts == null || accounts.isEmpty) return 0;
+      if (accounts == null || accounts.isEmpty) {
+        debugPrint('[Wallet] No USDC token accounts found for ${walletAddress.substring(0, 8)}…');
+        return 0;
+      }
 
       double total = 0;
       for (final account in accounts) {
@@ -256,9 +273,10 @@ class WalletNotifier extends Notifier<WalletState> {
           continue;
         }
       }
+      debugPrint('[Wallet] USDC balance from $rpcUrl: $total');
       return total;
     } catch (e) {
-      if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl failed: $e');
+      debugPrint('[Wallet] RPC $rpcUrl failed: $e');
       return null;
     }
   }
