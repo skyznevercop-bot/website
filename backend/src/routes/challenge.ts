@@ -10,6 +10,7 @@ import {
 import { freezeForMatch, unfreezeBalance } from "../services/balance";
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
+import { isValidSolanaAddress } from "../utils/validation";
 
 const router = Router();
 
@@ -86,8 +87,8 @@ router.post("/create", requireAuth, async (req: AuthRequest, res) => {
     const address = req.userAddress!;
     const { toAddress, duration, bet } = req.body;
 
-    if (!toAddress || typeof toAddress !== "string") {
-      res.status(400).json({ error: "toAddress is required" });
+    if (!isValidSolanaAddress(toAddress)) {
+      res.status(400).json({ error: "Valid toAddress is required" });
       return;
     }
     if (!duration || typeof duration !== "string") {

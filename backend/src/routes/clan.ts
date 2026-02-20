@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
 import { clansRef, getUser, updateUser } from "../services/firebase";
+import { sanitizeText } from "../utils/validation";
 
 const router = Router();
 
@@ -209,10 +210,20 @@ router.get("/:id", async (req, res) => {
 
 /** POST /api/clan — Create a new clan. */
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
-  const { name, tag, description } = req.body;
+  const { name: rawName, tag: rawTag, description: rawDesc } = req.body;
 
-  if (!name || !tag || name.length > 30 || tag.length > 5) {
+  if (!rawName || !rawTag || typeof rawName !== "string" || typeof rawTag !== "string") {
     res.status(400).json({ error: "Name (max 30) and tag (max 5) required" });
+    return;
+  }
+
+  // Sanitize user-supplied text.
+  const name = sanitizeText(rawName);
+  const tag = sanitizeText(rawTag);
+  const description = rawDesc ? sanitizeText(String(rawDesc)).slice(0, 200) : null;
+
+  if (name.length < 1 || name.length > 30 || tag.length < 1 || tag.length > 5) {
+    res.status(400).json({ error: "Name (1-30 chars) and tag (1-5 chars) required" });
     return;
   }
 
@@ -228,7 +239,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   await ref.set({
     name,
     tag: tag.toUpperCase(),
-    description: description || null,
+    description,
     leaderAddress: req.userAddress!,
     maxMembers: 50,
     createdAt: now,

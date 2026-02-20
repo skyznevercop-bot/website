@@ -11,6 +11,7 @@ import {
   broadcastToMatch,
   isUserConnected,
   getActiveMatchIds,
+  getUserConnectionCount,
 } from "./rooms";
 import { joinQueue, leaveQueue, removeFromAllQueues } from "../services/matchmaking";
 import { isValidDuration, isValidBet } from "../utils/validation";
@@ -28,12 +29,22 @@ import { getBalance } from "../services/balance";
 const DEMO_BALANCE = config.demoInitialBalance;
 const FORFEIT_GRACE_MS = 60_000; // 60 seconds
 
+/** Max WebSocket connections per wallet address. */
+const MAX_CONNECTIONS_PER_USER = 5;
+
+/** Per-connection rate limit: max messages per window. */
+const WS_RATE_LIMIT_MAX = 30;
+const WS_RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
+
 /** Guard against double-close: position IDs currently being closed. */
 const _closingPositions = new Set<string>();
 
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
   currentMatchId?: string;
+  /** Message rate limiting state. */
+  _msgCount?: number;
+  _msgWindowStart?: number;
 }
 
 /** Active forfeit timers: "matchId|playerAddress" → timeout handle. */
@@ -58,6 +69,13 @@ export function setupWebSocket(server: HttpServer): void {
       const payload = jwt.verify(token, config.jwtSecret) as {
         address: string;
       };
+
+      // Enforce per-user connection limit to prevent resource exhaustion.
+      if (getUserConnectionCount(payload.address) >= MAX_CONNECTIONS_PER_USER) {
+        ws.close(4008, "Too many connections");
+        return;
+      }
+
       ws.userAddress = payload.address;
       registerUserConnection(payload.address, ws);
 
@@ -74,6 +92,26 @@ export function setupWebSocket(server: HttpServer): void {
     console.log(`[WS] Client connected: ${ws.userAddress}`);
 
     ws.on("message", async (raw) => {
+      // ── Per-connection message rate limiting ──
+      const now = Date.now();
+      if (!ws._msgWindowStart || now - ws._msgWindowStart > WS_RATE_LIMIT_WINDOW_MS) {
+        ws._msgWindowStart = now;
+        ws._msgCount = 1;
+      } else {
+        ws._msgCount = (ws._msgCount ?? 0) + 1;
+        if (ws._msgCount > WS_RATE_LIMIT_MAX) {
+          ws.send(JSON.stringify({ type: "error", message: "Rate limit exceeded — slow down" }));
+          return;
+        }
+      }
+
+      // Reject oversized messages (max 4 KB).
+      const rawLen = Buffer.isBuffer(raw) ? raw.length : raw.toString().length;
+      if (rawLen > 4096) {
+        ws.send(JSON.stringify({ type: "error", message: "Message too large" }));
+        return;
+      }
+
       try {
         const data = JSON.parse(raw.toString());
         await handleMessage(ws, data);
@@ -638,6 +676,11 @@ async function handleMessage(
         break;
       }
 
+      // Sanitize: strip control characters and trim whitespace.
+      // eslint-disable-next-line no-control-regex
+      const sanitized = content.replace(/[\x00-\x1F\x7F]/g, "").trim();
+      if (sanitized.length === 0) break;
+
       // Look up the server-side gamer tag to prevent spoofing.
       const chatUser = await getUser(ws.userAddress!);
       const serverTag = chatUser?.gamerTag || ws.userAddress!.slice(0, 8);
@@ -646,7 +689,7 @@ async function handleMessage(
         type: "chat_message",
         matchId,
         senderTag: serverTag,
-        content,
+        content: sanitized,
         sender: ws.userAddress,
         timestamp: Date.now(),
       });

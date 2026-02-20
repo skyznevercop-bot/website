@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { createServer } from "http";
 import { config } from "./config";
 import { rateLimit } from "./middleware/rate-limit";
@@ -22,12 +23,23 @@ import klinesRoutes from "./routes/klines";
 import friendsRoutes from "./routes/friends";
 import challengeRoutes from "./routes/challenge";
 
+// ── Security: refuse to start without a proper JWT secret ──
+if (!config.jwtSecret) {
+  console.error("\n  ✖  FATAL: JWT_SECRET environment variable is not set.");
+  console.error("  Set a strong random secret (e.g. 64+ hex chars) before starting the server.\n");
+  process.exit(1);
+}
+
 const app = express();
 const server = createServer(app);
 
+// Trust the first proxy (Render / Vercel) so req.ip returns the real client IP.
+app.set("trust proxy", 1);
+
 // Middleware
+app.use(helmet());  // Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
 app.use(cors({ origin: config.corsOrigin, credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));  // Prevent large-payload DoS
 app.use(rateLimit(100, 60_000)); // 100 requests per minute
 
 // Health check

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth, AuthRequest } from "../middleware/auth";
 import { friendsRef, getUser } from "../services/firebase";
 import { broadcastToUser } from "../ws/handler";
+import { isValidSolanaAddress } from "../utils/validation";
 
 const router = Router();
 
@@ -92,8 +93,8 @@ router.post("/add", requireAuth, async (req: AuthRequest, res) => {
     const address = req.userAddress!;
     const { address: friendAddress } = req.body;
 
-    if (!friendAddress || typeof friendAddress !== "string") {
-      res.status(400).json({ error: "Friend address is required" });
+    if (!isValidSolanaAddress(friendAddress)) {
+      res.status(400).json({ error: "Valid friend wallet address is required" });
       return;
     }
 
@@ -171,8 +172,8 @@ router.post("/accept", requireAuth, async (req: AuthRequest, res) => {
     const address = req.userAddress!;
     const { address: friendAddress } = req.body;
 
-    if (!friendAddress || typeof friendAddress !== "string") {
-      res.status(400).json({ error: "Friend address is required" });
+    if (!isValidSolanaAddress(friendAddress)) {
+      res.status(400).json({ error: "Valid friend wallet address is required" });
       return;
     }
 

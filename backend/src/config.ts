@@ -22,8 +22,8 @@ export const config = {
   usdcMint:
     process.env.USDC_MINT || "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 
-  // Auth
-  jwtSecret: process.env.JWT_SECRET || "dev-secret-change-me",
+  // Auth — JWT_SECRET must be set in production (no insecure fallback).
+  jwtSecret: process.env.JWT_SECRET || "",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "7d",
 
   // Demo trading

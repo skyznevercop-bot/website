@@ -114,6 +114,13 @@ export function isUserConnected(address: string): boolean {
 }
 
 /**
+ * Get the number of active WebSocket connections for a user.
+ */
+export function getUserConnectionCount(address: string): number {
+  return userConnections.get(address)?.size ?? 0;
+}
+
+/**
  * Get the number of active match rooms.
  */
 export function getActiveRoomCount(): number {

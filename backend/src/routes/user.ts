@@ -7,13 +7,14 @@ import {
   issueToken,
 } from "../middleware/auth";
 import { getUser, updateUser, noncesRef } from "../services/firebase";
+import { sanitizeText, isValidSolanaAddress } from "../utils/validation";
 
 const router = Router();
 
 /** GET /api/auth/nonce?address=... — Get a nonce for wallet signature. */
 router.get("/auth/nonce", async (req, res) => {
   const { address } = req.query;
-  if (typeof address !== "string" || address.length < 32) {
+  if (!isValidSolanaAddress(address)) {
     res.status(400).json({ error: "Invalid wallet address" });
     return;
   }
@@ -26,8 +27,8 @@ router.get("/auth/nonce", async (req, res) => {
 router.post("/auth/verify", async (req, res) => {
   const { address, signature, nonce } = req.body;
 
-  if (!address || !signature || !nonce) {
-    res.status(400).json({ error: "Missing address, signature, or nonce" });
+  if (!isValidSolanaAddress(address) || !signature || !nonce) {
+    res.status(400).json({ error: "Missing or invalid address, signature, or nonce" });
     return;
   }
 
@@ -83,13 +84,15 @@ router.put(
   "/user/gamer-tag",
   requireAuth,
   async (req: AuthRequest, res) => {
-    const { gamerTag } = req.body;
-    if (
-      !gamerTag ||
-      typeof gamerTag !== "string" ||
-      gamerTag.length > 16 ||
-      gamerTag.length < 1
-    ) {
+    const { gamerTag: rawTag } = req.body;
+    if (!rawTag || typeof rawTag !== "string") {
+      res.status(400).json({ error: "Gamer tag must be 1-16 characters" });
+      return;
+    }
+
+    // Sanitize: strip control characters and trim.
+    const gamerTag = sanitizeText(rawTag);
+    if (gamerTag.length < 1 || gamerTag.length > 16) {
       res.status(400).json({ error: "Gamer tag must be 1-16 characters" });
       return;
     }
