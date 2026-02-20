@@ -60,6 +60,9 @@ class QueueState {
   /// Live matches happening now.
   final List<LiveMatch> liveMatches;
 
+  /// Recent match results for lobby display.
+  final List<RecentMatchResult> recentMatches;
+
   const QueueState({
     this.queueSizes = const [0, 0, 0, 0, 0],
     this.waitTimes = const ['--', '--', '--', '--', '--'],
@@ -80,6 +83,7 @@ class QueueState {
     this.userRank,
     this.rankTotal = 0,
     this.liveMatches = const [],
+    this.recentMatches = const [],
   });
 
   int get userGamesPlayed => userWins + userLosses;
@@ -112,6 +116,7 @@ class QueueState {
     bool clearUserRank = false,
     int? rankTotal,
     List<LiveMatch>? liveMatches,
+    List<RecentMatchResult>? recentMatches,
   }) {
     return QueueState(
       queueSizes: queueSizes ?? this.queueSizes,
@@ -140,6 +145,7 @@ class QueueState {
       userRank: clearUserRank ? null : (userRank ?? this.userRank),
       rankTotal: rankTotal ?? this.rankTotal,
       liveMatches: liveMatches ?? this.liveMatches,
+      recentMatches: recentMatches ?? this.recentMatches,
     );
   }
 }
@@ -170,6 +176,8 @@ class LiveMatch {
   final String duration;
   final bool player1Leading;
   final double bet;
+  final int? endTime;
+  final int? startTime;
 
   const LiveMatch({
     required this.player1,
@@ -177,6 +185,26 @@ class LiveMatch {
     required this.duration,
     required this.player1Leading,
     this.bet = 0,
+    this.endTime,
+    this.startTime,
+  });
+}
+
+class RecentMatchResult {
+  final String opponentGamerTag;
+  final String result; // 'WIN', 'LOSS', 'TIE'
+  final double pnl;
+  final String duration;
+  final double betAmount;
+  final int settledAt;
+
+  const RecentMatchResult({
+    required this.opponentGamerTag,
+    required this.result,
+    required this.pnl,
+    required this.duration,
+    required this.betAmount,
+    required this.settledAt,
   });
 }
 
@@ -444,6 +472,31 @@ class QueueNotifier extends Notifier<QueueState> {
         rankTotal: rankResp['total'] as int? ?? 0,
       );
     } catch (_) {}
+    // Fetch recent matches separately (non-blocking).
+    fetchRecentMatches(address);
+  }
+
+  /// Fetch the user's last 5 match results for the lobby display.
+  Future<void> fetchRecentMatches(String address) async {
+    try {
+      final response = await _api.get('/match/history/$address?limit=5');
+      final matchesJson = response['matches'] as List<dynamic>?;
+      if (matchesJson == null) return;
+
+      final matches = matchesJson.map((m) {
+        final match = m as Map<String, dynamic>;
+        return RecentMatchResult(
+          opponentGamerTag: match['opponentGamerTag'] as String? ?? '???',
+          result: match['result'] as String? ?? 'TIE',
+          pnl: (match['pnl'] as num?)?.toDouble() ?? 0,
+          duration: match['duration'] as String? ?? '',
+          betAmount: (match['betAmount'] as num?)?.toDouble() ?? 0,
+          settledAt: (match['settledAt'] as num?)?.toInt() ?? 0,
+        );
+      }).toList();
+
+      state = state.copyWith(recentMatches: matches);
+    } catch (_) {}
   }
 
   /// Fetch live matches from the backend.
@@ -465,7 +518,10 @@ class QueueNotifier extends Notifier<QueueState> {
                   null &&
               ((match['player1Pnl'] as num?)?.toDouble() ?? 0) >=
                   ((match['player2Pnl'] as num?)?.toDouble() ?? 0),
-          bet: (match['bet'] as num?)?.toDouble() ?? 0,
+          bet: (match['bet'] as num?)?.toDouble() ??
+              (match['betAmount'] as num?)?.toDouble() ?? 0,
+          endTime: (match['endTime'] as num?)?.toInt(),
+          startTime: (match['startTime'] as num?)?.toInt(),
         );
       }).toList();
 
@@ -548,6 +604,7 @@ class QueueNotifier extends Notifier<QueueState> {
     final count = 3 + _rng.nextInt(3); // 3-5 matches
     final bets = [5, 10, 25, 50, 100];
 
+    final now = DateTime.now().millisecondsSinceEpoch;
     return List.generate(count, (i) {
       return LiveMatch(
         player1: shuffled[i * 2],
@@ -555,6 +612,7 @@ class QueueNotifier extends Notifier<QueueState> {
         duration: _demoDurations[_rng.nextInt(_demoDurations.length)],
         player1Leading: _rng.nextBool(),
         bet: bets[_rng.nextInt(bets.length)].toDouble(),
+        endTime: now + (5 + _rng.nextInt(55)) * 60 * 1000,
       );
     });
   }

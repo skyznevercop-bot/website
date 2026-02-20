@@ -15,6 +15,8 @@ import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
 import '../../../features/onboarding/providers/onboarding_provider.dart';
 import '../../../features/onboarding/widgets/onboarding_keys.dart';
+import '../../../features/friends/models/friend_models.dart';
+import '../../../features/friends/providers/friend_provider.dart';
 import '../providers/queue_provider.dart';
 import '../widgets/face_off_screen.dart';
 
@@ -250,6 +252,34 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
       }
     });
 
+    // Friend challenge accept/decline feedback.
+    ref.listen<FriendsState>(friendProvider, (prev, next) {
+      if (next.successMessage != null &&
+          next.successMessage != prev?.successMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.successMessage!,
+                style: GoogleFonts.inter(fontSize: 13)),
+            backgroundColor: AppTheme.success,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        ref.read(friendProvider.notifier).clearMessages();
+      }
+      if (next.errorMessage != null &&
+          next.errorMessage != prev?.errorMessage) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(next.errorMessage!,
+                style: GoogleFonts.inter(fontSize: 13)),
+            backgroundColor: AppTheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        ref.read(friendProvider.notifier).clearMessages();
+      }
+    });
+
     return Container(
       decoration: BoxDecoration(
         gradient: AppTheme.heroGradient,
@@ -282,11 +312,12 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 KeyedSubtree(
-                    key: _heroKey, child: _buildHeroContent(queue)),
+                    key: _heroKey,
+                    child: _buildHeroContent(queue)),
                 const SizedBox(height: 28),
                 _PlayerIdentityCard(wallet: wallet, queue: queue),
                 const SizedBox(height: 12),
-                Expanded(child: _LiveMatchesFeed(queue: queue)),
+                Expanded(child: _TabbedFeed(queue: queue)),
               ],
             ),
           ),
@@ -908,16 +939,27 @@ class _PlayerIdentityCard extends StatelessWidget {
 }
 
 // =============================================================================
-// Live Matches Feed
+// Tabbed Feed — Live / Challenges / Recent (swappable)
 // =============================================================================
 
-class _LiveMatchesFeed extends StatelessWidget {
-  final QueueState queue;
+enum _FeedTab { live, challenges, recent }
 
-  const _LiveMatchesFeed({required this.queue});
+class _TabbedFeed extends ConsumerStatefulWidget {
+  final QueueState queue;
+  const _TabbedFeed({required this.queue});
+
+  @override
+  ConsumerState<_TabbedFeed> createState() => _TabbedFeedState();
+}
+
+class _TabbedFeedState extends ConsumerState<_TabbedFeed> {
+  _FeedTab _activeTab = _FeedTab.live;
 
   @override
   Widget build(BuildContext context) {
+    final friends = ref.watch(friendProvider);
+    final challengeCount = friends.receivedChallenges.length;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -928,71 +970,159 @@ class _LiveMatchesFeed extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Tab bar.
           Row(
             children: [
-              const Icon(Icons.sports_esports_rounded,
-                  size: 16, color: AppTheme.solanaPurple),
-              const SizedBox(width: 8),
-              Text('Live Matches',
-                  style: GoogleFonts.inter(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white)),
-              const Spacer(),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: AppTheme.solanaGreen.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                          color: AppTheme.solanaGreen,
-                          shape: BoxShape.circle),
-                    ),
-                    const SizedBox(width: 4),
-                    Text('LIVE',
-                        style: GoogleFonts.inter(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.solanaGreen,
-                          letterSpacing: 0.5,
-                        )),
-                  ],
-                ),
+              _TabChip(
+                label: 'Live',
+                isActive: _activeTab == _FeedTab.live,
+                onTap: () => setState(() => _activeTab = _FeedTab.live),
+                badge: widget.queue.liveMatches.isNotEmpty
+                    ? '${widget.queue.liveMatches.length}'
+                    : null,
+                badgeColor: AppTheme.solanaGreen,
+              ),
+              const SizedBox(width: 6),
+              _TabChip(
+                label: 'Challenges',
+                isActive: _activeTab == _FeedTab.challenges,
+                onTap: () => setState(() => _activeTab = _FeedTab.challenges),
+                badge: challengeCount > 0 ? '$challengeCount' : null,
+                badgeColor: AppTheme.error,
+              ),
+              const SizedBox(width: 6),
+              _TabChip(
+                label: 'Recent',
+                isActive: _activeTab == _FeedTab.recent,
+                onTap: () => setState(() => _activeTab = _FeedTab.recent),
               ),
             ],
           ),
           const SizedBox(height: 12),
+          // Tab content.
           Expanded(
-            child: queue.liveMatches.isEmpty
-                ? Center(
-                    child: Text('No active matches right now',
-                        style: GoogleFonts.inter(
-                            fontSize: 12, color: Colors.white38)),
-                  )
-                : ListView.separated(
-                    itemCount: queue.liveMatches.length,
-                    separatorBuilder: (_, _) => Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Container(
-                          height: 1,
-                          color: Colors.white.withValues(alpha: 0.06)),
-                    ),
-                    itemBuilder: (_, i) {
-                      final m = queue.liveMatches[i];
-                      return _MatchRow(match: m);
-                    },
-                  ),
+            child: switch (_activeTab) {
+              _FeedTab.live => _LiveContent(
+                  matches: widget.queue.liveMatches),
+              _FeedTab.challenges => _ChallengesContent(
+                  challenges: friends.receivedChallenges),
+              _FeedTab.recent => _RecentContent(
+                  results: widget.queue.recentMatches),
+            },
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TabChip extends StatefulWidget {
+  final String label;
+  final bool isActive;
+  final VoidCallback onTap;
+  final String? badge;
+  final Color? badgeColor;
+
+  const _TabChip({
+    required this.label,
+    required this.isActive,
+    required this.onTap,
+    this.badge,
+    this.badgeColor,
+  });
+
+  @override
+  State<_TabChip> createState() => _TabChipState();
+}
+
+class _TabChipState extends State<_TabChip> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: widget.isActive
+                ? AppTheme.solanaPurple.withValues(alpha: 0.2)
+                : _hovered
+                    ? Colors.white.withValues(alpha: 0.08)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: widget.isActive
+                  ? AppTheme.solanaPurple.withValues(alpha: 0.4)
+                  : Colors.white.withValues(alpha: 0.06),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.label,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight:
+                      widget.isActive ? FontWeight.w700 : FontWeight.w500,
+                  color: widget.isActive ? Colors.white : Colors.white54,
+                ),
+              ),
+              if (widget.badge != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: widget.badgeColor ?? AppTheme.solanaPurple,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    widget.badge!,
+                    style: GoogleFonts.inter(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Live Content ──
+
+class _LiveContent extends StatelessWidget {
+  final List<LiveMatch> matches;
+  const _LiveContent({required this.matches});
+
+  @override
+  Widget build(BuildContext context) {
+    if (matches.isEmpty) {
+      return Center(
+        child: Text('No active matches right now',
+            style: GoogleFonts.inter(fontSize: 12, color: Colors.white38)),
+      );
+    }
+    return ListView.separated(
+      itemCount: matches.length,
+      separatorBuilder: (_, _) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Container(
+            height: 1, color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      itemBuilder: (_, i) => _MatchRow(match: matches[i]),
     );
   }
 }
@@ -1001,10 +1131,34 @@ class _MatchRow extends StatelessWidget {
   final LiveMatch match;
   const _MatchRow({required this.match});
 
+  String _timeRemaining() {
+    if (match.endTime == null) return match.duration;
+    final remaining = match.endTime! - DateTime.now().millisecondsSinceEpoch;
+    if (remaining <= 0) return 'Ending...';
+    final minutes = remaining ~/ 60000;
+    final seconds = (remaining % 60000) ~/ 1000;
+    if (minutes >= 60) {
+      final hours = minutes ~/ 60;
+      final mins = minutes % 60;
+      return '${hours}h ${mins}m';
+    }
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
+        Container(
+          width: 3,
+          height: 28,
+          decoration: BoxDecoration(
+            color:
+                match.player1Leading ? AppTheme.solanaGreen : AppTheme.error,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
         Expanded(
           child: Text(match.player1,
               style: GoogleFonts.inter(
@@ -1012,22 +1166,24 @@ class _MatchRow extends StatelessWidget {
                 fontWeight: FontWeight.w600,
                 color: match.player1Leading
                     ? AppTheme.solanaGreen
-                    : AppTheme.error,
-              )),
+                    : Colors.white70,
+              ),
+              overflow: TextOverflow.ellipsis),
         ),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             color: AppTheme.solanaPurple.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text('VS  ${match.duration}',
-              style: GoogleFonts.inter(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Colors.white54,
-                letterSpacing: 0.5,
-              )),
+          child: Text(
+            '${match.bet > 0 ? '\$${match.bet.toStringAsFixed(0)} · ' : ''}${_timeRemaining()}',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              color: Colors.white54,
+            ),
+          ),
         ),
         Expanded(
           child: Text(match.player2,
@@ -1036,9 +1192,223 @@ class _MatchRow extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: match.player1Leading
-                    ? AppTheme.error
+                    ? Colors.white70
                     : AppTheme.solanaGreen,
-              )),
+              ),
+              overflow: TextOverflow.ellipsis),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Challenges Content ──
+
+class _ChallengesContent extends ConsumerWidget {
+  final List<Challenge> challenges;
+  const _ChallengesContent({required this.challenges});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (challenges.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sports_esports_outlined,
+                size: 32, color: Colors.white24),
+            const SizedBox(height: 8),
+            Text('No pending challenges',
+                style: GoogleFonts.inter(
+                    fontSize: 12, color: Colors.white38)),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: challenges.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (_, i) => _ChallengeRow(challenge: challenges[i]),
+    );
+  }
+}
+
+class _ChallengeRow extends ConsumerWidget {
+  final Challenge challenge;
+  const _ChallengeRow({required this.challenge});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final tag = challenge.fromGamerTag ??
+        '${challenge.from.substring(0, 4)}...${challenge.from.substring(challenge.from.length - 4)}';
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.solanaPurple.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+            color: AppTheme.solanaPurple.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tag,
+                    style: GoogleFonts.inter(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(
+                    '${challenge.duration} · \$${challenge.bet.toStringAsFixed(0)}',
+                    style: GoogleFonts.inter(
+                        fontSize: 11, color: Colors.white38)),
+              ],
+            ),
+          ),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => ref
+                  .read(friendProvider.notifier)
+                  .acceptChallenge(challenge.id),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.solanaPurple,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text('Accept',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    )),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => ref
+                  .read(friendProvider.notifier)
+                  .declineChallenge(challenge.id),
+              child: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.close_rounded,
+                    size: 14, color: Colors.white38),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Recent Content ──
+
+class _RecentContent extends StatelessWidget {
+  final List<RecentMatchResult> results;
+  const _RecentContent({required this.results});
+
+  @override
+  Widget build(BuildContext context) {
+    if (results.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.history_rounded,
+                size: 32, color: Colors.white24),
+            const SizedBox(height: 8),
+            Text('No matches yet',
+                style: GoogleFonts.inter(
+                    fontSize: 12, color: Colors.white38)),
+          ],
+        ),
+      );
+    }
+    return ListView.separated(
+      itemCount: results.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 6),
+      itemBuilder: (_, i) => _RecentRow(result: results[i]),
+    );
+  }
+}
+
+class _RecentRow extends StatelessWidget {
+  final RecentMatchResult result;
+  const _RecentRow({required this.result});
+
+  @override
+  Widget build(BuildContext context) {
+    final Color resultColor;
+    final Color resultBg;
+    final String label;
+    switch (result.result) {
+      case 'WIN':
+        resultColor = AppTheme.solanaGreen;
+        resultBg = AppTheme.solanaGreen.withValues(alpha: 0.12);
+        label = 'W';
+      case 'LOSS':
+        resultColor = AppTheme.error;
+        resultBg = AppTheme.error.withValues(alpha: 0.12);
+        label = 'L';
+      default:
+        resultColor = AppTheme.warning;
+        resultBg = AppTheme.warning.withValues(alpha: 0.12);
+        label = 'T';
+    }
+
+    return Row(
+      children: [
+        Container(
+          width: 26,
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          decoration: BoxDecoration(
+            color: resultBg,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Center(
+            child: Text(label,
+                style: GoogleFonts.inter(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: resultColor,
+                )),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'vs ${result.opponentGamerTag}',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Colors.white70,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Text(
+          '${result.pnl >= 0 ? '+' : ''}\$${result.pnl.toStringAsFixed(2)}',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: result.pnl >= 0 ? AppTheme.solanaGreen : AppTheme.error,
+          ),
         ),
       ],
     );
