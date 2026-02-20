@@ -225,6 +225,30 @@ export async function updatePosition(
   await positionsRef.child(matchId).child(positionId).update(data);
 }
 
+/**
+ * Check if a player is currently in an active match.
+ * Returns the matchId if found, null otherwise.
+ */
+export async function hasActiveMatch(address: string): Promise<string | null> {
+  const [snap1, snap2] = await Promise.all([
+    matchesRef.orderByChild("player1").equalTo(address).once("value"),
+    matchesRef.orderByChild("player2").equalTo(address).once("value"),
+  ]);
+
+  for (const snap of [snap1, snap2]) {
+    if (!snap.exists()) continue;
+    let foundId: string | null = null;
+    snap.forEach((child) => {
+      const m = child.val();
+      if (m.status === "active" && !foundId) {
+        foundId = child.key!;
+      }
+    });
+    if (foundId) return foundId;
+  }
+  return null;
+}
+
 // ── Clan helpers ──────────────────────────────────────────────────
 
 export interface DbClan {

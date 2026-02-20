@@ -9,6 +9,8 @@ import '../../features/arena/providers/trading_provider.dart';
 import '../../features/onboarding/providers/onboarding_provider.dart';
 import '../../features/achievements/widgets/achievement_toast.dart';
 import '../../features/onboarding/widgets/onboarding_overlay.dart';
+import '../../features/play/providers/queue_provider.dart';
+import '../../features/play/widgets/face_off_screen.dart';
 import '../../features/wallet/providers/wallet_provider.dart';
 import 'top_bar.dart';
 
@@ -42,6 +44,25 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  void _showFaceOff(MatchFoundData match) {
+    int durationSec = 300; // Default 5 min.
+    final durMatch = RegExp(r'^(\d+)(m|h)$').firstMatch(match.duration);
+    if (durMatch != null) {
+      final value = int.parse(durMatch.group(1)!);
+      durationSec = durMatch.group(2) == 'h' ? value * 3600 : value * 60;
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.transparent,
+      builder: (ctx) => FaceOffScreen(
+        match: match,
+        durationSeconds: durationSec,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // When wallet connects, check for an ongoing match.
@@ -50,6 +71,38 @@ class _AppShellState extends ConsumerState<AppShell> {
         ref.read(tradingProvider.notifier).checkActiveMatch(next.address!);
       }
     });
+
+    // Global listener: navigate to arena when match_found arrives (from queue or challenge).
+    ref.listen<QueueState>(queueProvider, (prev, next) {
+      if (next.matchFound != null && prev?.matchFound == null) {
+        final match = next.matchFound!;
+        ref.read(queueProvider.notifier).clearMatchFound();
+
+        // If already in a match, show notification instead of navigating.
+        final trading = ref.read(tradingProvider);
+        if (trading.matchActive) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('A new match is waiting for you!'),
+                action: SnackBarAction(
+                  label: 'GO',
+                  onPressed: () {
+                    if (trading.arenaRoute != null) {
+                      context.go(trading.arenaRoute!);
+                    }
+                  },
+                ),
+              ),
+            );
+          }
+          return;
+        }
+
+        _showFaceOff(match);
+      }
+    });
+
     final isMobile = Responsive.isMobile(context);
 
     return Scaffold(

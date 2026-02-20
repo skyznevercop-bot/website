@@ -18,7 +18,6 @@ import '../../../features/onboarding/widgets/onboarding_keys.dart';
 import '../../../features/friends/models/friend_models.dart';
 import '../../../features/friends/providers/friend_provider.dart';
 import '../providers/queue_provider.dart';
-import '../widgets/face_off_screen.dart';
 
 // =============================================================================
 // Play Screen — "War Room" lobby (v2: chip selectors, player card, face-off)
@@ -210,38 +209,12 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   int get _betAmount => AppConstants.betAmounts[_selectedBet];
   QueueDuration get _selected => AppConstants.durations[_selectedDuration];
 
-  void _showFaceOff(MatchFoundData match) {
-    int durationSec = _selected.length.inSeconds;
-    final durMatch = RegExp(r'^(\d+)(m|h)$').firstMatch(match.duration);
-    if (durMatch != null) {
-      final value = int.parse(durMatch.group(1)!);
-      durationSec = durMatch.group(2) == 'h' ? value * 3600 : value * 60;
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.transparent,
-      builder: (ctx) => FaceOffScreen(
-        match: match,
-        durationSeconds: durationSec,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final wallet = ref.watch(walletProvider);
     final queue = ref.watch(queueProvider);
 
-    // Listen for match found → show face-off.
-    ref.listen<QueueState>(queueProvider, (prev, next) {
-      if (next.matchFound != null && prev?.matchFound == null) {
-        final match = next.matchFound!;
-        ref.read(queueProvider.notifier).clearMatchFound();
-        _showFaceOff(match);
-      }
-    });
+    // match_found listener is now global in AppShell — no duplicate here.
 
     // Fetch user stats when wallet connects.
     ref.listen<WalletState>(walletProvider, (prev, next) {

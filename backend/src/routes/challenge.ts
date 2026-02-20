@@ -6,6 +6,7 @@ import {
   getUser,
   createMatch as createDbMatch,
   DbMatch,
+  hasActiveMatch,
 } from "../services/firebase";
 import { freezeForMatch, unfreezeBalance } from "../services/balance";
 import { broadcastToUser } from "../ws/handler";
@@ -211,6 +212,20 @@ router.post("/:id/accept", requireAuth, async (req: AuthRequest, res) => {
     const duration = challenge.duration as string;
     const player1 = challenge.from as string;
     const player2 = address;
+
+    // Prevent double matches — check both players.
+    const [p1Active, p2Active] = await Promise.all([
+      hasActiveMatch(player1),
+      hasActiveMatch(player2),
+    ]);
+    if (p1Active) {
+      res.status(400).json({ error: "Challenger is already in a match" });
+      return;
+    }
+    if (p2Active) {
+      res.status(400).json({ error: "You are already in a match" });
+      return;
+    }
 
     // Freeze bet for acceptor (if bet > 0).
     if (bet > 0) {

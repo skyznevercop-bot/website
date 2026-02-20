@@ -1,4 +1,4 @@
-import { queuesRef, createMatch as createDbMatch, getUser, DbMatch } from "./firebase";
+import { queuesRef, createMatch as createDbMatch, getUser, DbMatch, hasActiveMatch } from "./firebase";
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
 import { freezeForMatch, unfreezeBalance } from "./balance";
@@ -185,6 +185,25 @@ async function matchPair(
 
     console.log(
       `[Matchmaking] Aborted match: ${disconnected.slice(0, 8)}… is offline — balance unfrozen`
+    );
+    return;
+  }
+
+  // Guard: if either player is already in an active match, abort.
+  const [p1Active, p2Active] = await Promise.all([
+    hasActiveMatch(player1),
+    hasActiveMatch(player2),
+  ]);
+  if (p1Active || p2Active) {
+    const parts = queueKey.split("_");
+    const bet = parseFloat(parts[1]);
+    await Promise.all([
+      unfreezeBalance(player1, bet),
+      unfreezeBalance(player2, bet),
+    ]);
+    const busy = p1Active ? player1 : player2;
+    console.log(
+      `[Matchmaking] Aborted match: ${busy.slice(0, 8)}… already in active match — balance unfrozen`
     );
     return;
   }
