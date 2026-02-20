@@ -1291,65 +1291,88 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                       : Colors.white.withValues(alpha: 0.1),
             ),
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: needsDeposit
-                  ? [
-                      const Icon(Icons.add_circle_rounded,
-                          size: 22, color: AppTheme.solanaPurple),
+          child: connected
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 16),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          children: [
+                            Icon(
+                              needsDeposit
+                                  ? Icons.add_circle_rounded
+                                  : Icons.account_balance_wallet_rounded,
+                              size: 22,
+                              color: needsDeposit
+                                  ? AppTheme.solanaPurple
+                                  : Colors.white38,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              needsDeposit ? 'Deposit' : 'Balance',
+                              style: GoogleFonts.inter(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              needsDeposit
+                                  ? 'Top up to play'
+                                  : 'Available',
+                              style: GoogleFonts.inter(
+                                  fontSize: 13, color: Colors.white38),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        width: 1,
+                        height: 44,
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                      Expanded(
+                        child: Column(
+                          children: [
+                            const Icon(Icons.attach_money_rounded,
+                                size: 22, color: AppTheme.solanaGreen),
+                            const SizedBox(height: 6),
+                            Text(
+                              '\$${balance.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.solanaGreen),
+                            ),
+                            const SizedBox(height: 2),
+                            Text('USDC',
+                                style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    color: Colors.white38)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.account_balance_wallet_rounded,
+                          size: 24, color: Colors.white54),
                       const SizedBox(width: 10),
-                      Text('Deposit',
+                      Text('Connect Wallet',
                           style: GoogleFonts.inter(
                               fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white)),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                            '\$${balance.toStringAsFixed(2)} USDC',
-                            style: GoogleFonts.inter(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white70)),
-                      ),
-                    ]
-                  : connected
-                      ? [
-                          const Icon(Icons.check_circle_rounded,
-                              size: 22, color: AppTheme.solanaGreen),
-                          const SizedBox(width: 10),
-                          Text('\$${balance.toStringAsFixed(2)}',
-                              style: GoogleFonts.inter(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white)),
-                          const Spacer(),
-                          Text('USDC',
-                              style: GoogleFonts.inter(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white38)),
-                        ]
-                      : [
-                          const Icon(Icons.account_balance_wallet_rounded,
-                              size: 24, color: Colors.white54),
-                          const SizedBox(width: 10),
-                          Text('Connect Wallet',
-                              style: GoogleFonts.inter(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white70)),
-                        ],
-            ),
-          ),
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white70)),
+                    ],
+                  ),
+                ),
         ),
       ),
     );
@@ -1420,7 +1443,6 @@ class _HighlightWalletButtonState
     return SizedBox(
       key: widget.globalKey,
       width: double.infinity,
-      height: 56,
       child: AnimatedBuilder(
         animation: _pulseAnimation,
         builder: (context, child) {
