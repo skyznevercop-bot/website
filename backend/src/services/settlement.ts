@@ -210,7 +210,12 @@ async function _doSettleMatch(
 
   const allPositions = await getPositions(matchId);
 
-  console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions found`);
+  const p1Addr = match.player1 as string;
+  const p2Addr = match.player2 as string;
+  const p1Count = allPositions.filter((p) => p.playerAddress === p1Addr).length;
+  const p2Count = allPositions.filter((p) => p.playerAddress === p2Addr).length;
+  const openCount = allPositions.filter((p) => !p.closedAt).length;
+  console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions (P1=${p1Count}, P2=${p2Count}, open=${openCount})`);
 
   // Close any open positions at the last-broadcast prices.
   for (const pos of allPositions) {
@@ -239,11 +244,19 @@ async function _doSettleMatch(
   // Never rely on stored p.pnl — it may be undefined or stale.
   const p1Pnl = allPositions
     .filter((p) => p.playerAddress === player1)
-    .reduce((sum, p) => sum + calculatePnl(p, p.exitPrice ?? p.entryPrice), 0);
+    .reduce((sum, p) => {
+      const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
+      console.log(`[Settlement]   P1 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} → pnl=${pnl.toFixed(2)}`);
+      return sum + pnl;
+    }, 0);
 
   const p2Pnl = allPositions
     .filter((p) => p.playerAddress === player2)
-    .reduce((sum, p) => sum + calculatePnl(p, p.exitPrice ?? p.entryPrice), 0);
+    .reduce((sum, p) => {
+      const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
+      console.log(`[Settlement]   P2 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} → pnl=${pnl.toFixed(2)}`);
+      return sum + pnl;
+    }, 0);
 
   // ROI = (finalBalance - initialBalance) / initialBalance * 100
   // Since finalBalance = DEMO_BALANCE + totalPnl, this simplifies to totalPnl / DEMO_BALANCE.
