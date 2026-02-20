@@ -438,9 +438,9 @@ class _AlternativeChannels extends StatelessWidget {
         _ChannelTile(
           icon: Icons.alternate_email_rounded,
           label: 'X (Twitter)',
-          desc: 'DM us @sol_fight or tag us in a post.',
+          desc: 'DM us @solfight_io or tag us in a post.',
           color: AppTheme.textPrimary,
-          onTap: () => launchUrl(Uri.parse('https://x.com/sol_fight')),
+          onTap: () => launchUrl(Uri.parse('https://x.com/solfight_io')),
         ),
       ],
     );

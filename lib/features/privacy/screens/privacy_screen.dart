@@ -112,7 +112,7 @@ const _sections = [
     'If you have questions about this Privacy Policy, contact us:\n\n'
     '• Email: support@solfight.io\n'
     '• Discord: https://discord.gg/f9EvNCWmr6\n'
-    '• X (Twitter): @sol_fight',
+    '• X (Twitter): @solfight_io',
   ),
 ];
 

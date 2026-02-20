@@ -429,10 +429,10 @@ class _ContactCards extends StatelessWidget {
         _ContactCard(
           icon: Icons.alternate_email_rounded,
           label: 'X (Twitter)',
-          description: 'Follow @sol_fight for updates and announcements.',
+          description: 'Follow @solfight_io for updates and announcements.',
           color: AppTheme.textPrimary,
           onTap: () =>
-              launchUrl(Uri.parse('https://x.com/sol_fight')),
+              launchUrl(Uri.parse('https://x.com/solfight_io')),
         ),
         _ContactCard(
           icon: Icons.email_outlined,

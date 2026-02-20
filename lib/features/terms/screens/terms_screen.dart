@@ -131,7 +131,7 @@ const _sections = [
     'For questions about these Terms & Conditions, contact us:\n\n'
     '• Email: support@solfight.io\n'
     '• Discord: https://discord.gg/f9EvNCWmr6\n'
-    '• X (Twitter): @sol_fight',
+    '• X (Twitter): @solfight_io',
   ),
 ];
 

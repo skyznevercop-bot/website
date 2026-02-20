@@ -495,9 +495,9 @@ class _CommunityLinks extends StatelessWidget {
         ),
         _SocialButton(
           icon: Icons.alternate_email_rounded,
-          label: '@sol_fight',
+          label: '@solfight_io',
           color: AppTheme.textPrimary,
-          onTap: () => launchUrl(Uri.parse('https://x.com/sol_fight')),
+          onTap: () => launchUrl(Uri.parse('https://x.com/solfight_io')),
         ),
       ],
     );
