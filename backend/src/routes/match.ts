@@ -20,12 +20,32 @@ router.get("/active/list", async (_req, res) => {
     .limitToLast(20)
     .once("value");
 
-  const matches: Array<Record<string, unknown>> = [];
+  const rawMatches: Array<Record<string, unknown> & { id: string }> = [];
   if (snap.exists()) {
     snap.forEach((child) => {
-      matches.push({ id: child.key, ...child.val() });
+      rawMatches.push({ id: child.key!, ...child.val() });
     });
   }
+
+  // Batch-fetch gamer tags for all unique player addresses.
+  const allAddresses = new Set<string>();
+  for (const m of rawMatches) {
+    if (m.player1) allAddresses.add(m.player1 as string);
+    if (m.player2) allAddresses.add(m.player2 as string);
+  }
+  const uniqueAddresses = [...allAddresses];
+  const users = await Promise.all(uniqueAddresses.map((a) => getUser(a)));
+  const tagMap = new Map<string, string>();
+  uniqueAddresses.forEach((a, i) => {
+    tagMap.set(a, users[i]?.gamerTag || a.slice(0, 8));
+  });
+
+  // Enrich matches with gamer tags.
+  const matches = rawMatches.map((m) => ({
+    ...m,
+    player1GamerTag: tagMap.get(m.player1 as string) || (m.player1 as string).slice(0, 8),
+    player2GamerTag: tagMap.get(m.player2 as string) || (m.player2 as string).slice(0, 8),
+  }));
 
   res.json({ matches });
 });
