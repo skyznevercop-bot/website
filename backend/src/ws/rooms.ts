@@ -140,3 +140,21 @@ export function getActiveRoomCount(): number {
 export function getActiveMatchIds(): string[] {
   return Array.from(matchRooms.keys());
 }
+
+// ── Per-match price snapshots for settlement consistency ──
+// Settlement uses these instead of live prices so that the server-computed
+// ROI matches what clients displayed at match end.
+
+const matchLastPrices = new Map<string, { btc: number; eth: number; sol: number }>();
+
+export function storeMatchPrices(matchId: string, prices: { btc: number; eth: number; sol: number }): void {
+  matchLastPrices.set(matchId, { ...prices });
+}
+
+export function getMatchLastPrices(matchId: string): { btc: number; eth: number; sol: number } | undefined {
+  return matchLastPrices.get(matchId);
+}
+
+export function clearMatchPrices(matchId: string): void {
+  matchLastPrices.delete(matchId);
+}

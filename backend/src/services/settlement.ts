@@ -9,7 +9,7 @@ import {
   DbPosition,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch, broadcastToAll, isUserConnected } from "../ws/rooms";
+import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, clearMatchPrices } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
@@ -197,7 +197,11 @@ async function _doSettleMatch(
   matchId: string,
   match: Record<string, unknown>
 ): Promise<void> {
-  const prices = getLatestPrices();
+  // Use the last prices that were broadcast to the match room (same prices
+  // clients used for their ROI display). Falls back to live prices if no
+  // snapshot is available (e.g. match had no connected clients).
+  const storedPrices = getMatchLastPrices(matchId);
+  const prices = storedPrices ?? getLatestPrices();
   const priceMap: Record<string, number> = {
     BTC: prices.btc,
     ETH: prices.eth,
@@ -206,7 +210,7 @@ async function _doSettleMatch(
 
   const allPositions = await getPositions(matchId);
 
-  // Close any open positions at current prices.
+  // Close any open positions at the last-broadcast prices.
   for (const pos of allPositions) {
     if (!pos.closedAt) {
       const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
@@ -282,6 +286,9 @@ async function _doSettleMatch(
     isTie,
     isForfeit: false,
   });
+
+  // Clean up stored price snapshot now that settlement is complete.
+  clearMatchPrices(matchId);
 
   console.log(
     `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner?.slice(0, 8)}…`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`

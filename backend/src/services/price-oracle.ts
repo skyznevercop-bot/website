@@ -1,5 +1,5 @@
 import { EventSource } from "eventsource";
-import { broadcastToMatch } from "../ws/rooms";
+import { broadcastToMatch, getActiveMatchIds, storeMatchPrices } from "../ws/rooms";
 
 export interface PriceData {
   btc: number;
@@ -222,11 +222,17 @@ export function startPriceOracle(): void {
   connectPythStream();
 
   // Broadcast to all active match rooms every 1 second.
+  // Also store per-match snapshots so settlement uses the same prices clients saw.
   setInterval(() => {
+    const snapshot = { ...latestPrices };
     broadcastToMatch("__all_active__", {
       type: "price_update",
-      ...latestPrices,
+      ...snapshot,
     });
+    // Store per-match so settlement can use the last-broadcast prices.
+    for (const matchId of getActiveMatchIds()) {
+      storeMatchPrices(matchId, { btc: snapshot.btc, eth: snapshot.eth, sol: snapshot.sol });
+    }
   }, 1000);
 
   // Staleness watchdog: if SSE appears connected but prices are stale
