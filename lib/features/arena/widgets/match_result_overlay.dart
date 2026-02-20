@@ -342,55 +342,64 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
               child: child,
             );
           },
-          child: Container(
-            color: Colors.black.withValues(alpha: 0.85),
-            child: Stack(
-              children: [
-                // Vignette for defeat.
-                if (_isLoser &&
-                    (_phase == _RevealPhase.reveal ||
-                        _phase == _RevealPhase.stats))
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: RadialGradient(
-                            center: Alignment.center,
-                            radius: 0.9,
-                            colors: [
-                              Colors.transparent,
-                              AppTheme.error.withValues(alpha: 0.12),
-                            ],
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _phase == _RevealPhase.stats
+                ? () => context.go(AppConstants.playRoute)
+                : null,
+            child: Container(
+              color: Colors.black.withValues(alpha: 0.85),
+              child: Stack(
+                children: [
+                  // Vignette for defeat.
+                  if (_isLoser &&
+                      (_phase == _RevealPhase.reveal ||
+                          _phase == _RevealPhase.stats))
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: RadialGradient(
+                              center: Alignment.center,
+                              radius: 0.9,
+                              colors: [
+                                Colors.transparent,
+                                AppTheme.error.withValues(alpha: 0.12),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
 
-                // Victory particles.
-                if (_isWinner &&
-                    (_phase == _RevealPhase.reveal ||
-                        _phase == _RevealPhase.stats))
-                  AnimatedBuilder(
-                    animation: _particleCtrl,
-                    builder: (context, _) => CustomPaint(
-                      size: MediaQuery.sizeOf(context),
-                      painter: _ParticlePainter(
-                        particles: _particles,
-                        progress: _particleCtrl.value,
+                  // Victory particles.
+                  if (_isWinner &&
+                      (_phase == _RevealPhase.reveal ||
+                          _phase == _RevealPhase.stats))
+                    AnimatedBuilder(
+                      animation: _particleCtrl,
+                      builder: (context, _) => CustomPaint(
+                        size: MediaQuery.sizeOf(context),
+                        painter: _ParticlePainter(
+                          particles: _particles,
+                          progress: _particleCtrl.value,
+                        ),
+                      ),
+                    ),
+
+                  // Content.
+                  Center(
+                    child: SingleChildScrollView(
+                      padding:
+                          EdgeInsets.all(Responsive.isMobile(context) ? 16 : 32),
+                      child: GestureDetector(
+                        onTap: () {},  // Absorb taps on the card itself.
+                        child: _buildContent(context),
                       ),
                     ),
                   ),
-
-                // Content.
-                Center(
-                  child: SingleChildScrollView(
-                    padding:
-                        EdgeInsets.all(Responsive.isMobile(context) ? 16 : 32),
-                    child: _buildContent(context),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
