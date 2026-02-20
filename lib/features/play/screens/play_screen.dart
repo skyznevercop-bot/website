@@ -1348,12 +1348,22 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(
-                                needsDeposit ? 'Deposit' : 'Balance',
-                                style: GoogleFonts.inter(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (needsDeposit) ...[
+                                    const Icon(Icons.add_rounded,
+                                        size: 20, color: AppTheme.info),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(
+                                    needsDeposit ? 'Deposit' : 'Balance',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: Colors.white),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 2),
                               Text(
@@ -1375,12 +1385,24 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(
-                                balance.toStringAsFixed(2),
-                                style: GoogleFonts.inter(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppTheme.solanaGreen),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '\$ ',
+                                    style: GoogleFonts.inter(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.solanaGreen),
+                                  ),
+                                  Text(
+                                    balance.toStringAsFixed(2),
+                                    style: GoogleFonts.inter(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.solanaGreen),
+                                  ),
+                                ],
                               ),
                               const SizedBox(height: 2),
                               Text('USDC',
