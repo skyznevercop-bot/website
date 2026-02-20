@@ -10,18 +10,28 @@ import '../models/friend_models.dart';
 class FriendNotifier extends Notifier<FriendsState> {
   final _api = ApiClient.instance;
   StreamSubscription<Map<String, dynamic>>? _wsSub;
+  Timer? _pollTimer;
 
   @override
   FriendsState build() {
+    ref.onDispose(() {
+      _wsSub?.cancel();
+      _pollTimer?.cancel();
+    });
     Future.microtask(() => _init());
-    ref.onDispose(() => _wsSub?.cancel());
     return const FriendsState();
   }
 
   Future<void> _init() async {
     if (!_api.hasToken) return;
-    await loadAll();
+    // Attach WS listener FIRST so events during loadAll aren't lost.
     _listenWs();
+    await loadAll();
+    // Poll every 15s as fallback for missed WebSocket events.
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (_api.hasToken) loadAll();
+    });
   }
 
   void _listenWs() {
@@ -31,7 +41,8 @@ class FriendNotifier extends Notifier<FriendsState> {
       if (type == 'friend_request' ||
           type == 'friend_accepted' ||
           type == 'challenge_received' ||
-          type == 'challenge_declined') {
+          type == 'challenge_declined' ||
+          type == 'ws_connected') {
         loadAll();
       }
     });
