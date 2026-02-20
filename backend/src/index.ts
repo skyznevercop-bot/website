@@ -22,6 +22,7 @@ import rpcProxyRoutes from "./routes/rpc-proxy";
 import klinesRoutes from "./routes/klines";
 import friendsRoutes from "./routes/friends";
 import challengeRoutes from "./routes/challenge";
+import profileRoutes from "./routes/profile";
 
 // ── Security: refuse to start without a proper JWT secret ──
 if (!config.jwtSecret) {
@@ -59,6 +60,7 @@ app.use("/api/rpc-proxy", rpcProxyRoutes);
 app.use("/api/klines", klinesRoutes);
 app.use("/api/friends", friendsRoutes);
 app.use("/api/challenge", challengeRoutes);
+app.use("/api/profile", profileRoutes);
 
 // WebSocket
 setupWebSocket(server);

@@ -12,6 +12,7 @@ import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch, broadcastToAll, isUserConnected } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
+import { checkAndAwardAchievements, type MatchContext } from "./achievements";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -153,7 +154,7 @@ export async function settleByForfeit(
   await updateMatch(matchId, { balancesSettled: true });
 
   // 3. Update player stats.
-  await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false);
+  await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false, matchId);
 
   // 3b. Notify all clients to refresh leaderboard.
   broadcastToAll({ type: "leaderboard_update" });
@@ -263,8 +264,8 @@ async function _doSettleMatch(
   await settleMatchBalances(matchId, winner, player1, player2, betAmount, isTie);
   await updateMatch(matchId, { balancesSettled: true });
 
-  // 3. Update player stats.
-  await updatePlayerStats(player1, player2, winner, betAmount, isTie);
+  // 3. Update player stats + check achievements.
+  await updatePlayerStats(player1, player2, winner, betAmount, isTie, matchId);
 
   // 3b. Notify all clients to refresh leaderboard.
   broadcastToAll({ type: "leaderboard_update" });
@@ -300,44 +301,157 @@ async function updatePlayerStats(
   player2: string,
   winner: string | undefined,
   betAmount: number,
-  isTie: boolean
+  isTie: boolean,
+  matchId?: string
 ): Promise<void> {
   const [p1, p2] = await Promise.all([getUser(player1), getUser(player2)]);
   if (!p1 || !p2) return;
 
+  // Count trades per player from positions (if matchId provided)
+  let p1TradeCount = 0;
+  let p2TradeCount = 0;
+  let p1WinningTrades = 0;
+  let p2WinningTrades = 0;
+
+  if (matchId) {
+    const positions = await getPositions(matchId);
+    for (const pos of positions) {
+      if (pos.playerAddress === player1) {
+        p1TradeCount++;
+        if ((pos.pnl ?? 0) >= 0) p1WinningTrades++;
+      } else if (pos.playerAddress === player2) {
+        p2TradeCount++;
+        if ((pos.pnl ?? 0) >= 0) p2WinningTrades++;
+      }
+    }
+  }
+
   if (isTie) {
+    const p1NewGames = (p1.gamesPlayed || 0) + 1;
+    const p1NewTrades = (p1.totalTrades || 0) + p1TradeCount;
+    const p2NewGames = (p2.gamesPlayed || 0) + 1;
+    const p2NewTrades = (p2.totalTrades || 0) + p2TradeCount;
+
     await Promise.all([
       updateUser(player1, {
         ties: (p1.ties || 0) + 1,
-        gamesPlayed: (p1.gamesPlayed || 0) + 1,
+        gamesPlayed: p1NewGames,
         currentStreak: 0,
+        totalTrades: p1NewTrades,
       }),
       updateUser(player2, {
         ties: (p2.ties || 0) + 1,
-        gamesPlayed: (p2.gamesPlayed || 0) + 1,
+        gamesPlayed: p2NewGames,
         currentStreak: 0,
+        totalTrades: p2NewTrades,
+      }),
+    ]);
+
+    // Check achievements for both players (tie context)
+    const p1Stats = {
+      wins: p1.wins || 0,
+      losses: p1.losses || 0,
+      ties: (p1.ties || 0) + 1,
+      totalPnl: p1.totalPnl || 0,
+      currentStreak: 0,
+      bestStreak: p1.bestStreak || 0,
+      gamesPlayed: p1NewGames,
+      totalTrades: p1NewTrades,
+    };
+    const p2Stats = {
+      wins: p2.wins || 0,
+      losses: p2.losses || 0,
+      ties: (p2.ties || 0) + 1,
+      totalPnl: p2.totalPnl || 0,
+      currentStreak: 0,
+      bestStreak: p2.bestStreak || 0,
+      gamesPlayed: p2NewGames,
+      totalTrades: p2NewTrades,
+    };
+
+    await Promise.all([
+      checkAndAwardAchievements(player1, p1Stats, p1.achievements || {}, {
+        isWinner: false,
+        totalTradesInMatch: p1TradeCount,
+        tradeWinRate: p1TradeCount > 0 ? Math.round((p1WinningTrades / p1TradeCount) * 100) : 0,
+      }),
+      checkAndAwardAchievements(player2, p2Stats, p2.achievements || {}, {
+        isWinner: false,
+        totalTradesInMatch: p2TradeCount,
+        tradeWinRate: p2TradeCount > 0 ? Math.round((p2WinningTrades / p2TradeCount) * 100) : 0,
       }),
     ]);
   } else if (winner) {
     const loser = winner === player1 ? player2 : player1;
     const winnerStats = winner === player1 ? p1 : p2;
     const loserStats = winner === player1 ? p2 : p1;
+    const winnerTradeCount = winner === player1 ? p1TradeCount : p2TradeCount;
+    const loserTradeCount = winner === player1 ? p2TradeCount : p1TradeCount;
+    const winnerWinningTrades = winner === player1 ? p1WinningTrades : p2WinningTrades;
+    const loserWinningTrades = winner === player1 ? p2WinningTrades : p1WinningTrades;
+
+    const newCurrentStreak = (winnerStats.currentStreak || 0) + 1;
+    const newBestStreak = Math.max(winnerStats.bestStreak || 0, newCurrentStreak);
+    const winnerNewPnl = (winnerStats.totalPnl || 0) + betAmount * (2 * (1 - config.rakePercent) - 1);
+    const loserNewPnl = (loserStats.totalPnl || 0) - betAmount;
+    const winnerNewTrades = (winnerStats.totalTrades || 0) + winnerTradeCount;
+    const loserNewTrades = (loserStats.totalTrades || 0) + loserTradeCount;
 
     await Promise.all([
       updateUser(winner, {
         wins: (winnerStats.wins || 0) + 1,
         gamesPlayed: (winnerStats.gamesPlayed || 0) + 1,
-        totalPnl:
-          (winnerStats.totalPnl || 0) +
-          betAmount * (2 * (1 - config.rakePercent) - 1),
-        currentStreak: (winnerStats.currentStreak || 0) + 1,
+        totalPnl: winnerNewPnl,
+        currentStreak: newCurrentStreak,
+        bestStreak: newBestStreak,
+        totalTrades: winnerNewTrades,
       }),
       updateUser(loser, {
         losses: (loserStats.losses || 0) + 1,
         gamesPlayed: (loserStats.gamesPlayed || 0) + 1,
-        totalPnl: (loserStats.totalPnl || 0) - betAmount,
+        totalPnl: loserNewPnl,
         currentStreak: 0,
+        totalTrades: loserNewTrades,
       }),
+    ]);
+
+    // Check achievements for winner
+    const winnerAchStats = {
+      wins: (winnerStats.wins || 0) + 1,
+      losses: winnerStats.losses || 0,
+      ties: winnerStats.ties || 0,
+      totalPnl: winnerNewPnl,
+      currentStreak: newCurrentStreak,
+      bestStreak: newBestStreak,
+      gamesPlayed: (winnerStats.gamesPlayed || 0) + 1,
+      totalTrades: winnerNewTrades,
+    };
+    const winnerCtx: MatchContext = {
+      isWinner: true,
+      totalTradesInMatch: winnerTradeCount,
+      tradeWinRate: winnerTradeCount > 0 ? Math.round((winnerWinningTrades / winnerTradeCount) * 100) : 0,
+    };
+
+    // Check achievements for loser
+    const loserAchStats = {
+      wins: loserStats.wins || 0,
+      losses: (loserStats.losses || 0) + 1,
+      ties: loserStats.ties || 0,
+      totalPnl: loserNewPnl,
+      currentStreak: 0,
+      bestStreak: loserStats.bestStreak || 0,
+      gamesPlayed: (loserStats.gamesPlayed || 0) + 1,
+      totalTrades: loserNewTrades,
+    };
+    const loserCtx: MatchContext = {
+      isWinner: false,
+      totalTradesInMatch: loserTradeCount,
+      tradeWinRate: loserTradeCount > 0 ? Math.round((loserWinningTrades / loserTradeCount) * 100) : 0,
+    };
+
+    await Promise.all([
+      checkAndAwardAchievements(winner, winnerAchStats, winnerStats.achievements || {}, winnerCtx),
+      checkAndAwardAchievements(loser, loserAchStats, loserStats.achievements || {}, loserCtx),
     ]);
   }
 }

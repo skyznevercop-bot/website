@@ -41,6 +41,7 @@ class AppConstants {
   static const String aboutRoute = '/about';
   static const String privacyRoute = '/privacy';
   static const String termsRoute = '/terms';
+  static const String profileRoute = '/profile';
 }
 
 /// Represents a match duration option for matchmaking.

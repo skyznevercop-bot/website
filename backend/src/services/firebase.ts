@@ -57,7 +57,10 @@ export interface DbUser {
   ties: number;
   totalPnl: number;
   currentStreak: number;
+  bestStreak?: number;
   gamesPlayed: number;
+  totalTrades?: number;
+  achievements?: Record<string, boolean>;
   createdAt: number;
   clanId?: string | null;
   // Platform balance fields
@@ -82,7 +85,10 @@ export async function getOrCreateUser(address: string): Promise<DbUser> {
     ties: 0,
     totalPnl: 0,
     currentStreak: 0,
+    bestStreak: 0,
     gamesPlayed: 0,
+    totalTrades: 0,
+    achievements: {},
     createdAt: Date.now(),
   };
   await usersRef.child(address).set(newUser);

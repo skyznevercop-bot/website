@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/theme/app_theme.dart';
@@ -591,7 +592,9 @@ class _LeaderboardRowState extends State<_LeaderboardRow> {
   Widget build(BuildContext context) {
     final p = widget.player;
 
-    return MouseRegion(
+    return GestureDetector(
+      onTap: () => context.go('/profile/${p.id}'),
+      child: MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -755,6 +758,7 @@ class _LeaderboardRowState extends State<_LeaderboardRow> {
               ),
           ],
         ),
+      ),
       ),
     );
   }

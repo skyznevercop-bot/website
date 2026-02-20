@@ -14,6 +14,7 @@ import '../../features/portfolio/screens/portfolio_screen.dart';
 import '../../features/privacy/screens/privacy_screen.dart';
 import '../../features/referral/screens/referral_screen.dart';
 import '../../features/rules/screens/rules_screen.dart';
+import '../../features/profile/screens/profile_screen.dart';
 import '../../features/terms/screens/terms_screen.dart';
 import '../../shared/widgets/app_shell.dart';
 import '../constants/app_constants.dart';
@@ -123,6 +124,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) => const NoTransitionPage(
               child: TermsScreen(),
             ),
+          ),
+          GoRoute(
+            path: '/profile/:address',
+            pageBuilder: (context, state) {
+              final address = state.pathParameters['address']!;
+              return NoTransitionPage(
+                child: ProfileScreen(walletAddress: address),
+              );
+            },
           ),
         ],
       ),

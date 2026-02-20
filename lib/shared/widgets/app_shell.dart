@@ -7,6 +7,7 @@ import '../../core/theme/app_theme.dart';
 import '../../core/utils/responsive.dart';
 import '../../features/arena/providers/trading_provider.dart';
 import '../../features/onboarding/providers/onboarding_provider.dart';
+import '../../features/achievements/widgets/achievement_toast.dart';
 import '../../features/onboarding/widgets/onboarding_overlay.dart';
 import '../../features/wallet/providers/wallet_provider.dart';
 import 'top_bar.dart';
@@ -61,6 +62,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             ],
           ),
           const OnboardingOverlay(),
+          const AchievementToastOverlay(),
         ],
       ),
       // Bottom nav for mobile only

@@ -162,6 +162,11 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
 
           // ── Menu Items ─────────────────────────────────────────────
           _buildMenuItem(
+            icon: Icons.account_circle_rounded,
+            label: 'My Profile',
+            value: 'profile',
+          ),
+          _buildMenuItem(
             icon: Icons.person_rounded,
             label: 'Edit Gamer Tag',
             value: 'edit_tag',
@@ -347,6 +352,12 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
 
   void _handleAction(String action, BuildContext context) {
     switch (action) {
+      case 'profile':
+        final address = ref.read(walletProvider).address;
+        if (address != null) {
+          context.go('/profile/$address');
+        }
+        break;
       case 'disconnect':
         ref.read(walletProvider.notifier).disconnect();
         break;
