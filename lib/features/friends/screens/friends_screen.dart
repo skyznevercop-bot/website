@@ -216,6 +216,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen>
           received: friendState.receivedChallenges,
           onAccept: (id) => ref.read(friendProvider.notifier).acceptChallenge(id),
           onDecline: (id) => ref.read(friendProvider.notifier).declineChallenge(id),
+          onCancel: (id) => ref.read(friendProvider.notifier).cancelChallenge(id),
         );
       default:
         return const SizedBox.shrink();
@@ -690,12 +691,14 @@ class _ChallengesList extends StatelessWidget {
   final List<Challenge> received;
   final void Function(String) onAccept;
   final void Function(String) onDecline;
+  final void Function(String) onCancel;
 
   const _ChallengesList({
     required this.sent,
     required this.received,
     required this.onAccept,
     required this.onDecline,
+    required this.onCancel,
   });
 
   @override
@@ -744,7 +747,7 @@ class _ChallengesList extends StatelessWidget {
               style: GoogleFonts.inter(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.textTertiary, letterSpacing: 1.2),
             ),
           ),
-          ...sent.map((c) => _ChallengeTile(challenge: c, isReceived: false, onAccept: onAccept, onDecline: onDecline)),
+          ...sent.map((c) => _ChallengeTile(challenge: c, isReceived: false, onAccept: onAccept, onDecline: onDecline, onCancel: onCancel)),
         ],
         const SizedBox(height: 8),
       ],
@@ -757,12 +760,14 @@ class _ChallengeTile extends StatelessWidget {
   final bool isReceived;
   final void Function(String) onAccept;
   final void Function(String) onDecline;
+  final void Function(String)? onCancel;
 
   const _ChallengeTile({
     required this.challenge,
     required this.isReceived,
     required this.onAccept,
     required this.onDecline,
+    this.onCancel,
   });
 
   @override
@@ -830,7 +835,7 @@ class _ChallengeTile extends StatelessWidget {
                 tooltip: 'Decline',
                 onPressed: () => onDecline(challenge.id),
               ),
-            ] else
+            ] else ...[
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
@@ -842,6 +847,14 @@ class _ChallengeTile extends StatelessWidget {
                   style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600, color: AppTheme.warning),
                 ),
               ),
+              const SizedBox(width: 8),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: AppTheme.textTertiary,
+                tooltip: 'Cancel challenge',
+                onPressed: () => onCancel?.call(challenge.id),
+              ),
+            ],
           ],
         ),
       ),

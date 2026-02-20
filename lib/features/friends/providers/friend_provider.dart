@@ -42,6 +42,7 @@ class FriendNotifier extends Notifier<FriendsState> {
           type == 'friend_accepted' ||
           type == 'challenge_received' ||
           type == 'challenge_declined' ||
+          type == 'challenge_cancelled' ||
           type == 'ws_connected') {
         loadAll();
       }
@@ -183,6 +184,17 @@ class FriendNotifier extends Notifier<FriendsState> {
   Future<void> declineChallenge(String challengeId) async {
     try {
       await _api.post('/challenge/$challengeId/decline');
+      await loadChallenges();
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+    }
+  }
+
+  /// Cancel a challenge you sent.
+  Future<void> cancelChallenge(String challengeId) async {
+    try {
+      await _api.post('/challenge/$challengeId/cancel');
+      state = state.copyWith(successMessage: 'Challenge cancelled');
       await loadChallenges();
     } on ApiException catch (e) {
       state = state.copyWith(errorMessage: e.message);

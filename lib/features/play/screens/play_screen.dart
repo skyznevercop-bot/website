@@ -958,7 +958,8 @@ class _TabbedFeedState extends ConsumerState<_TabbedFeed> {
   @override
   Widget build(BuildContext context) {
     final friends = ref.watch(friendProvider);
-    final challengeCount = friends.receivedChallenges.length;
+    final challengeCount =
+        friends.receivedChallenges.length + friends.sentChallenges.length;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1005,7 +1006,8 @@ class _TabbedFeedState extends ConsumerState<_TabbedFeed> {
               _FeedTab.live => _LiveContent(
                   matches: widget.queue.liveMatches),
               _FeedTab.challenges => _ChallengesContent(
-                  challenges: friends.receivedChallenges),
+                  received: friends.receivedChallenges,
+                  sent: friends.sentChallenges),
               _FeedTab.recent => _RecentContent(
                   results: widget.queue.recentMatches),
             },
@@ -1205,12 +1207,13 @@ class _MatchRow extends StatelessWidget {
 // ── Challenges Content ──
 
 class _ChallengesContent extends ConsumerWidget {
-  final List<Challenge> challenges;
-  const _ChallengesContent({required this.challenges});
+  final List<Challenge> received;
+  final List<Challenge> sent;
+  const _ChallengesContent({required this.received, required this.sent});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (challenges.isEmpty) {
+    if (received.isEmpty && sent.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1225,30 +1228,42 @@ class _ChallengesContent extends ConsumerWidget {
         ),
       );
     }
+    final items = <Widget>[
+      ...received.map((c) => _ChallengeRow(challenge: c, isReceived: true)),
+      ...sent.map((c) => _ChallengeRow(challenge: c, isReceived: false)),
+    ];
     return ListView.separated(
-      itemCount: challenges.length,
+      itemCount: items.length,
       separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => _ChallengeRow(challenge: challenges[i]),
+      itemBuilder: (_, i) => items[i],
     );
   }
 }
 
 class _ChallengeRow extends ConsumerWidget {
   final Challenge challenge;
-  const _ChallengeRow({required this.challenge});
+  final bool isReceived;
+  const _ChallengeRow({required this.challenge, required this.isReceived});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final tag = challenge.fromGamerTag ??
-        '${challenge.from.substring(0, 4)}...${challenge.from.substring(challenge.from.length - 4)}';
+    final tag = isReceived
+        ? (challenge.fromGamerTag ??
+            '${challenge.from.substring(0, 4)}...${challenge.from.substring(challenge.from.length - 4)}')
+        : (challenge.toGamerTag ??
+            '${challenge.to.substring(0, 4)}...${challenge.to.substring(challenge.to.length - 4)}');
 
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppTheme.solanaPurple.withValues(alpha: 0.06),
+        color: isReceived
+            ? AppTheme.solanaPurple.withValues(alpha: 0.06)
+            : Colors.white.withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-            color: AppTheme.solanaPurple.withValues(alpha: 0.15)),
+            color: isReceived
+                ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                : Colors.white.withValues(alpha: 0.08)),
       ),
       child: Row(
         children: [
@@ -1256,7 +1271,8 @@ class _ChallengeRow extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(tag,
+                Text(
+                    isReceived ? '$tag challenges you!' : 'Waiting for $tag...',
                     style: GoogleFonts.inter(
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
@@ -1271,46 +1287,81 @@ class _ChallengeRow extends ConsumerWidget {
               ],
             ),
           ),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => ref
-                  .read(friendProvider.notifier)
-                  .acceptChallenge(challenge.id),
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.solanaPurple,
-                  borderRadius: BorderRadius.circular(8),
+          if (isReceived) ...[
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => ref
+                    .read(friendProvider.notifier)
+                    .acceptChallenge(challenge.id),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.solanaPurple,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text('Accept',
+                      style: GoogleFonts.inter(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      )),
                 ),
-                child: Text('Accept',
-                    style: GoogleFonts.inter(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    )),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => ref
-                  .read(friendProvider.notifier)
-                  .declineChallenge(challenge.id),
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(8),
+            const SizedBox(width: 6),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => ref
+                    .read(friendProvider.notifier)
+                    .declineChallenge(challenge.id),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.close_rounded,
+                      size: 14, color: Colors.white38),
                 ),
-                child: const Icon(Icons.close_rounded,
-                    size: 14, color: Colors.white38),
               ),
             ),
-          ),
+          ] else ...[
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: AppTheme.warning.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text('Pending',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.warning,
+                  )),
+            ),
+            const SizedBox(width: 6),
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => ref
+                    .read(friendProvider.notifier)
+                    .cancelChallenge(challenge.id),
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.close_rounded,
+                      size: 14, color: Colors.white38),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );

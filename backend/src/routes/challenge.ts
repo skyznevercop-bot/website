@@ -115,6 +115,25 @@ router.post("/create", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
+    // Prevent duplicate pending challenges to the same player.
+    const existingSnap = await challengesRef
+      .orderByChild("from")
+      .equalTo(address)
+      .once("value");
+    if (existingSnap.exists()) {
+      let hasDuplicate = false;
+      existingSnap.forEach((child) => {
+        const c = child.val();
+        if (c.to === toAddress && c.status === "pending") {
+          hasDuplicate = true;
+        }
+      });
+      if (hasDuplicate) {
+        res.status(400).json({ error: "You already have a pending challenge to this player" });
+        return;
+      }
+    }
+
     // Freeze bet for challenger (if bet > 0).
     if (bet > 0) {
       const frozen = await freezeForMatch(address, bet);
@@ -297,6 +316,51 @@ router.post("/:id/decline", requireAuth, async (req: AuthRequest, res) => {
   } catch (err) {
     console.error("[Challenge] POST /:id/decline error:", err);
     res.status(500).json({ error: "Failed to decline challenge" });
+  }
+});
+
+// ── POST /api/challenge/:id/cancel — Cancel a challenge you sent ─────
+
+router.post("/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const address = req.userAddress!;
+    const challengeId = req.params.id;
+
+    const snap = await challengesRef.child(challengeId).once("value");
+    if (!snap.exists()) {
+      res.status(404).json({ error: "Challenge not found" });
+      return;
+    }
+
+    const challenge = snap.val();
+    if (challenge.from !== address) {
+      res.status(403).json({ error: "Not your challenge to cancel" });
+      return;
+    }
+    if (challenge.status !== "pending") {
+      res.status(400).json({ error: `Challenge is ${challenge.status}` });
+      return;
+    }
+
+    // Unfreeze challenger's bet.
+    const bet = challenge.bet as number;
+    if (bet > 0) {
+      await unfreezeBalance(address, bet);
+    }
+
+    await challengesRef.child(challengeId).update({ status: "cancelled" });
+
+    // Notify the challenged player so their UI updates.
+    broadcastToUser(challenge.to as string, {
+      type: "challenge_cancelled",
+      challengeId,
+      by: address,
+    });
+
+    res.json({ status: "cancelled" });
+  } catch (err) {
+    console.error("[Challenge] POST /:id/cancel error:", err);
+    res.status(500).json({ error: "Failed to cancel challenge" });
   }
 });
 
