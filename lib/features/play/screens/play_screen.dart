@@ -296,20 +296,40 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           margin: const EdgeInsets.symmetric(vertical: 32),
           color: Colors.white.withValues(alpha: 0.08),
         ),
-        // Right: Pickers + Queue (vertically centered).
+        // Right: Pickers + Queue.
         Expanded(
           child: LayoutBuilder(
             builder: (context, constraints) {
               return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 40, vertical: 32),
+                padding: const EdgeInsets.all(40),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
-                    minHeight: constraints.maxHeight - 64,
+                    minHeight: constraints.maxHeight - 80,
                   ),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Section header matching the left side's visual weight.
+                      Text(
+                        'Match Setup',
+                        style: GoogleFonts.inter(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Choose your match duration and bet amount.',
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          color: Colors.white38,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
                       _buildPickerContent(wallet, queue),
                     ],
                   ),
@@ -352,36 +372,62 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Live badge.
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: AppTheme.solanaGreen.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-            border:
-                Border.all(color: AppTheme.solanaGreen.withValues(alpha: 0.3)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                    color: AppTheme.solanaGreen, shape: BoxShape.circle),
+        // Live + Beta badges.
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.solanaGreen.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: AppTheme.solanaGreen.withValues(alpha: 0.3)),
               ),
-              const SizedBox(width: 8),
-              Text(
-                Environment.useDevnet ? 'LIVE ON DEVNET' : 'LIVE ON MAINNET',
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                        color: AppTheme.solanaGreen, shape: BoxShape.circle),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    Environment.useDevnet
+                        ? 'LIVE ON DEVNET'
+                        : 'LIVE ON MAINNET',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.solanaGreen,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.solanaPurple.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: AppTheme.solanaPurple.withValues(alpha: 0.3)),
+              ),
+              child: Text(
+                'BETA',
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.solanaGreen,
+                  color: AppTheme.solanaPurple,
                   letterSpacing: 1,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         const SizedBox(height: 24),
 
