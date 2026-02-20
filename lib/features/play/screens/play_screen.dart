@@ -1291,75 +1291,63 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                       : Colors.white.withValues(alpha: 0.1),
             ),
           ),
-          child: connected
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          children: [
-                            Icon(
-                              needsDeposit
-                                  ? Icons.add_circle_rounded
-                                  : Icons.account_balance_wallet_rounded,
-                              size: 22,
-                              color: needsDeposit
-                                  ? AppTheme.solanaPurple
-                                  : Colors.white38,
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              needsDeposit ? 'Deposit' : 'Balance',
-                              style: GoogleFonts.inter(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              needsDeposit
-                                  ? 'Top up to play'
-                                  : 'Available',
-                              style: GoogleFonts.inter(
-                                  fontSize: 13, color: Colors.white38),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Container(
-                        width: 1,
-                        height: 44,
-                        color: Colors.white.withValues(alpha: 0.1),
-                      ),
-                      Expanded(
-                        child: Column(
-                          children: [
-                            const Icon(Icons.attach_money_rounded,
-                                size: 22, color: AppTheme.solanaGreen),
-                            const SizedBox(height: 6),
-                            Text(
-                              '\$${balance.toStringAsFixed(2)}',
-                              style: GoogleFonts.inter(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.solanaGreen),
-                            ),
-                            const SizedBox(height: 2),
-                            Text('USDC',
+          child: SizedBox(
+            height: 60,
+            child: connected
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                needsDeposit ? 'Deposit' : 'Balance',
                                 style: GoogleFonts.inter(
-                                    fontSize: 13,
-                                    color: Colors.white38)),
-                          ],
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                needsDeposit
+                                    ? 'Top up to play'
+                                    : 'Available',
+                                style: GoogleFonts.inter(
+                                    fontSize: 12, color: Colors.white38),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                )
-              : Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
+                        Container(
+                          width: 1,
+                          height: 32,
+                          color: Colors.white.withValues(alpha: 0.1),
+                        ),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                balance.toStringAsFixed(2),
+                                style: GoogleFonts.inter(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.solanaGreen),
+                              ),
+                              const SizedBox(height: 2),
+                              Text('USDC',
+                                  style: GoogleFonts.inter(
+                                      fontSize: 12,
+                                      color: Colors.white38)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(Icons.account_balance_wallet_rounded,
@@ -1372,7 +1360,7 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                               color: Colors.white70)),
                     ],
                   ),
-                ),
+          ),
         ),
       ),
     );
