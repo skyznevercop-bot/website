@@ -252,18 +252,16 @@ class _MoreMenuButtonState extends State<_MoreMenuButton> {
         elevation: 8,
         shadowColor: Colors.black26,
         onSelected: (value) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Coming soon!',
-                  style: GoogleFonts.inter(fontSize: 13)),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-              ),
-              backgroundColor: AppTheme.textPrimary,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          final routes = {
+            'help': AppConstants.helpRoute,
+            'rules': AppConstants.rulesRoute,
+            'feedback': AppConstants.feedbackRoute,
+            'about': AppConstants.aboutRoute,
+            'privacy': AppConstants.privacyRoute,
+            'terms': AppConstants.termsRoute,
+          };
+          final route = routes[value];
+          if (route != null) context.go(route);
         },
         itemBuilder: (context) => [
           _moreMenuItem(Icons.help_outline_rounded, 'Help Center', 'help'),
@@ -271,6 +269,8 @@ class _MoreMenuButtonState extends State<_MoreMenuButton> {
           _moreMenuItem(Icons.chat_bubble_outline_rounded, 'Feedback', 'feedback'),
           const PopupMenuDivider(),
           _moreMenuItem(Icons.info_outline_rounded, 'About SolFight', 'about'),
+          _moreMenuItem(Icons.privacy_tip_outlined, 'Privacy Policy', 'privacy'),
+          _moreMenuItem(Icons.gavel_rounded, 'Terms & Conditions', 'terms'),
         ],
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),

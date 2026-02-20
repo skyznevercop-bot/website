@@ -1,14 +1,20 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/about/screens/about_screen.dart';
 import '../../features/arena/screens/arena_screen.dart';
 import '../../features/clan/screens/clan_screen.dart';
+import '../../features/feedback/screens/feedback_screen.dart';
+import '../../features/friends/screens/friends_screen.dart';
+import '../../features/help/screens/help_screen.dart';
 import '../../features/leaderboard/screens/leaderboard_screen.dart';
 import '../../features/learn/screens/learn_screen.dart';
 import '../../features/play/screens/play_screen.dart';
 import '../../features/portfolio/screens/portfolio_screen.dart';
-import '../../features/friends/screens/friends_screen.dart';
+import '../../features/privacy/screens/privacy_screen.dart';
 import '../../features/referral/screens/referral_screen.dart';
+import '../../features/rules/screens/rules_screen.dart';
+import '../../features/terms/screens/terms_screen.dart';
 import '../../shared/widgets/app_shell.dart';
 import '../constants/app_constants.dart';
 
@@ -80,6 +86,42 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: AppConstants.referralRoute,
             pageBuilder: (context, state) => const NoTransitionPage(
               child: ReferralScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.helpRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: HelpScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.rulesRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: RulesScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.feedbackRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: FeedbackScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.aboutRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: AboutScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.privacyRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: PrivacyScreen(),
+            ),
+          ),
+          GoRoute(
+            path: AppConstants.termsRoute,
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: TermsScreen(),
             ),
           ),
         ],

@@ -35,6 +35,12 @@ class AppConstants {
   static const String arenaRoute = '/arena';
   static const String referralRoute = '/referral';
   static const String friendsRoute = '/friends';
+  static const String helpRoute = '/help';
+  static const String rulesRoute = '/rules';
+  static const String feedbackRoute = '/feedback';
+  static const String aboutRoute = '/about';
+  static const String privacyRoute = '/privacy';
+  static const String termsRoute = '/terms';
 }
 
 /// Represents a match duration option for matchmaking.
