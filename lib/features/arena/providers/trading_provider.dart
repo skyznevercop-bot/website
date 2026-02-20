@@ -392,7 +392,7 @@ class TradingNotifier extends Notifier<TradingState> {
               p.closedAt = now;
               p.closeReason = reason;
               closedPnl = serverPnl ?? p.pnl(exitPx);
-              balanceReturn = p.size + closedPnl!;
+              balanceReturn = (p.size + closedPnl!).clamp(0.0, double.infinity);
             }
             return p;
           }).toList();
@@ -990,41 +990,49 @@ class TradingNotifier extends Notifier<TradingState> {
     // cleaned up in build()'s onDispose.
     _priceFeed.stop();
 
-    // ── Close all open positions at current market price ──
-    final now = DateTime.now();
-    double balanceReturn = 0;
-    final updatedPositions = state.positions.map((p) {
-      if (p.isOpen) {
-        final currentPrice =
-            state.currentPrices[p.assetSymbol] ?? p.entryPrice;
-        p.exitPrice = currentPrice;
-        p.closedAt = now;
-        p.closeReason = 'match_end';
-        balanceReturn += p.size + p.pnl(currentPrice);
-      }
-      return p;
-    }).toList();
+    // ── Phase 1: Close the match (first call only) ──
+    // On subsequent calls (e.g. server result arrives after client timer),
+    // positions are already closed and stats already computed — skip this.
+    List<Position> updatedPositions = state.positions;
+    double myFinalBalance = state.balance;
+    MatchStats? stats = state.matchStats;
 
-    final myFinalBalance = state.balance + balanceReturn;
+    if (state.matchActive) {
+      final now = DateTime.now();
+      double balanceReturn = 0;
+      updatedPositions = state.positions.map((p) {
+        if (p.isOpen) {
+          final currentPrice =
+              state.currentPrices[p.assetSymbol] ?? p.entryPrice;
+          p.exitPrice = currentPrice;
+          p.closedAt = now;
+          p.closeReason = 'match_end';
+          balanceReturn +=
+              (p.size + p.pnl(currentPrice)).clamp(0.0, double.infinity);
+        }
+        return p;
+      }).toList();
 
-    // ── Compute match statistics ──
-    final stats = MatchStats.compute(
-      positions: updatedPositions,
-      initialBalance: state.initialBalance,
-      finalBalance: myFinalBalance,
-      peakEquity: state.peakEquity > myFinalBalance
-          ? state.peakEquity
-          : myFinalBalance,
-    );
+      myFinalBalance = state.balance + balanceReturn;
 
-    // Preserve any existing server-authoritative result when called without
-    // explicit winner/tie info (e.g. the client-side timer fires after a WS
-    // match_end already delivered the result).
+      stats = MatchStats.compute(
+        positions: updatedPositions,
+        initialBalance: state.initialBalance,
+        finalBalance: myFinalBalance,
+        peakEquity: state.peakEquity > myFinalBalance
+            ? state.peakEquity
+            : myFinalBalance,
+      );
+    }
+
+    // ── Phase 2: Resolve result (every call) ──
+    // Merge incoming result data with any previously stored result.
     final String? resolvedWinner = winner ?? state.matchWinner;
     final bool resolvedIsTie = isTie ?? state.matchIsTie;
     final bool resolvedIsForfeit = isForfeit ?? state.matchIsForfeit;
     final double? resolvedMyRoi = serverMyRoi ?? state.serverMyRoi;
     final double? resolvedOppRoi = serverOppRoi ?? state.serverOppRoi;
+    final hasResult = resolvedWinner != null || resolvedIsTie;
 
     state = state.copyWith(
       positions: updatedPositions,
@@ -1040,23 +1048,22 @@ class TradingNotifier extends Notifier<TradingState> {
       serverOppRoi: resolvedOppRoi,
     );
 
-    // If we still don't have a winner/tie result (client timer fired before
-    // backend settled), poll the backend with exponential backoff.
-    // Also re-join the match room so WS broadcasts can still reach us.
-    if (resolvedWinner == null && !resolvedIsTie) {
-      if (state.matchId != null) {
-        _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
-      }
+    // ── Phase 3: Persist or poll ──
+    _resultPollTimer?.cancel();
+    if (hasResult) {
+      _persistMatchResult(
+          stats, resolvedWinner, resolvedIsTie, resolvedMyRoi);
+    } else if (state.matchId != null) {
+      // No result yet — re-join match room for WS broadcasts and start
+      // polling the backend with exponential backoff.
+      _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
       _startResultPolling();
-    } else {
-      _resultPollTimer?.cancel();
-      _persistMatchResult(stats, resolvedWinner, resolvedIsTie);
     }
   }
 
   /// Persist match result into portfolio history for the match history tab.
   void _persistMatchResult(
-      MatchStats stats, String? winner, bool isTie) {
+      MatchStats? stats, String? winner, bool isTie, double? serverRoi) {
     final wallet = ref.read(walletProvider);
     final isWin =
         !isTie && winner != null && winner == wallet.address;
@@ -1066,9 +1073,16 @@ class TradingNotifier extends Notifier<TradingState> {
             ? 'WIN'
             : 'LOSS';
 
-    final pnl = state.initialBalance > 0
-        ? state.equity - state.initialBalance
-        : 0.0;
+    // Use server-authoritative ROI when available, otherwise fall back to
+    // client-computed stats ROI.
+    final roi = serverRoi ?? stats?.roi ?? 0.0;
+
+    // Derive PnL from server ROI for consistency; fall back to local balance.
+    final pnl = serverRoi != null
+        ? serverRoi / 100 * state.initialBalance
+        : state.initialBalance > 0
+            ? state.equity - state.initialBalance
+            : 0.0;
 
     final durationMin = state.totalDurationSeconds ~/ 60;
     final durationLabel = durationMin >= 60
@@ -1084,13 +1098,13 @@ class TradingNotifier extends Notifier<TradingState> {
             pnl: pnl,
             betAmount: 0,
             completedAt: DateTime.now(),
-            totalTrades: stats.totalTrades,
-            winRate: stats.winRate,
-            bestTradePnl: stats.bestTradePnl,
-            bestTradeAsset: stats.bestTradeAsset,
-            totalVolume: stats.totalVolume,
-            hotStreak: stats.hotStreak,
-            roi: stats.roi,
+            totalTrades: stats?.totalTrades ?? 0,
+            winRate: stats?.winRate ?? 0,
+            bestTradePnl: stats?.bestTradePnl ?? 0,
+            bestTradeAsset: stats?.bestTradeAsset,
+            totalVolume: stats?.totalVolume ?? 0,
+            hotStreak: stats?.hotStreak ?? 0,
+            roi: roi,
           ),
         );
   }
@@ -1124,8 +1138,10 @@ class TradingNotifier extends Notifier<TradingState> {
           status == 'tied' ||
           status == 'forfeited') {
         _resultPollTimer?.cancel();
-        final w = result['winner'] as String?;
-        // Extract server ROI (stored as decimal in Firebase).
+
+        // Extract server ROI (stored as decimal in Firebase) and convert to
+        // percentage. Handles all terminal statuses uniformly — including
+        // ties, which have real (non-zero) ROI values.
         final p1Roi = (result['player1Roi'] as num?)?.toDouble();
         final p2Roi = (result['player2Roi'] as num?)?.toDouble();
         final player1Addr = result['player1'] as String?;
@@ -1133,10 +1149,11 @@ class TradingNotifier extends Notifier<TradingState> {
         final isP1 = player1Addr != null && player1Addr == walletAddr;
         final myRoi = isP1 ? p1Roi : p2Roi;
         final oppRoi = isP1 ? p2Roi : p1Roi;
-        state = state.copyWith(
-          matchWinner: w,
-          matchIsTie: status == 'tied',
-          matchIsForfeit: status == 'forfeited',
+
+        endMatch(
+          winner: result['winner'] as String?,
+          isTie: status == 'tied',
+          isForfeit: status == 'forfeited',
           serverMyRoi: myRoi != null ? myRoi * 100 : null,
           serverOppRoi: oppRoi != null ? oppRoi * 100 : null,
         );

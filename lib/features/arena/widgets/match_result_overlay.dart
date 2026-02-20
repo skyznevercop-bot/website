@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../core/services/api_client.dart';
 import '../../../core/services/audio_service.dart';
 import '../../../core/services/settings_service.dart';
 import '../../../core/theme/app_theme.dart';
@@ -52,9 +51,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   late final Animation<double> _resultScale;
   late final Animation<double> _resultOpacity;
   late final Animation<double> _statsSlide;
-
-  Timer? _pollTimer;
-  int _pollCount = 0;
 
   // ── ROI animation ──
   double _animatedMyRoi = 0;
@@ -118,7 +114,8 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
           _startCountdown();
         } else {
           setState(() => _phase = _RevealPhase.pending);
-          _startResultPolling();
+          // Polling is handled by TradingNotifier — the overlay simply
+          // reacts to state changes via didUpdateWidget.
         }
       }
     });
@@ -155,7 +152,6 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     _roiAnimCtrl.dispose();
     _particleCtrl.dispose();
     _shakeCtrl.dispose();
-    _pollTimer?.cancel();
     super.dispose();
   }
 
@@ -196,70 +192,9 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     return _isWinner ? _gold : AppTheme.error;
   }
 
-  // ── Result polling ──
-
-  void _startResultPolling() {
-    final matchId = widget.state.matchId;
-    if (matchId != null) {
-      ApiClient.instance.wsSend({'type': 'join_match', 'matchId': matchId});
-    }
-    Future.delayed(const Duration(seconds: 2), () => _fetchResult());
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      _fetchResult();
-    });
-  }
-
-  Future<void> _fetchResult() async {
-    if (!mounted || _hasResult) {
-      _pollTimer?.cancel();
-      return;
-    }
-    _pollCount++;
-    if (_pollCount > 60) {
-      _pollTimer?.cancel();
-      return;
-    }
-    final matchId = widget.state.matchId;
-    if (matchId == null) return;
-    try {
-      final data = await ApiClient.instance.get('/match/$matchId');
-      if (!mounted || _hasResult) return;
-      final status = data['status'] as String?;
-      if (status == 'completed' || status == 'forfeited') {
-        // Extract server ROI from REST response.
-        final p1Roi = (data['player1Roi'] as num?)?.toDouble();
-        final p2Roi = (data['player2Roi'] as num?)?.toDouble();
-        final player1Addr = data['player1'] as String?;
-        final walletAddr = ref.read(walletProvider).address;
-        final isP1 = player1Addr != null && player1Addr == walletAddr;
-        // Convert from decimal to percentage (Firebase stores decimal).
-        final myRoi = isP1 ? p1Roi : p2Roi;
-        final oppRoi = isP1 ? p2Roi : p1Roi;
-        ref.read(tradingProvider.notifier).endMatch(
-              winner: data['winner'] as String?,
-              isTie: false,
-              isForfeit: status == 'forfeited',
-              serverMyRoi: myRoi != null ? myRoi * 100 : null,
-              serverOppRoi: oppRoi != null ? oppRoi * 100 : null,
-            );
-        _pollTimer?.cancel();
-      } else if (status == 'tied') {
-        ref.read(tradingProvider.notifier).endMatch(
-              isTie: true,
-              serverMyRoi: 0,
-              serverOppRoi: 0,
-            );
-        _pollTimer?.cancel();
-      } else if (status == 'cancelled') {
-        _pollTimer?.cancel();
-      }
-    } catch (_) {}
-  }
-
   // ── Countdown & reveal ──
 
   void _startCountdown() {
-    _pollTimer?.cancel();
     setState(() {
       _phase = _RevealPhase.countdown;
       _countdownValue = 3;
