@@ -19,6 +19,19 @@ class ApiClient {
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
 
+  /// Messages queued while WS was disconnected (replayed on reconnect).
+  final List<_PendingMessage> _pendingMessages = [];
+
+  /// Message types that are critical enough to queue for replay.
+  static const _queueableTypes = {
+    'open_position',
+    'close_position',
+    'partial_close',
+  };
+
+  /// Max age for queued messages before they are discarded (60 seconds).
+  static const _maxPendingAge = Duration(seconds: 60);
+
   /// Stream of incoming WebSocket messages.
   Stream<Map<String, dynamic>> get wsStream => _wsController.stream;
 
@@ -133,6 +146,18 @@ class ApiClient {
 
     _ws!.onopen = ((web.Event e) {
       _reconnectAttempts = 0;
+
+      // Replay queued messages (position opens/closes from during disconnect).
+      // Discard messages older than _maxPendingAge to avoid stale trades.
+      final now = DateTime.now();
+      final pending = _pendingMessages
+          .where((m) => now.difference(m.queuedAt) < _maxPendingAge)
+          .toList();
+      _pendingMessages.clear();
+      for (final msg in pending) {
+        _ws!.send(jsonEncode(msg.data).toJS);
+      }
+
       // Notify listeners so they can re-join match rooms after a reconnect.
       _wsController.add({'type': 'ws_connected'});
     }).toJS;
@@ -156,15 +181,23 @@ class ApiClient {
   }
 
   /// Send a WebSocket message.
+  /// Critical messages (position opens/closes) are queued when disconnected
+  /// and replayed on reconnect to prevent silent trade loss.
   void wsSend(Map<String, dynamic> data) {
     if (_ws?.readyState == web.WebSocket.OPEN) {
       _ws!.send(jsonEncode(data).toJS);
+    } else {
+      final type = data['type'] as String?;
+      if (type != null && _queueableTypes.contains(type)) {
+        _pendingMessages.add(_PendingMessage(data));
+      }
     }
   }
 
   /// Disconnect WebSocket.
   void disconnectWebSocket() {
     _reconnectTimer?.cancel();
+    _pendingMessages.clear();
     _ws?.close();
     _ws = null;
   }
@@ -196,4 +229,11 @@ class ApiException implements Exception {
 
   @override
   String toString() => 'ApiException($statusCode): $message';
+}
+
+class _PendingMessage {
+  final Map<String, dynamic> data;
+  final DateTime queuedAt;
+
+  _PendingMessage(this.data) : queuedAt = DateTime.now();
 }
