@@ -296,11 +296,26 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           margin: const EdgeInsets.symmetric(vertical: 32),
           color: Colors.white.withValues(alpha: 0.08),
         ),
-        // Right: Pickers + Queue.
+        // Right: Pickers + Queue (vertically centered).
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(40),
-            child: _buildPickerContent(wallet, queue),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 40, vertical: 32),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 64,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildPickerContent(wallet, queue),
+                    ],
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -455,10 +470,10 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _sectionLabel('DURATION'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Wrap(
-                spacing: 10,
-                runSpacing: 10,
+                spacing: 8,
+                runSpacing: 8,
                 children: List.generate(AppConstants.durations.length, (i) {
                   final dur = AppConstants.durations[i];
                   final count = queue.queueSizes[i];
@@ -475,7 +490,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           ),
         ),
 
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
 
         // Bet amount chips.
         KeyedSubtree(
@@ -484,10 +499,10 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _sectionLabel('BET AMOUNT'),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Wrap(
-                spacing: 10,
-                runSpacing: 10,
+                spacing: 8,
+                runSpacing: 8,
                 children:
                     List.generate(AppConstants.betAmounts.length, (i) {
                   return _ChipButton(
@@ -501,13 +516,13 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           ),
         ),
 
-        const SizedBox(height: 32),
+        const SizedBox(height: 24),
 
         // Match info row.
         Container(
           key: _matchInfoRowKey,
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
           decoration: BoxDecoration(
             color: Colors.white.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
@@ -523,7 +538,7 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               ),
               Container(
                 width: 1,
-                height: 48,
+                height: 44,
                 color: Colors.white.withValues(alpha: 0.1),
               ),
               Expanded(
@@ -537,7 +552,14 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           ),
         ),
 
-        const SizedBox(height: 28),
+        // Separator before action area.
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          child: Container(
+            height: 1,
+            color: Colors.white.withValues(alpha: 0.06),
+          ),
+        ),
 
         // Connect wallet.
         _HighlightWalletButton(
@@ -548,12 +570,12 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
           ),
         ),
 
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
 
         // Queue button.
         SizedBox(
           width: double.infinity,
-          height: 64,
+          height: 60,
           child: queue.isInQueue
               ? _SearchingButton(
                   waitSeconds: queue.waitSeconds,
@@ -643,7 +665,7 @@ class _ChipButtonState extends State<_ChipButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
             color: widget.isSelected
                 ? AppTheme.solanaPurple.withValues(alpha: 0.2)
@@ -664,7 +686,7 @@ class _ChipButtonState extends State<_ChipButton> {
               Text(
                 widget.label,
                 style: GoogleFonts.inter(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight:
                       widget.isSelected ? FontWeight.w700 : FontWeight.w500,
                   color: widget.isSelected ? Colors.white : Colors.white70,
@@ -1232,62 +1254,91 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
   Widget build(BuildContext context) {
     final connected = widget.wallet.isConnected;
     final balance = widget.wallet.platformBalance;
+    final needsDeposit = connected && balance < 5;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: connected ? null : widget.onTap,
+        onTap: !connected
+            ? widget.onTap
+            : needsDeposit
+                ? () => GoRouter.of(context).go(AppConstants.portfolioRoute)
+                : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
-            color: connected
+            color: needsDeposit
                 ? _hovered
-                    ? AppTheme.solanaGreen.withValues(alpha: 0.15)
-                    : AppTheme.solanaGreen.withValues(alpha: 0.08)
-                : _hovered
-                    ? Colors.white.withValues(alpha: 0.1)
-                    : Colors.white.withValues(alpha: 0.05),
+                    ? AppTheme.solanaPurple.withValues(alpha: 0.2)
+                    : AppTheme.solanaPurple.withValues(alpha: 0.1)
+                : connected
+                    ? _hovered
+                        ? AppTheme.solanaGreen.withValues(alpha: 0.15)
+                        : AppTheme.solanaGreen.withValues(alpha: 0.08)
+                    : _hovered
+                        ? Colors.white.withValues(alpha: 0.1)
+                        : Colors.white.withValues(alpha: 0.05),
             borderRadius: BorderRadius.circular(AppTheme.radiusMd),
             border: Border.all(
-              color: connected
-                  ? AppTheme.solanaGreen
-                      .withValues(alpha: _hovered ? 0.4 : 0.2)
-                  : Colors.white.withValues(alpha: 0.1),
+              color: needsDeposit
+                  ? AppTheme.solanaPurple
+                      .withValues(alpha: _hovered ? 0.5 : 0.3)
+                  : connected
+                      ? AppTheme.solanaGreen
+                          .withValues(alpha: _hovered ? 0.4 : 0.2)
+                      : Colors.white.withValues(alpha: 0.1),
             ),
           ),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: connected
+              children: needsDeposit
                   ? [
-                      const Icon(Icons.check_circle_rounded,
-                          size: 22, color: AppTheme.solanaGreen),
+                      const Icon(Icons.add_circle_rounded,
+                          size: 22, color: AppTheme.solanaPurple),
                       const SizedBox(width: 10),
-                      Text('\$${balance.toStringAsFixed(2)}',
+                      Text('Deposit',
                           style: GoogleFonts.inter(
                               fontSize: 20,
                               fontWeight: FontWeight.w800,
                               color: Colors.white)),
                       const SizedBox(width: 8),
-                      Text('USDC',
+                      Text('\$${balance.toStringAsFixed(2)}',
                           style: GoogleFonts.inter(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: Colors.white38)),
                     ]
-                  : [
-                      const Icon(Icons.account_balance_wallet_rounded,
-                          size: 24, color: Colors.white54),
-                      const SizedBox(width: 10),
-                      Text('Connect Wallet',
-                          style: GoogleFonts.inter(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white70)),
-                    ],
+                  : connected
+                      ? [
+                          const Icon(Icons.check_circle_rounded,
+                              size: 22, color: AppTheme.solanaGreen),
+                          const SizedBox(width: 10),
+                          Text('\$${balance.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white)),
+                          const SizedBox(width: 8),
+                          Text('USDC',
+                              style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white38)),
+                        ]
+                      : [
+                          const Icon(Icons.account_balance_wallet_rounded,
+                              size: 24, color: Colors.white54),
+                          const SizedBox(width: 10),
+                          Text('Connect Wallet',
+                              style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white70)),
+                        ],
             ),
           ),
         ),
