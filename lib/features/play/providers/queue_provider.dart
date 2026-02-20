@@ -50,6 +50,13 @@ class QueueState {
   final int userLosses;
   final double userPnl;
 
+  /// Online player count (from WS connections).
+  final int onlinePlayers;
+
+  /// User's leaderboard rank (null if unranked).
+  final int? userRank;
+  final int rankTotal;
+
   /// Live matches happening now.
   final List<LiveMatch> liveMatches;
 
@@ -69,6 +76,9 @@ class QueueState {
     this.userWins = 0,
     this.userLosses = 0,
     this.userPnl = 0,
+    this.onlinePlayers = 0,
+    this.userRank,
+    this.rankTotal = 0,
     this.liveMatches = const [],
   });
 
@@ -97,6 +107,10 @@ class QueueState {
     int? userWins,
     int? userLosses,
     double? userPnl,
+    int? onlinePlayers,
+    int? userRank,
+    bool clearUserRank = false,
+    int? rankTotal,
     List<LiveMatch>? liveMatches,
   }) {
     return QueueState(
@@ -122,6 +136,9 @@ class QueueState {
       userWins: userWins ?? this.userWins,
       userLosses: userLosses ?? this.userLosses,
       userPnl: userPnl ?? this.userPnl,
+      onlinePlayers: onlinePlayers ?? this.onlinePlayers,
+      userRank: clearUserRank ? null : (userRank ?? this.userRank),
+      rankTotal: rankTotal ?? this.rankTotal,
       liveMatches: liveMatches ?? this.liveMatches,
     );
   }
@@ -395,6 +412,12 @@ class QueueNotifier extends Notifier<QueueState> {
           totalVolume: (response['totalVolume'] as num?)?.toDouble() ?? 0,
         );
       }
+
+      // Online player count from WS connections.
+      final online = response['onlinePlayers'] as int?;
+      if (online != null) {
+        state = state.copyWith(onlinePlayers: online);
+      }
     } catch (_) {
       // Backend unavailable — seed demo data if not already set.
       if (!_hasRealData && state.totalPlayers == 0) {
@@ -403,14 +426,22 @@ class QueueNotifier extends Notifier<QueueState> {
     }
   }
 
-  /// Fetch user stats from the backend.
+  /// Fetch user stats and rank from the backend.
   Future<void> fetchUserStats(String address) async {
     try {
-      final response = await _api.get('/user/$address');
+      final responses = await Future.wait([
+        _api.get('/user/$address'),
+        _api.get('/leaderboard/rank/$address'),
+      ]);
+      final userResp = responses[0];
+      final rankResp = responses[1];
       state = state.copyWith(
-        userWins: response['wins'] as int? ?? 0,
-        userLosses: response['losses'] as int? ?? 0,
-        userPnl: (response['totalPnl'] as num?)?.toDouble() ?? 0,
+        userWins: userResp['wins'] as int? ?? 0,
+        userLosses: userResp['losses'] as int? ?? 0,
+        userPnl: (userResp['totalPnl'] as num?)?.toDouble() ?? 0,
+        userRank: rankResp['rank'] as int?,
+        clearUserRank: rankResp['rank'] == null,
+        rankTotal: rankResp['total'] as int? ?? 0,
       );
     } catch (_) {}
   }
@@ -468,6 +499,7 @@ class QueueNotifier extends Notifier<QueueState> {
       totalPlayers: _demoPlayers,
       totalMatches: _demoMatches,
       totalVolume: _demoVolume,
+      onlinePlayers: 15 + _rng.nextInt(30),
       queueSizes: _generateQueueSizes(),
       waitTimes: _generateWaitTimes(),
       liveMatches: _generateDemoMatches(),

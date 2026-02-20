@@ -94,4 +94,41 @@ router.get("/", async (req, res) => {
   res.json({ players: ranked, total, page, limit });
 });
 
+/** GET /api/leaderboard/rank/:address — Get a player's rank (by wins). */
+router.get("/rank/:address", async (req, res) => {
+  const address = req.params.address;
+
+  const snap = await usersRef.once("value");
+  if (!snap.exists()) {
+    res.json({ rank: null, total: 0 });
+    return;
+  }
+
+  const players: Array<{ address: string; wins: number; winRate: number; losses: number; totalPnl: number }> = [];
+  snap.forEach((child) => {
+    const u = child.val();
+    const gamesPlayed = (u.wins || 0) + (u.losses || 0) + (u.ties || 0);
+    if (gamesPlayed > 0) {
+      players.push({
+        address: child.key!,
+        wins: u.wins || 0,
+        losses: u.losses || 0,
+        winRate: gamesPlayed > 0 ? Math.round(((u.wins || 0) / gamesPlayed) * 100) : 0,
+        totalPnl: u.totalPnl || 0,
+      });
+    }
+  });
+
+  // Sort by wins (same as default leaderboard).
+  players.sort((a, b) => {
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.winRate !== a.winRate) return b.winRate - a.winRate;
+    if (a.losses !== b.losses) return a.losses - b.losses;
+    return b.totalPnl - a.totalPnl;
+  });
+
+  const idx = players.findIndex((p) => p.address === address);
+  res.json({ rank: idx >= 0 ? idx + 1 : null, total: players.length });
+});
+
 export default router;

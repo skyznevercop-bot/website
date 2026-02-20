@@ -69,7 +69,7 @@ const _sections = [
     'SolFight provides a platform for competitive 1v1 trading matches. Players wager USDC and trade virtual portfolios in real time. Key points:\n\n'
     '• Matches use simulated portfolios (\$1M virtual funds); only the USDC wager is real.\n'
     '• Match results are determined by portfolio P&L at timer expiry.\n'
-    '• SolFight charges a platform fee (currently 5%) deducted from the winning pot.\n'
+    '• SolFight charges a platform fee (currently 10%) deducted from the winning pot.\n'
     '• Prices are sourced from third-party data providers and may differ from other exchanges.',
   ),
   _Section(

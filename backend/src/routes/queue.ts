@@ -2,6 +2,7 @@ import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
 import { joinQueue, leaveQueue, getQueueStats } from "../services/matchmaking";
 import { VALID_DURATIONS, VALID_BETS, isValidDuration, isValidBet } from "../utils/validation";
+import { getOnlinePlayerCount } from "../ws/rooms";
 
 const router = Router();
 
@@ -66,7 +67,7 @@ router.get("/stats", async (_req, res) => {
     avgWaitSeconds: null,
   }));
 
-  res.json({ queues });
+  res.json({ queues, onlinePlayers: getOnlinePlayerCount() });
 });
 
 export default router;

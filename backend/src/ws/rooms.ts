@@ -121,6 +121,13 @@ export function getUserConnectionCount(address: string): number {
 }
 
 /**
+ * Get the number of unique online players (distinct wallet addresses with open WS).
+ */
+export function getOnlinePlayerCount(): number {
+  return userConnections.size;
+}
+
+/**
  * Get the number of active match rooms.
  */
 export function getActiveRoomCount(): number {

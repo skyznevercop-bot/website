@@ -361,9 +361,9 @@ class _FeesTable extends StatelessWidget {
       ),
       child: Column(
         children: [
-          _feeRow('Platform Fee', '5% of the total pot', true),
+          _feeRow('Platform Fee', '10% of the total pot', true),
           const Divider(height: 1, color: AppTheme.border),
-          _feeRow('Winner Payout', '95% of the total pot', false),
+          _feeRow('Winner Payout', '90% of the total pot', false),
           const Divider(height: 1, color: AppTheme.border),
           _feeRow('Draw / Tie', 'Full refund to both players', false),
           const Divider(height: 1, color: AppTheme.border),

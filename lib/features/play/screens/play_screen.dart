@@ -589,9 +589,27 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               ),
               Expanded(
                 child: _InfoTile(
-                  icon: Icons.people_rounded,
-                  label: 'In Queue',
-                  value: '${queue.queueSizes[_selectedDuration]}',
+                  icon: Icons.circle,
+                  iconSize: 10,
+                  iconColor: AppTheme.solanaGreen,
+                  label: 'Online',
+                  value: queue.onlinePlayers > 0
+                      ? '${queue.onlinePlayers}'
+                      : '--',
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 44,
+                color: Colors.white.withValues(alpha: 0.1),
+              ),
+              Expanded(
+                child: _InfoTile(
+                  icon: Icons.leaderboard_rounded,
+                  label: 'Your Rank',
+                  value: queue.userRank != null
+                      ? '#${queue.userRank}'
+                      : '--',
                 ),
               ),
             ],
@@ -1260,16 +1278,18 @@ class _HeroStat extends StatelessWidget {
 
 class _InfoTile extends StatelessWidget {
   final IconData icon;
+  final double? iconSize;
+  final Color? iconColor;
   final String label;
   final String value;
   const _InfoTile(
-      {required this.icon, required this.label, required this.value});
+      {required this.icon, this.iconSize, this.iconColor, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Icon(icon, size: 22, color: Colors.white38),
+        Icon(icon, size: iconSize ?? 22, color: iconColor ?? Colors.white38),
         const SizedBox(height: 6),
         Text(value,
             style: GoogleFonts.inter(

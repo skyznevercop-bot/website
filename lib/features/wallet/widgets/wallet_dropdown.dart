@@ -143,7 +143,7 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                           ),
                         ),
                         Text(
-                          '${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
+                          '\$${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
                           style: GoogleFonts.inter(
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
@@ -185,11 +185,6 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             icon: Icons.pie_chart_rounded,
             label: 'Portfolio',
             value: 'portfolio',
-          ),
-          _buildMenuItem(
-            icon: Icons.school_rounded,
-            label: 'Learn',
-            value: 'learn',
           ),
           PopupMenuItem<String>(
             value: 'referrals',
@@ -286,7 +281,7 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                         ),
                       ),
                       Text(
-                        '${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
+                        '\$${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
                         style: GoogleFonts.inter(
                           fontSize: 11,
                           color: AppTheme.textTertiary,
