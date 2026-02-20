@@ -1302,15 +1302,24 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                       const SizedBox(width: 10),
                       Text('Deposit',
                           style: GoogleFonts.inter(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w800,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
                               color: Colors.white)),
-                      const SizedBox(width: 8),
-                      Text('\$${balance.toStringAsFixed(2)}',
-                          style: GoogleFonts.inter(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white38)),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                            '\$${balance.toStringAsFixed(2)} USDC',
+                            style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white70)),
+                      ),
                     ]
                   : connected
                       ? [
@@ -1319,14 +1328,14 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
                           const SizedBox(width: 10),
                           Text('\$${balance.toStringAsFixed(2)}',
                               style: GoogleFonts.inter(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
                                   color: Colors.white)),
-                          const SizedBox(width: 8),
+                          const Spacer(),
                           Text('USDC',
                               style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
                                   color: Colors.white38)),
                         ]
                       : [
