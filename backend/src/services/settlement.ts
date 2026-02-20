@@ -210,10 +210,12 @@ async function _doSettleMatch(
 
   const allPositions = await getPositions(matchId);
 
+  console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions found`);
+
   // Close any open positions at the last-broadcast prices.
   for (const pos of allPositions) {
     if (!pos.closedAt) {
-      const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
+      const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
       const pnl = calculatePnl(pos, currentPrice);
 
       await updatePosition(matchId, pos.id, {
@@ -233,16 +235,22 @@ async function _doSettleMatch(
   const player2 = match.player2 as string;
   const betAmount = match.betAmount as number;
 
+  // Recalculate PnL for EVERY position from entry/exit prices.
+  // Never rely on stored p.pnl — it may be undefined or stale.
   const p1Pnl = allPositions
     .filter((p) => p.playerAddress === player1)
-    .reduce((sum, p) => sum + (p.pnl || 0), 0);
+    .reduce((sum, p) => sum + calculatePnl(p, p.exitPrice ?? p.entryPrice), 0);
 
   const p2Pnl = allPositions
     .filter((p) => p.playerAddress === player2)
-    .reduce((sum, p) => sum + (p.pnl || 0), 0);
+    .reduce((sum, p) => sum + calculatePnl(p, p.exitPrice ?? p.entryPrice), 0);
 
+  // ROI = (finalBalance - initialBalance) / initialBalance * 100
+  // Since finalBalance = DEMO_BALANCE + totalPnl, this simplifies to totalPnl / DEMO_BALANCE.
   const p1Roi = p1Pnl / DEMO_BALANCE;
   const p2Roi = p2Pnl / DEMO_BALANCE;
+
+  console.log(`[Settlement] Match ${matchId}: P1 PnL=$${p1Pnl.toFixed(2)} ROI=${(p1Roi * 100).toFixed(2)}% | P2 PnL=$${p2Pnl.toFixed(2)} ROI=${(p2Roi * 100).toFixed(2)}%`);
 
   const isTie = Math.abs(p1Roi - p2Roi) <= TIE_TOLERANCE;
   let winner: string | undefined;

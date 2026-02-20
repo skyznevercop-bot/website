@@ -183,7 +183,7 @@ export function setupWebSocket(server: HttpServer): void {
         if (pos.closedAt) continue;
         if (_closingPositions.has(pos.id)) continue;
 
-        const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
+        const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
 
         // Liquidation: player loses 90% of margin.
         const liquidationPrice = pos.isLong
@@ -636,7 +636,7 @@ async function handleMessage(
           ETH: prices.eth,
           SOL: prices.sol,
         };
-        const exitPrice = priceMap[position.assetSymbol] || position.entryPrice;
+        const exitPrice = priceMap[position.assetSymbol] ?? position.entryPrice;
         const priceDiff = position.isLong
           ? exitPrice - position.entryPrice
           : position.entryPrice - exitPrice;
@@ -708,7 +708,7 @@ async function handleMessage(
           ETH: prices.eth,
           SOL: prices.sol,
         };
-        const exitPrice = priceMap[partialPos.assetSymbol] || partialPos.entryPrice;
+        const exitPrice = priceMap[partialPos.assetSymbol] ?? partialPos.entryPrice;
 
         const partialSize = partialPos.size * fraction;
         const remainingSize = partialPos.size - partialSize;
@@ -828,10 +828,10 @@ async function broadcastOpponentUpdate(
 
   for (const pos of positions) {
     if (pos.closedAt) {
-      totalPnl += pos.pnl || 0;
+      totalPnl += pos.pnl ?? 0;
     } else {
       openCount++;
-      const currentPrice = priceMap[pos.assetSymbol] || pos.entryPrice;
+      const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
       const priceDiff = pos.isLong
         ? currentPrice - pos.entryPrice
         : pos.entryPrice - currentPrice;
