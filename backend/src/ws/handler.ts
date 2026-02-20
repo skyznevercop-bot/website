@@ -425,6 +425,8 @@ async function handleMessage(
             type: "match_end",
             matchId,
             winner: snapMatch.winner || null,
+            player1: snapMatch.player1,
+            player2: snapMatch.player2,
             p1Roi: snapMatch.player1Roi != null
               ? Math.round(snapMatch.player1Roi * 10000) / 100
               : 0,
@@ -653,6 +655,102 @@ async function handleMessage(
           exitPrice,
           pnl,
         }));
+
+        broadcastOpponentUpdate(matchId, ws.userAddress);
+      } finally {
+        _closingPositions.delete(positionId);
+      }
+      break;
+    }
+
+    case "partial_close": {
+      const { matchId, positionId, fraction } = data as {
+        matchId: string;
+        positionId: string;
+        fraction: number;
+      };
+
+      if (typeof fraction !== "number" || !Number.isFinite(fraction) || fraction <= 0 || fraction >= 1) {
+        ws.send(JSON.stringify({ type: "error", message: "Invalid fraction (must be between 0 and 1)" }));
+        return;
+      }
+
+      const partialMatchData = await getMatch(matchId);
+      if (!partialMatchData || partialMatchData.status !== "active") {
+        ws.send(JSON.stringify({ type: "error", message: "Match is not active" }));
+        return;
+      }
+      if (ws.userAddress !== partialMatchData.player1 && ws.userAddress !== partialMatchData.player2) {
+        ws.send(JSON.stringify({ type: "error", message: "Not a player in this match" }));
+        return;
+      }
+
+      const partialPositions = await getPositions(matchId, ws.userAddress);
+      const partialPos = partialPositions.find(
+        (p) => p.id === positionId && !p.closedAt
+      );
+
+      if (!partialPos) {
+        ws.send(JSON.stringify({ type: "error", message: "Position not found" }));
+        return;
+      }
+
+      if (_closingPositions.has(positionId)) {
+        ws.send(JSON.stringify({ type: "error", message: "Position is already being closed" }));
+        return;
+      }
+
+      _closingPositions.add(positionId);
+      try {
+        const prices = getLatestPrices();
+        const priceMap: Record<string, number> = {
+          BTC: prices.btc,
+          ETH: prices.eth,
+          SOL: prices.sol,
+        };
+        const exitPrice = priceMap[partialPos.assetSymbol] || partialPos.entryPrice;
+
+        const partialSize = partialPos.size * fraction;
+        const remainingSize = partialPos.size - partialSize;
+
+        const priceDiff = partialPos.isLong
+          ? exitPrice - partialPos.entryPrice
+          : partialPos.entryPrice - exitPrice;
+        const partialPnl = (priceDiff / partialPos.entryPrice) * partialSize * partialPos.leverage;
+
+        // 1. Create a new closed position for the partial amount.
+        const partialId = `${positionId}_partial_${Date.now()}`;
+        await createPosition(
+          matchId,
+          {
+            playerAddress: ws.userAddress,
+            assetSymbol: partialPos.assetSymbol,
+            isLong: partialPos.isLong,
+            entryPrice: partialPos.entryPrice,
+            size: partialSize,
+            leverage: partialPos.leverage,
+            exitPrice,
+            pnl: partialPnl,
+            openedAt: partialPos.openedAt,
+            closedAt: Date.now(),
+            closeReason: "partial",
+          },
+          partialId
+        );
+
+        // 2. Update the original position's size (reduced).
+        await updatePosition(matchId, positionId, {
+          size: remainingSize,
+        });
+
+        // 3. Notify the client.
+        broadcastToUser(ws.userAddress, {
+          type: "position_closed",
+          positionId: partialId,
+          exitPrice,
+          pnl: partialPnl,
+          closeReason: "partial",
+        });
 
         broadcastOpponentUpdate(matchId, ws.userAddress);
       } finally {
