@@ -242,6 +242,27 @@ router.get("/:id/positions", requireAuth, async (req: AuthRequest, res) => {
   res.json({ positions });
 });
 
+/** GET /api/match/:id/debug-positions — Debug: all positions for a match (TEMPORARY). */
+router.get("/:id/debug-positions", async (req, res) => {
+  const match = await getMatch(req.params.id);
+  if (!match) { res.status(404).json({ error: "Match not found" }); return; }
+
+  const positions = await getPositions(req.params.id);
+  const p1Positions = positions.filter(p => p.playerAddress === match.player1);
+  const p2Positions = positions.filter(p => p.playerAddress === match.player2);
+
+  res.json({
+    matchId: req.params.id,
+    player1: match.player1,
+    player2: match.player2,
+    totalPositions: positions.length,
+    player1Count: p1Positions.length,
+    player2Count: p2Positions.length,
+    player1Positions: p1Positions,
+    player2Positions: p2Positions,
+  });
+});
+
 /** POST /api/match/:id/trade — Submit a trade (open position). */
 router.post(
   "/:id/trade",
