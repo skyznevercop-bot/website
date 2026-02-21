@@ -26,6 +26,8 @@ class TradingState {
   final double opponentPnl;
   final double opponentEquity;
   final int opponentPositionCount;
+  /// Server-authoritative opponent ROI % from opponent_update broadcast.
+  final double? opponentServerRoi;
   final String? arenaRoute;
   final String? matchWinner;
   final bool matchIsTie;
@@ -64,6 +66,7 @@ class TradingState {
     this.opponentPnl = 0,
     this.opponentEquity = demoBalance,
     this.opponentPositionCount = 0,
+    this.opponentServerRoi,
     this.arenaRoute,
     this.matchWinner,
     this.matchIsTie = false,
@@ -121,10 +124,18 @@ class TradingState {
     return total;
   }
 
-  double get opponentRoi =>
-      opponentEquity > 0 && initialBalance > 0
-          ? (opponentEquity - initialBalance) / initialBalance * 100
+  /// My live ROI as a percentage (e.g. 5.00 = 5%).
+  double get myRoiPercent =>
+      initialBalance > 0
+          ? (equity - initialBalance) / initialBalance * 100
           : 0;
+
+  /// Opponent ROI — prefer server-authoritative value when available.
+  double get opponentRoi =>
+      opponentServerRoi ??
+      (opponentEquity > 0 && initialBalance > 0
+          ? (opponentEquity - initialBalance) / initialBalance * 100
+          : 0);
 
   /// Sentinel to distinguish "not passed" from "explicitly set to null".
   static const _unchanged = Object();
@@ -143,6 +154,7 @@ class TradingState {
     double? opponentPnl,
     double? opponentEquity,
     int? opponentPositionCount,
+    Object? opponentServerRoi = _unchanged,
     Object? arenaRoute = _unchanged,
     Object? matchWinner = _unchanged,
     bool? matchIsTie,
@@ -179,6 +191,9 @@ class TradingState {
       opponentEquity: opponentEquity ?? this.opponentEquity,
       opponentPositionCount:
           opponentPositionCount ?? this.opponentPositionCount,
+      opponentServerRoi: opponentServerRoi == _unchanged
+          ? this.opponentServerRoi
+          : opponentServerRoi as double?,
       arenaRoute:
           arenaRoute == _unchanged ? this.arenaRoute : arenaRoute as String?,
       matchWinner: matchWinner == _unchanged
@@ -284,6 +299,7 @@ class TradingNotifier extends Notifier<TradingState> {
         pendingOrders: [],
         serverMyRoi: null,
         serverOppRoi: null,
+        opponentServerRoi: null,
       );
     }
 
@@ -363,14 +379,14 @@ class TradingNotifier extends Notifier<TradingState> {
         final equity =
             (data['equity'] as num?)?.toDouble() ?? TradingState.demoBalance;
         final posCount = (data['positionCount'] as num?)?.toInt() ?? 0;
+        final serverOppRoi = (data['roi'] as num?)?.toDouble();
 
         // Track lead changes: compare my ROI vs opponent ROI.
-        final myRoi = state.initialBalance > 0
-            ? (state.equity - state.initialBalance) / state.initialBalance
-            : 0.0;
-        final oppRoi = state.initialBalance > 0
-            ? (equity - state.initialBalance) / state.initialBalance
-            : 0.0;
+        final myRoi = state.myRoiPercent;
+        final oppRoi = serverOppRoi ??
+            (state.initialBalance > 0
+                ? (equity - state.initialBalance) / state.initialBalance * 100
+                : 0.0);
         final amLeading = myRoi > oppRoi;
         final leadChanged = state.wasLeading != amLeading &&
             state.matchTimeRemainingSeconds < state.totalDurationSeconds - 5;
@@ -379,6 +395,7 @@ class TradingNotifier extends Notifier<TradingState> {
           opponentPnl: pnl,
           opponentEquity: equity,
           opponentPositionCount: posCount,
+          opponentServerRoi: serverOppRoi,
           wasLeading: amLeading,
           leadChangeCount: leadChanged
               ? state.leadChangeCount + 1
@@ -429,6 +446,18 @@ class TradingNotifier extends Notifier<TradingState> {
         break;
 
       case 'match_end':
+        // Apply settlement prices so client closes positions at the exact
+        // same prices the server used — eliminates price drift divergence.
+        final settlementPrices = data['prices'] as Map<String, dynamic>?;
+        if (settlementPrices != null) {
+          final prices = <String, double>{};
+          for (final entry in settlementPrices.entries) {
+            final v = entry.value;
+            if (v is num) prices[entry.key] = v.toDouble();
+          }
+          if (prices.isNotEmpty) updatePrices(prices);
+        }
+
         // Determine which ROI belongs to us vs our opponent.
         final p1Roi = (data['p1Roi'] as num?)?.toDouble();
         final p2Roi = (data['p2Roi'] as num?)?.toDouble();
@@ -826,10 +855,11 @@ class TradingNotifier extends Notifier<TradingState> {
     final exitPrice = pastLiq ? original.liquidationPrice : currentPrice;
 
     final partialSize = original.size * fraction;
-    final partialPnl =
+    final rawPartialPnl =
         partialSize * original.leverage *
         ((exitPrice - original.entryPrice) / original.entryPrice) *
         (original.isLong ? 1.0 : -1.0);
+    final partialPnl = rawPartialPnl.clamp(-partialSize, double.infinity);
 
     // Create closed position for the partial amount.
     _positionCounter++;
@@ -1149,9 +1179,7 @@ class TradingNotifier extends Notifier<TradingState> {
           status == 'forfeited') {
         _resultPollTimer?.cancel();
 
-        // Extract server ROI (stored as decimal in Firebase) and convert to
-        // percentage. Handles all terminal statuses uniformly — including
-        // ties, which have real (non-zero) ROI values.
+        // REST now returns ROI as percentage (e.g. 5.00 = 5%).
         final p1Roi = (result['player1Roi'] as num?)?.toDouble();
         final p2Roi = (result['player2Roi'] as num?)?.toDouble();
         final player1Addr = result['player1'] as String?;
@@ -1164,8 +1192,8 @@ class TradingNotifier extends Notifier<TradingState> {
           winner: result['winner'] as String?,
           isTie: status == 'tied',
           isForfeit: status == 'forfeited',
-          serverMyRoi: myRoi != null ? myRoi * 100 : null,
-          serverOppRoi: oppRoi != null ? oppRoi * 100 : null,
+          serverMyRoi: myRoi,
+          serverOppRoi: oppRoi,
         );
         return;
       }

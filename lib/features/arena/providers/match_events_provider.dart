@@ -175,9 +175,7 @@ class MatchEventsNotifier extends Notifier<MatchEventsState> {
     // ── Portfolio milestones (every 5% ROI change) ──
     // Show the unrealized PnL of open trades instead of a raw ROI percentage,
     // which is confusing when positions are still live.
-    final roi = next.initialBalance > 0
-        ? (next.equity - next.initialBalance) / next.initialBalance * 100
-        : 0.0;
+    final roi = next.myRoiPercent;
     final prevRoi = next.initialBalance > 0
         ? (_prevEquity - next.initialBalance) / next.initialBalance * 100
         : 0.0;

@@ -58,11 +58,7 @@ class _BattleBarState extends ConsumerState<BattleBar>
     final myTag = ref.watch(walletProvider).gamerTag ?? 'You';
     final oppTag = widget.state.opponentGamerTag ?? 'Opponent';
 
-    final myRoi = widget.state.initialBalance > 0
-        ? (widget.state.equity - widget.state.initialBalance) /
-            widget.state.initialBalance *
-            100
-        : 0.0;
+    final myRoi = widget.state.myRoiPercent;
     final oppRoi = widget.state.opponentRoi;
 
     // Sigmoid mapping: diff → 0..1 (0.5 = tied).

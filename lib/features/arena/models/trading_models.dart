@@ -300,12 +300,13 @@ class Position {
   /// Margin used = size.
   double get margin => size;
 
-  /// Calculate unrealized or realized P&L.
+  /// Calculate unrealized or realized P&L (capped at -size, matching server).
   double pnl(double currentPrice) {
     final exit = exitPrice ?? currentPrice;
     final priceChange = (exit - entryPrice) / entryPrice;
     final direction = isLong ? 1.0 : -1.0;
-    return size * leverage * priceChange * direction;
+    final raw = size * leverage * priceChange * direction;
+    return raw.clamp(-size, double.infinity);
   }
 
   /// P&L as a percentage of margin.

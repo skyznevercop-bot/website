@@ -10,6 +10,7 @@ import {
 import { getLatestPrices } from "../services/price-oracle";
 import { isValidSolanaAddress } from "../utils/validation";
 import { config } from "../config";
+import { roiToPercent } from "../utils/pnl";
 
 const router = Router();
 
@@ -217,6 +218,9 @@ router.get("/:id", async (req, res) => {
   res.json({
     id: req.params.id,
     ...match,
+    // Override decimal ROI with percentage (e.g. 0.05 → 5.00).
+    player1Roi: roiToPercent(match.player1Roi ?? 0),
+    player2Roi: roiToPercent(match.player2Roi ?? 0),
     player1Info: { address: match.player1, gamerTag: p1?.gamerTag },
     player2Info: { address: match.player2, gamerTag: p2?.gamerTag },
   });

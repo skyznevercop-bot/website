@@ -20,9 +20,7 @@ class EquityBar extends ConsumerWidget {
     final myTag = ref.watch(walletProvider).gamerTag ?? 'You';
     final oppTag = state.opponentGamerTag ?? 'Opponent';
 
-    final myRoi = state.initialBalance > 0
-        ? (state.equity - state.initialBalance) / state.initialBalance * 100
-        : 0.0;
+    final myRoi = state.myRoiPercent;
     final oppRoi = state.opponentRoi;
 
     // Calculate bar ratio: normalize so the total always fills the bar.

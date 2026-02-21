@@ -593,13 +593,9 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
               ),
               Expanded(
                 child: _InfoTile(
-                  icon: Icons.circle,
-                  iconSize: 10,
-                  iconColor: AppTheme.solanaGreen,
-                  label: 'Online',
-                  value: queue.onlinePlayers > 0
-                      ? '${queue.onlinePlayers}'
-                      : '--',
+                  icon: Icons.timer_outlined,
+                  label: 'Duration',
+                  value: _selected.label,
                 ),
               ),
               Container(

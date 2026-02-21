@@ -15,6 +15,7 @@ import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, 
 import { settleMatchBalances } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
+import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const TIE_TOLERANCE = config.tieTolerance;
@@ -223,36 +224,7 @@ async function _doSettleMatch(
   console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions (P1=${p1Count}, P2=${p2Count}, open=${openCount})`);
 
   // Close any open positions at the last-broadcast prices.
-  // If a position should have been liquidated (PnL exceeds 90% of margin),
-  // close it at the liquidation price instead of market price.
-  for (const pos of allPositions) {
-    if (!pos.closedAt) {
-      const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
-
-      // Check if position should have been liquidated (same formula as WS monitor).
-      const liquidationPrice = pos.isLong
-        ? pos.entryPrice * (1 - 0.9 / pos.leverage)
-        : pos.entryPrice * (1 + 0.9 / pos.leverage);
-      const shouldLiquidate = pos.isLong
-        ? currentPrice <= liquidationPrice
-        : currentPrice >= liquidationPrice;
-
-      const exitPrice = shouldLiquidate ? liquidationPrice : currentPrice;
-      const closeReason = shouldLiquidate ? "liquidation" : "match_end";
-      const pnl = calculatePnl(pos, exitPrice);
-
-      await updatePosition(matchId, pos.id, {
-        exitPrice,
-        pnl,
-        closedAt: Date.now(),
-        closeReason,
-      });
-
-      pos.exitPrice = exitPrice;
-      pos.pnl = pnl;
-      pos.closedAt = Date.now();
-    }
-  }
+  await closeOpenPositions(matchId, allPositions, priceMap);
 
   const player1 = match.player1 as string;
   const player2 = match.player2 as string;
@@ -266,28 +238,7 @@ async function _doSettleMatch(
   const openAfterClose = verifiedPositions.filter((p) => !p.closedAt);
   if (openAfterClose.length > 0) {
     console.warn(`[Settlement] Match ${matchId}: ${openAfterClose.length} positions still open after close pass — closing now`);
-    for (const pos of openAfterClose) {
-      const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
-      const liquidationPrice = pos.isLong
-        ? pos.entryPrice * (1 - 0.9 / pos.leverage)
-        : pos.entryPrice * (1 + 0.9 / pos.leverage);
-      const shouldLiquidate = pos.isLong
-        ? currentPrice <= liquidationPrice
-        : currentPrice >= liquidationPrice;
-      const exitPrice = shouldLiquidate ? liquidationPrice : currentPrice;
-      const pnl = calculatePnl(pos, exitPrice);
-
-      await updatePosition(matchId, pos.id, {
-        exitPrice,
-        pnl,
-        closedAt: Date.now(),
-        closeReason: shouldLiquidate ? "liquidation" : "match_end",
-      });
-
-      pos.exitPrice = exitPrice;
-      pos.pnl = pnl;
-      pos.closedAt = Date.now();
-    }
+    await closeOpenPositions(matchId, openAfterClose, priceMap);
   }
 
   // Calculate final PnL from verified (persisted) positions.
@@ -307,11 +258,11 @@ async function _doSettleMatch(
       return sum + pnl;
     }, 0);
 
-  // ROI = totalPnl / DEMO_BALANCE (since finalBalance = DEMO_BALANCE + totalPnl).
-  const p1Roi = p1Pnl / DEMO_BALANCE;
-  const p2Roi = p2Pnl / DEMO_BALANCE;
+  // ROI as decimal (0.05 = 5%).
+  const p1Roi = roiDecimal(p1Pnl, DEMO_BALANCE);
+  const p2Roi = roiDecimal(p2Pnl, DEMO_BALANCE);
 
-  console.log(`[Settlement] Match ${matchId} VERIFIED: P1 PnL=$${p1Pnl.toFixed(2)} ROI=${(p1Roi * 100).toFixed(2)}% | P2 PnL=$${p2Pnl.toFixed(2)} ROI=${(p2Roi * 100).toFixed(2)}% (${verifiedPositions.length} positions)`);
+  console.log(`[Settlement] Match ${matchId} VERIFIED: P1 PnL=$${p1Pnl.toFixed(2)} ROI=${roiToPercent(p1Roi).toFixed(2)}% | P2 PnL=$${p2Pnl.toFixed(2)} ROI=${roiToPercent(p2Roi).toFixed(2)}% (${verifiedPositions.length} positions)`);
 
   const isTie = Math.abs(p1Roi - p2Roi) <= TIE_TOLERANCE;
   let winner: string | undefined;
@@ -344,35 +295,62 @@ async function _doSettleMatch(
   broadcastToAll({ type: "leaderboard_update" });
 
   // 4. Broadcast result immediately — users see it with zero delay.
+  //    Include settlement prices so client can reconcile its own PnL.
   broadcastToMatch(matchId, {
     type: "match_end",
     matchId,
     winner: winner || null,
     player1,
     player2,
-    p1Roi: Math.round(p1Roi * 10000) / 100,
-    p2Roi: Math.round(p2Roi * 10000) / 100,
+    p1Roi: roiToPercent(p1Roi),
+    p2Roi: roiToPercent(p2Roi),
     isTie,
     isForfeit: false,
+    prices: priceMap,
   });
 
   // Clean up stored price snapshot now that settlement is complete.
   clearMatchPrices(matchId);
 
   console.log(
-    `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner?.slice(0, 8)}…`} | ROI: ${(p1Roi * 100).toFixed(2)}% vs ${(p2Roi * 100).toFixed(2)}%`
+    `[Settlement] Match ${matchId} settled | ${isTie ? "TIE" : `Winner: ${winner?.slice(0, 8)}…`} | ROI: ${roiToPercent(p1Roi).toFixed(2)}% vs ${roiToPercent(p2Roi).toFixed(2)}%`
   );
 }
 
-function calculatePnl(pos: DbPosition, currentPrice: number): number {
-  const exitPrice = pos.exitPrice ?? currentPrice;
-  const priceDiff = pos.isLong
-    ? exitPrice - pos.entryPrice
-    : pos.entryPrice - exitPrice;
-  const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
-  // Cap losses at margin (size) — you can't lose more than your collateral.
-  // This matches the client-side clamp: max(0, size + pnl) → pnl >= -size.
-  return Math.max(rawPnl, -pos.size);
+/**
+ * Close all open positions at settlement prices.
+ * If a position should have been liquidated (PnL exceeds 90% of margin),
+ * it is closed at the liquidation price instead of market price.
+ */
+async function closeOpenPositions(
+  matchId: string,
+  positions: Array<DbPosition & { id: string }>,
+  priceMap: Record<string, number>
+): Promise<void> {
+  for (const pos of positions) {
+    if (pos.closedAt) continue;
+
+    const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
+    const liqPrice = liquidationPrice(pos);
+    const shouldLiquidate = pos.isLong
+      ? currentPrice <= liqPrice
+      : currentPrice >= liqPrice;
+
+    const exitPrice = shouldLiquidate ? liqPrice : currentPrice;
+    const closeReason = shouldLiquidate ? "liquidation" : "match_end";
+    const pnl = calculatePnl(pos, exitPrice);
+
+    await updatePosition(matchId, pos.id, {
+      exitPrice,
+      pnl,
+      closedAt: Date.now(),
+      closeReason,
+    });
+
+    pos.exitPrice = exitPrice;
+    pos.pnl = pnl;
+    pos.closedAt = Date.now();
+  }
 }
 
 /** Credit referral rewards to referrers for both players in a match. */

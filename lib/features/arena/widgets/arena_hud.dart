@@ -33,10 +33,7 @@ class ArenaHud extends ConsumerWidget {
     required this.onChatToggle,
   });
 
-  double get _roi =>
-      state.initialBalance > 0
-          ? (state.equity - state.initialBalance) / state.initialBalance * 100
-          : 0;
+  double get _roi => state.myRoiPercent;
 
   double get _timeProgress =>
       durationSeconds > 0

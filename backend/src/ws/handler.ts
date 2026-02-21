@@ -25,6 +25,7 @@ import {
 } from "../services/firebase";
 import { settleByForfeit } from "../services/settlement";
 import { getBalance } from "../services/balance";
+import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
 
 const DEMO_BALANCE = config.demoInitialBalance;
 const FORFEIT_GRACE_MS = 60_000; // 60 seconds
@@ -206,16 +207,14 @@ export function setupWebSocket(server: HttpServer): void {
         const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
 
         // Liquidation: player loses 90% of margin.
-        const liquidationPrice = pos.isLong
-          ? pos.entryPrice * (1 - 0.9 / pos.leverage)
-          : pos.entryPrice * (1 + 0.9 / pos.leverage);
+        const liqPrice = liquidationPrice(pos);
 
         let closeReason: string | null = null;
         let exitPrice = currentPrice;
 
-        if (pos.isLong ? currentPrice <= liquidationPrice : currentPrice >= liquidationPrice) {
+        if (pos.isLong ? currentPrice <= liqPrice : currentPrice >= liqPrice) {
           closeReason = "liquidation";
-          exitPrice = liquidationPrice;
+          exitPrice = liqPrice;
         } else if (pos.sl != null) {
           const slHit = pos.isLong ? currentPrice <= pos.sl : currentPrice >= pos.sl;
           if (slHit) { closeReason = "sl"; exitPrice = pos.sl; }
@@ -229,11 +228,7 @@ export function setupWebSocket(server: HttpServer): void {
 
         _closingPositions.add(pos.id);
         try {
-          const priceDiff = pos.isLong
-            ? exitPrice - pos.entryPrice
-            : pos.entryPrice - exitPrice;
-          const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
-          const pnl = Math.max(rawPnl, -pos.size); // Can't lose more than margin.
+          const pnl = calculatePnl(pos, exitPrice);
 
           await updatePosition(matchId, pos.id, {
             exitPrice,
@@ -658,11 +653,7 @@ async function handleMessage(
           SOL: prices.sol,
         };
         const exitPrice = priceMap[position.assetSymbol] ?? position.entryPrice;
-        const priceDiff = position.isLong
-          ? exitPrice - position.entryPrice
-          : position.entryPrice - exitPrice;
-        const rawPnl = (priceDiff / position.entryPrice) * position.size * position.leverage;
-        const pnl = Math.max(rawPnl, -position.size); // Can't lose more than margin.
+        const pnl = calculatePnl(position, exitPrice);
 
         await updatePosition(matchId, positionId, {
           exitPrice,
@@ -735,11 +726,10 @@ async function handleMessage(
         const partialSize = partialPos.size * fraction;
         const remainingSize = partialPos.size - partialSize;
 
-        const priceDiff = partialPos.isLong
-          ? exitPrice - partialPos.entryPrice
-          : partialPos.entryPrice - exitPrice;
-        const rawPartialPnl = (priceDiff / partialPos.entryPrice) * partialSize * partialPos.leverage;
-        const partialPnl = Math.max(rawPartialPnl, -partialSize); // Can't lose more than margin.
+        const partialPnl = calculatePnl(
+          { ...partialPos, size: partialSize },
+          exitPrice
+        );
 
         // 1. Create a new closed position for the partial amount.
         const partialId = `${positionId}_partial_${Date.now()}`;
@@ -855,13 +845,11 @@ async function broadcastOpponentUpdate(
     } else {
       openCount++;
       const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
-      const priceDiff = pos.isLong
-        ? currentPrice - pos.entryPrice
-        : pos.entryPrice - currentPrice;
-      const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
-      totalPnl += Math.max(rawPnl, -pos.size); // Can't lose more than margin.
+      totalPnl += calculatePnl(pos, currentPrice);
     }
   }
+
+  const roi = roiToPercent(roiDecimal(totalPnl, DEMO_BALANCE));
 
   broadcastToUser(opponentAddress, {
     type: "opponent_update",
@@ -869,5 +857,6 @@ async function broadcastOpponentUpdate(
     equity: DEMO_BALANCE + totalPnl,
     pnl: totalPnl,
     positionCount: openCount,
+    roi,
   });
 }
