@@ -212,6 +212,59 @@ export async function settleMatchBalances(
   }
 }
 
+/**
+ * Reconcile frozen balance on connect.
+ * If the user has frozen balance but is NOT in any queue and NOT in an
+ * active match, reset frozen to 0. This fixes stale freezes from
+ * server restarts or missed unfreezes.
+ */
+export async function reconcileFrozenBalance(address: string): Promise<void> {
+  const { queuesRef } = await import("./firebase");
+
+  // 1. Sum up bet amounts from actual queue entries.
+  const queueSnap = await queuesRef.once("value");
+  let expectedFrozen = 0;
+
+  if (queueSnap.exists()) {
+    queueSnap.forEach((queueChild) => {
+      if (queueChild.hasChild(address)) {
+        const queueKey = queueChild.key!;
+        const parts = queueKey.split("_");
+        const bet = parseFloat(parts[1]);
+        if (Number.isFinite(bet)) expectedFrozen += bet;
+      }
+    });
+  }
+
+  // 2. Also count active matches (bet is still frozen during a match).
+  const [snap1, snap2] = await Promise.all([
+    matchesRef.orderByChild("player1").equalTo(address).once("value"),
+    matchesRef.orderByChild("player2").equalTo(address).once("value"),
+  ]);
+
+  for (const snap of [snap1, snap2]) {
+    if (!snap.exists()) continue;
+    snap.forEach((child) => {
+      const m = child.val();
+      if (m.status === "active") {
+        expectedFrozen += m.betAmount ?? 0;
+      }
+    });
+  }
+
+  // 3. Fix frozen balance if it doesn't match.
+  const userRef = usersRef.child(address);
+  await userRef.transaction((current) => {
+    if (!current) return current;
+    const actualFrozen = current.frozenBalance ?? 0;
+    if (actualFrozen === expectedFrozen) return current; // no change needed
+    console.log(
+      `[Balance] Reconcile ${address.slice(0, 8)}…: frozenBalance ${actualFrozen} → ${expectedFrozen}`
+    );
+    return { ...current, frozenBalance: expectedFrozen };
+  });
+}
+
 // ── Deposit: user sends USDC to platform vault ─────────────────
 
 /**

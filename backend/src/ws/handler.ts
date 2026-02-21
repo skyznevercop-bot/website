@@ -24,7 +24,7 @@ import {
   getUser,
 } from "../services/firebase";
 import { settleByForfeit } from "../services/settlement";
-import { getBalance } from "../services/balance";
+import { getBalance, reconcileFrozenBalance } from "../services/balance";
 import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
 
 const DEMO_BALANCE = config.demoInitialBalance;
@@ -125,10 +125,12 @@ export function setupWebSocket(server: HttpServer): void {
           // Cancel any pending forfeit timer for this player.
           cancelForfeitTimersForPlayer(payload.address);
 
-          // Send current balance on connect.
-          sendBalanceUpdate(payload.address, ws).catch((err) => {
-            console.error(`[WS] Failed to send initial balance for ${payload.address.slice(0, 8)}…:`, err);
-          });
+          // Reconcile frozen balance then send updated balance on connect.
+          reconcileFrozenBalance(payload.address)
+            .then(() => sendBalanceUpdate(payload.address, ws))
+            .catch((err) => {
+              console.error(`[WS] Failed to reconcile/send balance for ${payload.address.slice(0, 8)}…:`, err);
+            });
 
           console.log(`[WS] Client authenticated: ${ws.userAddress}`);
           ws.send(JSON.stringify({ type: "auth_ok" }));
@@ -374,12 +376,14 @@ async function handleMessage(
       };
 
       if (!isValidDuration(duration) || !isValidBet(bet)) {
+        console.log(`[WS] join_queue rejected: invalid params — duration=${duration}, bet=${bet}, user=${ws.userAddress.slice(0, 8)}…`);
         ws.send(JSON.stringify({ type: "error", message: "Invalid duration or bet amount" }));
         return;
       }
 
       const success = await joinQueue(ws.userAddress, duration, bet);
       if (!success) {
+        console.log(`[WS] join_queue rejected: insufficient balance — user=${ws.userAddress.slice(0, 8)}…, bet=${bet}`);
         ws.send(JSON.stringify({
           type: "error",
           message: "Insufficient balance",
@@ -387,6 +391,7 @@ async function handleMessage(
         return;
       }
 
+      console.log(`[WS] join_queue success: ${ws.userAddress.slice(0, 8)}… → ${duration} / $${bet}`);
       ws.send(JSON.stringify({ type: "queue_joined", duration, bet }));
 
       // Send updated balance (frozen amount changed).

@@ -296,6 +296,19 @@ class QueueNotifier extends Notifier<QueueState> {
       case 'match_found':
         _handleMatchFound(data);
         break;
+      case 'error':
+        // If we're in queue and get an error, the join likely failed.
+        // Reset state so user sees the failure instead of spinning forever.
+        if (state.isInQueue) {
+          _waitTimer?.cancel();
+          state = state.copyWith(
+            isInQueue: false,
+            searchPhase: SearchPhase.idle,
+            clearQueuedDuration: true,
+            waitSeconds: 0,
+          );
+        }
+        break;
     }
   }
 
