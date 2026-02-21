@@ -11,6 +11,7 @@ import '../../features/achievements/widgets/achievement_toast.dart';
 import '../../features/onboarding/widgets/onboarding_overlay.dart';
 import '../../features/play/providers/queue_provider.dart';
 import '../../features/play/widgets/face_off_screen.dart';
+import '../../features/referral/providers/referral_provider.dart';
 import '../../features/wallet/providers/wallet_provider.dart';
 import 'top_bar.dart';
 
@@ -65,10 +66,16 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    // When wallet connects, check for an ongoing match.
+    // When wallet connects, check for an ongoing match + apply pending referral.
     ref.listen(walletProvider, (prev, next) {
       if (next.isConnected && !(prev?.isConnected ?? false) && next.address != null) {
         ref.read(tradingProvider.notifier).checkActiveMatch(next.address!);
+
+        // Auto-apply referral code from URL (?ref=CODE) if present.
+        final pendingCode = ref.read(pendingReferralCodeProvider);
+        if (pendingCode != null && pendingCode.isNotEmpty) {
+          ref.read(referralProvider.notifier).applyReferralCode(pendingCode);
+        }
       }
     });
 

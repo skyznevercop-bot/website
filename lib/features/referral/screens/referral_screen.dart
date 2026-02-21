@@ -160,7 +160,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
   Widget _buildReferralLinkCard(
       BuildContext context, ReferralState referral, bool isMobile) {
     final code = referral.referralCode ?? '...';
-    final link = 'solfight.gg/?ref=$code';
+    final link = 'solfight.io/?ref=$code';
 
     return Padding(
       padding: Responsive.horizontalPadding(context),
@@ -289,7 +289,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
 
   Widget _buildShareRow(BuildContext context, ReferralState referral) {
     final code = referral.referralCode ?? '';
-    final link = 'https://solfight.gg/?ref=$code';
+    final link = 'https://solfight.io/?ref=$code';
     final text = Uri.encodeComponent(
         'Join me on SolFight - 1v1 trading battles on Solana! $link');
 

@@ -4,6 +4,25 @@ import '../../../core/services/api_client.dart';
 import '../../wallet/providers/wallet_provider.dart';
 import '../models/referral_models.dart';
 
+/// Captures the ?ref= query parameter from the initial URL.
+/// Read once on app start; cleared after applying.
+class _PendingReferralNotifier extends Notifier<String?> {
+  @override
+  String? build() {
+    try {
+      return Uri.base.queryParameters['ref'];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void clear() => state = null;
+}
+
+final pendingReferralCodeProvider =
+    NotifierProvider<_PendingReferralNotifier, String?>(
+        _PendingReferralNotifier.new);
+
 class ReferralNotifier extends Notifier<ReferralState> {
   final _api = ApiClient.instance;
 
@@ -76,6 +95,19 @@ class ReferralNotifier extends Notifier<ReferralState> {
       );
     } catch (_) {
       state = state.copyWith(isClaiming: false);
+    }
+  }
+
+  /// Apply a referral code (from URL ?ref= param) after wallet connects.
+  Future<void> applyReferralCode(String code) async {
+    if (!_api.hasToken || code.length != 8) return;
+
+    try {
+      await _api.post('/referral/apply', {'code': code.toUpperCase()});
+      // Clear the pending code so it's not applied again.
+      ref.read(pendingReferralCodeProvider.notifier).clear();
+    } catch (_) {
+      // Already referred or invalid code — silently ignore.
     }
   }
 
