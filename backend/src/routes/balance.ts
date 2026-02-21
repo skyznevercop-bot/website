@@ -126,16 +126,29 @@ router.get("/balance/transactions", requireAuth, async (req: AuthRequest, res) =
  * Also triggers reconciliation to fix stale freezes.
  */
 router.get("/balance/debug/:address", async (req, res) => {
+  const { address } = req.params;
+  const result: Record<string, unknown> = {};
+
   try {
-    const { address } = req.params;
-    const before = await getBalance(address);
-    await reconcileFrozenBalance(address);
-    const after = await getBalance(address);
-    res.json({ before, after, reconciled: before.frozenBalance !== after.frozenBalance });
+    result.before = await getBalance(address);
   } catch (err) {
-    console.error("[Balance] GET /balance/debug error:", err);
-    res.status(500).json({ error: "Failed to debug balance" });
+    result.beforeError = String(err);
   }
+
+  try {
+    await reconcileFrozenBalance(address);
+    result.reconciled = true;
+  } catch (err) {
+    result.reconcileError = String(err);
+  }
+
+  try {
+    result.after = await getBalance(address);
+  } catch (err) {
+    result.afterError = String(err);
+  }
+
+  res.json(result);
 });
 
 export default router;
