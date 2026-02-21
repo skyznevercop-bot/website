@@ -1710,7 +1710,7 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
   Widget build(BuildContext context) {
     final connected = widget.wallet.isConnected;
     final balance = widget.wallet.platformBalance;
-    final needsDeposit = connected && balance < 5;
+    final needsDeposit = connected && balance < 1;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
