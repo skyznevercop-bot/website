@@ -147,8 +147,17 @@ export function getActiveMatchIds(): string[] {
 
 const matchLastPrices = new Map<string, { btc: number; eth: number; sol: number }>();
 
+/** Frozen matches won't accept new price updates — their snapshot is locked. */
+const frozenMatches = new Set<string>();
+
 export function storeMatchPrices(matchId: string, prices: { btc: number; eth: number; sol: number }): void {
+  if (frozenMatches.has(matchId)) return; // Don't overwrite frozen prices.
   matchLastPrices.set(matchId, { ...prices });
+}
+
+/** Freeze prices for a match so subsequent broadcasts don't overwrite them. */
+export function freezeMatchPrices(matchId: string): void {
+  frozenMatches.add(matchId);
 }
 
 export function getMatchLastPrices(matchId: string): { btc: number; eth: number; sol: number } | undefined {
@@ -157,4 +166,5 @@ export function getMatchLastPrices(matchId: string): { btc: number; eth: number;
 
 export function clearMatchPrices(matchId: string): void {
   matchLastPrices.delete(matchId);
+  frozenMatches.delete(matchId);
 }

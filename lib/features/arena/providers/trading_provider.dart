@@ -95,13 +95,23 @@ class TradingState {
   double get totalUnrealizedPnl {
     double total = 0;
     for (final p in openPositions) {
-      final price = currentPrices[p.assetSymbol] ?? 0;
+      final price = currentPrices[p.assetSymbol] ?? p.entryPrice;
       total += p.pnl(price);
     }
     return total;
   }
 
-  double get equity => balance + totalUnrealizedPnl;
+  double get equity {
+    // balance has open position margins deducted (balance -= size on open).
+    // Add back each open position's full value (margin + unrealized PnL)
+    // so equity = DEMO_BALANCE + totalPnl (realized + unrealized).
+    double openValue = 0;
+    for (final p in openPositions) {
+      final price = currentPrices[p.assetSymbol] ?? p.entryPrice;
+      openValue += (p.size + p.pnl(price)).clamp(0.0, double.infinity);
+    }
+    return balance + openValue;
+  }
 
   double get totalRealizedPnl {
     double total = 0;
@@ -642,15 +652,15 @@ class TradingNotifier extends Notifier<TradingState> {
 
     if (changed) {
       final newBalance = (state.balance + balanceAdjust).clamp(0.0, double.infinity);
-      // Recalculate equity for peak tracking.
-      double unrealized = 0;
+      // Recalculate equity for peak tracking (margin + unrealized PnL).
+      double openValue = 0;
       for (final p in updatedPositions) {
         if (p.isOpen) {
           final px = prices[p.assetSymbol] ?? p.entryPrice;
-          unrealized += p.pnl(px);
+          openValue += (p.size + p.pnl(px)).clamp(0.0, double.infinity);
         }
       }
-      final newEquity = newBalance + unrealized;
+      final newEquity = newBalance + openValue;
 
       // Track consecutive wins/losses for auto-closed positions.
       int newConsecutive = state.consecutiveWins;

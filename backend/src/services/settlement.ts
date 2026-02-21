@@ -11,7 +11,7 @@ import {
   DbPosition,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, clearMatchPrices } from "../ws/rooms";
+import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
 import { settleMatchBalances } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
@@ -43,6 +43,9 @@ export function startSettlementLoop(): void {
         activeSnap.forEach((child) => {
           const match = child.val();
           if (match.endTime && match.endTime <= now) {
+            // Freeze prices immediately so subsequent 1s broadcasts don't
+            // overwrite them — settlement must use the prices from match end.
+            freezeMatchPrices(child.key!);
             void settleMatch(child.key!, match);
           }
         });
@@ -74,9 +77,9 @@ export function startSettlementLoop(): void {
     } catch (err) {
       console.error("[Settlement] Error:", err);
     }
-  }, 5000);
+  }, 1000);
 
-  console.log("[Settlement] Started — checking every 5s (with balance recovery + challenge expiry)");
+  console.log("[Settlement] Started — checking every 1s (with balance recovery + challenge expiry)");
 }
 
 /**
@@ -220,19 +223,32 @@ async function _doSettleMatch(
   console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions (P1=${p1Count}, P2=${p2Count}, open=${openCount})`);
 
   // Close any open positions at the last-broadcast prices.
+  // If a position should have been liquidated (PnL exceeds 90% of margin),
+  // close it at the liquidation price instead of market price.
   for (const pos of allPositions) {
     if (!pos.closedAt) {
       const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
-      const pnl = calculatePnl(pos, currentPrice);
+
+      // Check if position should have been liquidated (same formula as WS monitor).
+      const liquidationPrice = pos.isLong
+        ? pos.entryPrice * (1 - 0.9 / pos.leverage)
+        : pos.entryPrice * (1 + 0.9 / pos.leverage);
+      const shouldLiquidate = pos.isLong
+        ? currentPrice <= liquidationPrice
+        : currentPrice >= liquidationPrice;
+
+      const exitPrice = shouldLiquidate ? liquidationPrice : currentPrice;
+      const closeReason = shouldLiquidate ? "liquidation" : "match_end";
+      const pnl = calculatePnl(pos, exitPrice);
 
       await updatePosition(matchId, pos.id, {
-        exitPrice: currentPrice,
+        exitPrice,
         pnl,
         closedAt: Date.now(),
-        closeReason: "match_end",
+        closeReason,
       });
 
-      pos.exitPrice = currentPrice;
+      pos.exitPrice = exitPrice;
       pos.pnl = pnl;
       pos.closedAt = Date.now();
     }
@@ -323,7 +339,10 @@ function calculatePnl(pos: DbPosition, currentPrice: number): number {
   const priceDiff = pos.isLong
     ? exitPrice - pos.entryPrice
     : pos.entryPrice - exitPrice;
-  return (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+  const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+  // Cap losses at margin (size) — you can't lose more than your collateral.
+  // This matches the client-side clamp: max(0, size + pnl) → pnl >= -size.
+  return Math.max(rawPnl, -pos.size);
 }
 
 /** Credit referral rewards to referrers for both players in a match. */

@@ -232,7 +232,8 @@ export function setupWebSocket(server: HttpServer): void {
           const priceDiff = pos.isLong
             ? exitPrice - pos.entryPrice
             : pos.entryPrice - exitPrice;
-          const pnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+          const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+          const pnl = Math.max(rawPnl, -pos.size); // Can't lose more than margin.
 
           await updatePosition(matchId, pos.id, {
             exitPrice,
@@ -660,7 +661,8 @@ async function handleMessage(
         const priceDiff = position.isLong
           ? exitPrice - position.entryPrice
           : position.entryPrice - exitPrice;
-        const pnl = (priceDiff / position.entryPrice) * position.size * position.leverage;
+        const rawPnl = (priceDiff / position.entryPrice) * position.size * position.leverage;
+        const pnl = Math.max(rawPnl, -position.size); // Can't lose more than margin.
 
         await updatePosition(matchId, positionId, {
           exitPrice,
@@ -736,7 +738,8 @@ async function handleMessage(
         const priceDiff = partialPos.isLong
           ? exitPrice - partialPos.entryPrice
           : partialPos.entryPrice - exitPrice;
-        const partialPnl = (priceDiff / partialPos.entryPrice) * partialSize * partialPos.leverage;
+        const rawPartialPnl = (priceDiff / partialPos.entryPrice) * partialSize * partialPos.leverage;
+        const partialPnl = Math.max(rawPartialPnl, -partialSize); // Can't lose more than margin.
 
         // 1. Create a new closed position for the partial amount.
         const partialId = `${positionId}_partial_${Date.now()}`;
@@ -855,8 +858,8 @@ async function broadcastOpponentUpdate(
       const priceDiff = pos.isLong
         ? currentPrice - pos.entryPrice
         : pos.entryPrice - currentPrice;
-      totalPnl +=
-        (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+      const rawPnl = (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
+      totalPnl += Math.max(rawPnl, -pos.size); // Can't lose more than margin.
     }
   }
 
