@@ -133,9 +133,6 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               ArenaHud(
                 state: state,
                 durationSeconds: widget.durationSeconds,
-                chatOpen: _chatOpen,
-                onChatToggle: () =>
-                    setState(() => _chatOpen = !_chatOpen),
               ),
 
               // ── Battle Bar (tug-of-war) — hidden in practice mode ──
@@ -148,12 +145,7 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
               Expanded(
                 child: isMobile
                     ? _MobileLayout(state: state)
-                    : _DesktopLayout(
-                        state: state,
-                        chatOpen: _chatOpen,
-                        onChatClose: () =>
-                            setState(() => _chatOpen = false),
-                      ),
+                    : _DesktopLayout(state: state),
               ),
             ],
           ),
@@ -163,6 +155,13 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 
           // ── Phase banner (slides down on phase transitions) ──
           if (state.matchActive && !_showIntro) const PhaseBanner(),
+
+          // ── Floating chat bubble (non-practice, active match) ──
+          if (state.matchActive && !state.isPracticeMode && !_showIntro)
+            _FloatingChat(
+              isOpen: _chatOpen,
+              onToggle: () => setState(() => _chatOpen = !_chatOpen),
+            ),
 
           // ── Match intro overlay (3-2-1 FIGHT) ──
           if (_showIntro)
@@ -192,26 +191,18 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
 }
 
 // =============================================================================
-// Desktop Layout — 3 columns: Chart+Positions | Order | Events/Chat
+// Desktop Layout — 2 columns: Chart+Positions | Order
 // =============================================================================
 
 class _DesktopLayout extends StatelessWidget {
   final TradingState state;
-  final bool chatOpen;
-  final VoidCallback onChatClose;
 
-  const _DesktopLayout({
-    required this.state,
-    required this.chatOpen,
-    required this.onChatClose,
-  });
+  const _DesktopLayout({required this.state});
 
   @override
   Widget build(BuildContext context) {
     final orderW = Responsive.value<double>(context,
         mobile: 340, tablet: 300, desktop: 340);
-    final sidebarW = Responsive.value<double>(context,
-        mobile: 300, tablet: 260, desktop: 300);
     final positionsH = Responsive.value<double>(context,
         mobile: 180, tablet: 180, desktop: 220);
 
@@ -240,101 +231,177 @@ class _DesktopLayout extends StatelessWidget {
           width: orderW,
           child: OrderPanel(state: state),
         ),
-
-        // ── Sidebar: Events / Chat (tabbed) ──
-        if (chatOpen) ...[
-          Container(width: 1, color: AppTheme.border),
-          SizedBox(
-            width: sidebarW,
-            child: _SidebarPanel(onClose: onChatClose),
-          ),
-        ],
       ],
     );
   }
 }
 
 // =============================================================================
-// Sidebar Panel — Tabbed Events | Chat
+// Floating Chat — bubble + expandable overlay panel
 // =============================================================================
 
-class _SidebarPanel extends StatefulWidget {
-  final VoidCallback onClose;
+class _FloatingChat extends ConsumerStatefulWidget {
+  final bool isOpen;
+  final VoidCallback onToggle;
 
-  const _SidebarPanel({required this.onClose});
+  const _FloatingChat({required this.isOpen, required this.onToggle});
 
   @override
-  State<_SidebarPanel> createState() => _SidebarPanelState();
+  ConsumerState<_FloatingChat> createState() => _FloatingChatState();
 }
 
-class _SidebarPanelState extends State<_SidebarPanel>
+class _FloatingChatState extends ConsumerState<_FloatingChat>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
+  late AnimationController _anim;
+  late Animation<double> _scale;
+  late Animation<double> _fade;
+  int _lastSeenCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _anim = AnimationController(
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+    _scale = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _anim, curve: Curves.easeOutBack),
+    );
+    _fade = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _anim, curve: Curves.easeOut),
+    );
+    if (widget.isOpen) _anim.value = 1.0;
+  }
+
+  @override
+  void didUpdateWidget(covariant _FloatingChat oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isOpen && !oldWidget.isOpen) {
+      _anim.forward();
+      // Mark messages as seen when opening.
+      _lastSeenCount = ref.read(matchChatProvider).length;
+    } else if (!widget.isOpen && oldWidget.isOpen) {
+      _anim.reverse();
+    }
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _anim.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: AppTheme.background,
+    final messages = ref.watch(matchChatProvider);
+    final unread = widget.isOpen ? 0 : (messages.length - _lastSeenCount).clamp(0, 99);
+    final isMobile = Responsive.isMobile(context);
+    final panelW = isMobile ? 280.0 : 320.0;
+    final panelH = isMobile ? 360.0 : 420.0;
+
+    return Positioned(
+      bottom: 16,
+      right: 16,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          // Tab header.
-          Container(
-            height: 40,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: const BoxDecoration(
-              border: Border(
-                  bottom: BorderSide(color: AppTheme.border)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TabBar(
-                    controller: _tabController,
-                    labelColor: AppTheme.solanaPurple,
-                    unselectedLabelColor: AppTheme.textTertiary,
-                    indicatorColor: AppTheme.solanaPurple,
-                    indicatorWeight: 2,
-                    dividerHeight: 0,
-                    labelStyle: GoogleFonts.inter(
-                        fontSize: 12, fontWeight: FontWeight.w600),
-                    tabs: const [
-                      Tab(text: 'Events'),
-                      Tab(text: 'Chat'),
+          // ── Expanded chat panel ──
+          SizeTransition(
+            sizeFactor: _fade,
+            axisAlignment: 1.0,
+            child: FadeTransition(
+              opacity: _fade,
+              child: ScaleTransition(
+                scale: _scale,
+                alignment: Alignment.bottomRight,
+                child: Container(
+                  width: panelW,
+                  height: panelH,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: AppTheme.background,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
                     ],
                   ),
-                ),
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: widget.onClose,
-                    child: const Icon(Icons.close_rounded,
-                        size: 16, color: AppTheme.textTertiary),
+                  clipBehavior: Clip.antiAlias,
+                  child: MatchChatPanel(
+                    onClose: widget.onToggle,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
 
-          // Tab content.
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: const [
-                EventFeedPanel(),
-                MatchChatPanel(),
-              ],
+          // ── Chat bubble button ──
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: widget.onToggle,
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: widget.isOpen
+                      ? AppTheme.solanaPurple
+                      : AppTheme.surface,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: widget.isOpen
+                        ? AppTheme.solanaPurple
+                        : AppTheme.border,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: (widget.isOpen
+                              ? AppTheme.solanaPurple
+                              : Colors.black)
+                          .withValues(alpha: 0.25),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(
+                      widget.isOpen
+                          ? Icons.close_rounded
+                          : Icons.chat_bubble_outline_rounded,
+                      size: 20,
+                      color: widget.isOpen
+                          ? Colors.white
+                          : AppTheme.textSecondary,
+                    ),
+                    // Unread badge.
+                    if (unread > 0)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: AppTheme.error,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: AppTheme.surface,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
         ],
@@ -344,7 +411,7 @@ class _SidebarPanelState extends State<_SidebarPanel>
 }
 
 // =============================================================================
-// Mobile Layout — 4 tabs: Trade | Ops | Feed | Chat
+// Mobile Layout — 2 tabs: Trade | Ops
 // =============================================================================
 
 class _MobileLayout extends StatelessWidget {
@@ -362,7 +429,7 @@ class _MobileLayout extends StatelessWidget {
         Expanded(
           flex: 7,
           child: DefaultTabController(
-            length: 4,
+            length: 2,
             child: Column(
               children: [
                 Container(
@@ -379,8 +446,6 @@ class _MobileLayout extends StatelessWidget {
                     tabs: const [
                       Tab(text: 'Trade'),
                       Tab(text: 'Ops'),
-                      Tab(text: 'Feed'),
-                      Tab(text: 'Chat'),
                     ],
                   ),
                 ),
@@ -393,8 +458,6 @@ class _MobileLayout extends StatelessWidget {
                         child: OrderPanel(state: state),
                       ),
                       PositionsPanel(state: state),
-                      const EventFeedPanel(),
-                      const MatchChatPanel(),
                     ],
                   ),
                 ),

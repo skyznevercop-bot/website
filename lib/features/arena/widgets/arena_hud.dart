@@ -22,15 +22,11 @@ import '../utils/arena_helpers.dart';
 class ArenaHud extends ConsumerWidget {
   final TradingState state;
   final int durationSeconds;
-  final bool chatOpen;
-  final VoidCallback onChatToggle;
 
   const ArenaHud({
     super.key,
     required this.state,
     required this.durationSeconds,
-    this.chatOpen = false,
-    required this.onChatToggle,
   });
 
   double get _roi => state.myRoiPercent;
@@ -111,8 +107,6 @@ class ArenaHud extends ConsumerWidget {
                 ),
                 const SizedBox(width: 6),
               ],
-              if (!state.isPracticeMode)
-                _ChatToggle(isOpen: chatOpen, onTap: onChatToggle),
             ],
           ),
         ),
@@ -689,43 +683,6 @@ class _BackButton extends StatelessWidget {
               child: const Text('Forfeit Match'),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-// =============================================================================
-// Chat Toggle
-// =============================================================================
-
-class _ChatToggle extends StatelessWidget {
-  final bool isOpen;
-  final VoidCallback onTap;
-
-  const _ChatToggle({required this.isOpen, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-          decoration: BoxDecoration(
-            color: isOpen
-                ? AppTheme.solanaPurple.withValues(alpha: 0.15)
-                : AppTheme.surfaceAlt,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(
-            isOpen
-                ? Icons.chat_bubble_rounded
-                : Icons.chat_bubble_outline_rounded,
-            size: 16,
-            color: isOpen ? AppTheme.solanaPurple : AppTheme.textSecondary,
-          ),
         ),
       ),
     );
