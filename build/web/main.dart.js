@@ -109517,13 +109517,13 @@ aqB(a){switch(a.i(0,"type")){case"leaderboard_update":this.r4(!0)
 break
 case"ws_connected":this.r4(!0)
 break}},
-r4(a){var s=1,r="wins"
+r4(a){var s=1,r="pnl"
 return this.aET(a)},
 Oj(){return this.r4(!1)},
 aET(a){var s=0,r=A.K(t.H),q=1,p=[],o=this,n,m,l,k,j,i,h,g,f,e
 var $async$r4=A.L(function(b,c){if(b===1){p.push(c)
 s=q}for(;;)switch(s){case 0:g=1
-f="wins"
+f="pnl"
 if(!a)o.sq(o.gq().k0(!0))
 q=3
 s=6
@@ -109657,8 +109657,9 @@ if(n)o="1st"
 else o=o===2?"2nd":"3rd"
 s=t.p
 l=A.a([f,B.aR,A.f(o,q,q,q,q,A.j().$3$color$fontSize$fontWeight(l,n?16:13,B.a5),q,q)],s)
-if(!r.r)B.b.F(l,A.a([B.aE,A.f("+$"+B.d.S(p.f,0),q,q,q,q,A.j().$3$color$fontSize$fontWeight(B.k.p(0.5),11,B.r),q,q)],s))
-return A.Z(A.a([m,B.bo,k,B.aG,A.t(q,A.Z(l,B.i,B.aO,B.h),B.f,q,q,new A.q(q,q,new A.d6(new A.aF(i,2,B.E,-1),new A.aF(g,1,B.E,-1),B.w,new A.aF(h,1,B.E,-1)),B.HY,q,new A.cN(B.dA,B.e6,B.a_,j,q,q),B.l),q,r.f,q,q,q,q,q,1/0)],s),B.i,B.e,B.G)}}
+if(!r.r){p=p.f
+o=p>=0?"+":"-"
+B.b.F(l,A.a([B.aE,A.f(o+"$"+B.d.S(Math.abs(p),0),q,q,q,q,A.j().$3$color$fontSize$fontWeight(B.k.p(0.5),11,B.r),q,q)],s))}return A.Z(A.a([m,B.bo,k,B.aG,A.t(q,A.Z(l,B.i,B.aO,B.h),B.f,q,q,new A.q(q,q,new A.d6(new A.aF(i,2,B.E,-1),new A.aF(g,1,B.E,-1),B.w,new A.aF(h,1,B.E,-1)),B.HY,q,new A.cN(B.dA,B.e6,B.a_,j,q,q),B.l),q,r.f,q,q,q,q,q,1/0)],s),B.i,B.e,B.G)}}
 A.ML.prototype={
 B(a){var s=null,r=A.u(12),q=A.ak(B.B,1),p=this.c,o=A.a8(p).h("a2<1,qF>")
 p=A.a0(new A.a2(p,new A.aHs(this),o),o.h("aj.E"))
@@ -109694,8 +109695,8 @@ if(!m.a.e)o.push(new A.aD(90,l,A.f(B.d.S(j.gHC()>0?q/j.gHC()*100:0,1)+"%",l,l,l,
 if(!m.a.e)o.push(new A.aD(70,l,A.f(""+j.gHC(),l,l,l,l,A.j().$2$color$fontSize(B.D,13),l,l),l))
 s=j.f
 q=s>=0
-p=q?"+":""
-s=B.d.S(s,0)
+p=q?"+":"-"
+s=B.d.S(Math.abs(s),0)
 o.push(new A.aD(100,l,A.f(p+"$"+s,l,l,l,l,A.j().$3$color$fontSize$fontWeight(q?B.H:B.u,13,B.q),l,l),l))
 if(!m.a.e){s=j.r
 if(s>0){q=B.a3.p(0.1)
