@@ -8,6 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/responsive.dart';
 import '../../../features/arena/providers/trading_provider.dart';
 import '../../../features/play/providers/queue_provider.dart';
+import '../../../features/wallet/models/wallet_state.dart';
 import '../../../features/wallet/providers/wallet_provider.dart';
 import '../../../features/wallet/widgets/connect_wallet_modal.dart';
 import '../models/transaction_models.dart';
@@ -24,22 +25,41 @@ class PortfolioScreen extends ConsumerStatefulWidget {
 }
 
 class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
+  String? _lastAddress;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final wallet = ref.read(walletProvider);
-      if (wallet.isConnected && wallet.address != null) {
-        ref.read(queueProvider.notifier).fetchUserStats(wallet.address!);
-        ref.read(portfolioProvider.notifier).fetchMatchHistory();
-        ref.read(portfolioProvider.notifier).fetchTransactions();
-      }
+      _fetchForCurrentWallet();
     });
+  }
+
+  void _fetchForCurrentWallet() {
+    final wallet = ref.read(walletProvider);
+    if (wallet.isConnected && wallet.address != null) {
+      _lastAddress = wallet.address;
+      ref.read(queueProvider.notifier).fetchUserStats(wallet.address!);
+      ref.read(portfolioProvider.notifier).fetchMatchHistory();
+      ref.read(portfolioProvider.notifier).fetchTransactions();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Re-fetch portfolio data when wallet address changes (switching wallets).
+    ref.listen(walletProvider, (WalletState? prev, WalletState next) {
+      if (next.isConnected && next.address != null && next.address != _lastAddress) {
+        // New wallet connected — clear stale data and re-fetch.
+        ref.read(portfolioProvider.notifier).reset();
+        _fetchForCurrentWallet();
+      } else if (!next.isConnected && (prev?.isConnected ?? false)) {
+        // Wallet disconnected — clear portfolio data.
+        ref.read(portfolioProvider.notifier).reset();
+        _lastAddress = null;
+      }
+    });
     final wallet = ref.watch(walletProvider);
     final portfolio = ref.watch(portfolioProvider);
     final queue = ref.watch(queueProvider);

@@ -320,6 +320,11 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     );
   }
 
+  /// Reset all portfolio state (used when switching wallets).
+  void reset() {
+    state = const PortfolioState();
+  }
+
   void clearError() {
     state = state.copyWith(clearError: true);
   }
