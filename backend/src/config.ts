@@ -15,9 +15,15 @@ export const config = {
     process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
   solanaWsUrl:
     process.env.SOLANA_WS_URL || "wss://api.devnet.solana.com",
-  authorityKeypair: process.env.AUTHORITY_KEYPAIR
-    ? JSON.parse(process.env.AUTHORITY_KEYPAIR)
-    : null,
+  authorityKeypair: (() => {
+    if (!process.env.AUTHORITY_KEYPAIR) return null;
+    try {
+      return JSON.parse(process.env.AUTHORITY_KEYPAIR);
+    } catch {
+      console.error("[Config] AUTHORITY_KEYPAIR is not valid JSON — ignoring");
+      return null;
+    }
+  })(),
   programId: process.env.PROGRAM_ID || "268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8",
   usdcMint:
     process.env.USDC_MINT || "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",

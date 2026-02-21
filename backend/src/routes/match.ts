@@ -8,6 +8,7 @@ import {
   getUser,
 } from "../services/firebase";
 import { getLatestPrices } from "../services/price-oracle";
+import { isValidSolanaAddress } from "../utils/validation";
 import { config } from "../config";
 
 const router = Router();
@@ -53,6 +54,10 @@ router.get("/active/list", async (_req, res) => {
 /** GET /api/match/active/:address — Get a player's current active match. */
 router.get("/active/:address", async (req, res) => {
   const { address } = req.params;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
 
   const [snap1, snap2] = await Promise.all([
     matchesRef.orderByChild("player1").equalTo(address).once("value"),
@@ -111,6 +116,10 @@ router.get("/active/:address", async (req, res) => {
 /** GET /api/match/history/:address — Get match history for a user (enriched). */
 router.get("/history/:address", async (req, res) => {
   const { address } = req.params;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
 
   const [snap1, snap2] = await Promise.all([
     matchesRef.orderByChild("player1").equalTo(address).once("value"),
@@ -195,6 +204,10 @@ router.get("/history/:address", async (req, res) => {
 router.get("/profile/:address", async (req, res) => {
   // Keep this endpoint for profile creation flow during onboarding.
   const { address } = req.params;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
   try {
     const { playerProfileExists, getPlayerProfilePDA } = await import("../utils/solana");
     const { PublicKey } = await import("@solana/web3.js");

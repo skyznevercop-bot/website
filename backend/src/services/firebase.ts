@@ -11,7 +11,13 @@ import { config } from "../config";
 if (!admin.apps.length) {
   const inlineJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
   if (inlineJson) {
-    const serviceAccount = JSON.parse(inlineJson);
+    let serviceAccount;
+    try {
+      serviceAccount = JSON.parse(inlineJson);
+    } catch (e) {
+      console.error("[Firebase] FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON:", e);
+      process.exit(1);
+    }
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       databaseURL: config.firebaseDatabaseUrl,
@@ -19,7 +25,13 @@ if (!admin.apps.length) {
   } else if (config.firebaseServiceAccountPath) {
     const absPath = path.resolve(config.firebaseServiceAccountPath);
     if (fs.existsSync(absPath)) {
-      const serviceAccount = JSON.parse(fs.readFileSync(absPath, "utf-8"));
+      let serviceAccount;
+      try {
+        serviceAccount = JSON.parse(fs.readFileSync(absPath, "utf-8"));
+      } catch (e) {
+        console.error("[Firebase] Service account file is not valid JSON:", e);
+        process.exit(1);
+      }
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
         databaseURL: config.firebaseDatabaseUrl,

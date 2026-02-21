@@ -5,6 +5,7 @@ import {
   getPositions,
   matchesRef,
 } from "../services/firebase";
+import { isValidSolanaAddress } from "../utils/validation";
 import { ACHIEVEMENTS } from "../services/achievements";
 
 const router = Router();
@@ -12,6 +13,10 @@ const router = Router();
 /** GET /api/profile/:address — Full player profile with deep stats. */
 router.get("/:address", async (req, res) => {
   const { address } = req.params;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
 
   try {
     const user = await getUser(address);
@@ -189,6 +194,10 @@ router.get("/:address", async (req, res) => {
 /** GET /api/profile/:address/achievements — Full achievement catalog with unlock status. */
 router.get("/:address/achievements", async (req, res) => {
   const { address } = req.params;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
 
   try {
     const user = await getUser(address);

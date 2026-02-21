@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { usersRef } from "../services/firebase";
+import { isValidSolanaAddress } from "../utils/validation";
 
 const router = Router();
 
@@ -97,6 +98,10 @@ router.get("/", async (req, res) => {
 /** GET /api/leaderboard/rank/:address — Get a player's rank (by wins). */
 router.get("/rank/:address", async (req, res) => {
   const address = req.params.address;
+  if (!isValidSolanaAddress(address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
 
   const snap = await usersRef.once("value");
   if (!snap.exists()) {

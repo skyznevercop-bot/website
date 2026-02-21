@@ -39,9 +39,14 @@ const WS_RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
 /** Guard against double-close: position IDs currently being closed. */
 const _closingPositions = new Set<string>();
 
+/** Timeout for the initial auth message (seconds). */
+const AUTH_TIMEOUT_MS = 5_000;
+
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
   currentMatchId?: string;
+  /** Whether the connection has completed authentication. */
+  _authenticated?: boolean;
   /** Message rate limiting state. */
   _msgCount?: number;
   _msgWindowStart?: number;
@@ -55,43 +60,58 @@ export { broadcastToUser };
 export function setupWebSocket(server: HttpServer): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
-  wss.on("connection", (ws: AuthenticatedSocket, req) => {
-    // Authenticate via query param token.
-    const url = new URL(req.url || "/", `http://${req.headers.host}`);
-    const token = url.searchParams.get("token");
+  wss.on("connection", (ws: AuthenticatedSocket) => {
+    // Require authentication via the first WebSocket message instead of
+    // query parameters (tokens in URLs leak into logs and browser history).
+    ws._authenticated = false;
 
-    if (!token) {
-      ws.close(4001, "Missing authentication token");
-      return;
-    }
-
-    try {
-      const payload = jwt.verify(token, config.jwtSecret) as {
-        address: string;
-      };
-
-      // Enforce per-user connection limit to prevent resource exhaustion.
-      if (getUserConnectionCount(payload.address) >= MAX_CONNECTIONS_PER_USER) {
-        ws.close(4008, "Too many connections");
-        return;
+    // Close the connection if no auth message arrives within the timeout.
+    const authTimer = setTimeout(() => {
+      if (!ws._authenticated) {
+        ws.close(4001, "Authentication timeout");
       }
-
-      ws.userAddress = payload.address;
-      registerUserConnection(payload.address, ws);
-
-      // Cancel any pending forfeit timer for this player.
-      cancelForfeitTimersForPlayer(payload.address);
-
-      // Send current balance on connect.
-      sendBalanceUpdate(payload.address, ws).catch(() => {});
-    } catch {
-      ws.close(4001, "Invalid authentication token");
-      return;
-    }
-
-    console.log(`[WS] Client connected: ${ws.userAddress}`);
+    }, AUTH_TIMEOUT_MS);
 
     ws.on("message", async (raw) => {
+      // ── First message must be auth ──
+      if (!ws._authenticated) {
+        clearTimeout(authTimer);
+        try {
+          const authData = JSON.parse(raw.toString());
+          if (authData.type !== "auth" || typeof authData.token !== "string") {
+            ws.close(4001, "First message must be { type: 'auth', token: '...' }");
+            return;
+          }
+
+          const payload = jwt.verify(authData.token, config.jwtSecret) as {
+            address: string;
+          };
+
+          // Enforce per-user connection limit to prevent resource exhaustion.
+          if (getUserConnectionCount(payload.address) >= MAX_CONNECTIONS_PER_USER) {
+            ws.close(4008, "Too many connections");
+            return;
+          }
+
+          ws.userAddress = payload.address;
+          ws._authenticated = true;
+          registerUserConnection(payload.address, ws);
+
+          // Cancel any pending forfeit timer for this player.
+          cancelForfeitTimersForPlayer(payload.address);
+
+          // Send current balance on connect.
+          sendBalanceUpdate(payload.address, ws).catch(() => {});
+
+          console.log(`[WS] Client authenticated: ${ws.userAddress}`);
+          ws.send(JSON.stringify({ type: "auth_ok" }));
+          return;
+        } catch {
+          ws.close(4001, "Invalid authentication token");
+          return;
+        }
+      }
+
       // ── Per-connection message rate limiting ──
       const now = Date.now();
       if (!ws._msgWindowStart || now - ws._msgWindowStart > WS_RATE_LIMIT_WINDOW_MS) {

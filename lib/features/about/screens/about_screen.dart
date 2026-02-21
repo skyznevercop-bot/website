@@ -337,13 +337,11 @@ class _ValueCards extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: _values.map((v) {
-        final cardWidth = Responsive.value<double>(context,
-            mobile: MediaQuery.sizeOf(context).width - 32,
-            tablet: (MediaQuery.sizeOf(context).width - 80) / 2,
-            desktop: (MediaQuery.sizeOf(context).width - 144) / 2);
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final cardWidth = (screenWidth - 44) / 2; // 2 cards per row with 12px gap + padding
 
         return Container(
-          width: cardWidth.clamp(0, 380),
+          width: cardWidth.clamp(140, 460),
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: AppTheme.surface,

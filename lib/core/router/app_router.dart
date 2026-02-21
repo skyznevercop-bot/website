@@ -129,6 +129,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/profile/:address',
             pageBuilder: (context, state) {
               final address = state.pathParameters['address']!;
+              // Validate base58 Solana address format before rendering.
+              final isValid = RegExp(r'^[1-9A-HJ-NP-Za-km-z]{32,44}$').hasMatch(address);
+              if (!isValid) {
+                return const NoTransitionPage(child: PlayScreen());
+              }
               return NoTransitionPage(
                 child: ProfileScreen(walletAddress: address),
               );

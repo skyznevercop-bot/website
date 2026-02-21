@@ -1,12 +1,18 @@
 services:
   server:
     build: .
+    restart: unless-stopped
     environment:
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT}
       FIREBASE_DATABASE_URL: ${FIREBASE_DATABASE_URL}
       SOLANA_RPC_URL: ${SOLANA_RPC_URL:-https://api.devnet.solana.com}
       AUTHORITY_KEYPAIR: ${AUTHORITY_KEYPAIR}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET}
       PORT: "3000"
     ports:
       - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M

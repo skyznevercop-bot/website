@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:js_interop';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web/web.dart' as web;
@@ -141,25 +142,13 @@ class ApiClient {
     _ws?.close();
     _reconnectTimer?.cancel();
 
-    final url = '${Environment.wsUrl}?token=$_jwtToken';
+    // Connect without token in URL — authenticate via first message instead.
+    final url = Environment.wsUrl;
     _ws = web.WebSocket(url);
 
     _ws!.onopen = ((web.Event e) {
-      _reconnectAttempts = 0;
-
-      // Replay queued messages (position opens/closes from during disconnect).
-      // Discard messages older than _maxPendingAge to avoid stale trades.
-      final now = DateTime.now();
-      final pending = _pendingMessages
-          .where((m) => now.difference(m.queuedAt) < _maxPendingAge)
-          .toList();
-      _pendingMessages.clear();
-      for (final msg in pending) {
-        _ws!.send(jsonEncode(msg.data).toJS);
-      }
-
-      // Notify listeners so they can re-join match rooms after a reconnect.
-      _wsController.add({'type': 'ws_connected'});
+      // Send auth as the first message (not in the URL query string).
+      _ws!.send(jsonEncode({'type': 'auth', 'token': _jwtToken}).toJS);
     }).toJS;
 
     _ws!.onmessage = ((web.MessageEvent event) {
@@ -167,8 +156,28 @@ class ApiClient {
         final data =
             jsonDecode(event.data.dartify().toString())
                 as Map<String, dynamic>;
+
+        // On successful auth, replay queued messages and notify listeners.
+        if (data['type'] == 'auth_ok') {
+          _reconnectAttempts = 0;
+
+          final now = DateTime.now();
+          final pending = _pendingMessages
+              .where((m) => now.difference(m.queuedAt) < _maxPendingAge)
+              .toList();
+          _pendingMessages.clear();
+          for (final msg in pending) {
+            _ws!.send(jsonEncode(msg.data).toJS);
+          }
+
+          _wsController.add({'type': 'ws_connected'});
+          return;
+        }
+
         _wsController.add(data);
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('[WS] Parse error: $e');
+      }
     }).toJS;
 
     _ws!.onclose = ((web.Event e) {

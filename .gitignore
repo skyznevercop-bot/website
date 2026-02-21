@@ -8,12 +8,22 @@ ios/Flutter/flutter_export_environment.sh
 ios/Flutter/Generated.xcconfig
 .vercel
 
-# Backend secrets
+# Backend secrets — NEVER commit real credentials
+.env
+.env.*
+!.env.example
 backend/.env
+backend/.env.*
+!backend/.env.example
 backend/firebase-service-account.json
 backend/node_modules/
 backend/dist/
 
+# Secrets & keys
+*.pem
+*.key
+*-keypair.json
+escrow-wallet.json
+
 # Solana / Anchor
 target/
-*-keypair.json

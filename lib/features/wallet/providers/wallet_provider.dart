@@ -95,8 +95,9 @@ class WalletNotifier extends Notifier<WalletState> {
         gamerTag = userResponse['gamerTag'] as String?;
 
         backendAvailable = true;
-      } catch (_) {
+      } catch (e) {
         // Backend unreachable — wallet-only mode.
+        if (kDebugMode) debugPrint('[Wallet] Backend auth failed: $e');
         backendAvailable = false;
       }
 
@@ -117,15 +118,15 @@ class WalletNotifier extends Notifier<WalletState> {
       // Fetch on-chain USDC balance and platform balance concurrently.
       // Don't block — update state as each resolves.
       _fetchOnChainUsdcBalance(address).then((onChainBalance) {
-        debugPrint('[Wallet] On-chain USDC balance resolved: $onChainBalance');
+        if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance resolved: $onChainBalance');
         state = state.copyWith(usdcBalance: onChainBalance);
       }).catchError((e) {
-        debugPrint('[Wallet] On-chain USDC balance fetch error: $e');
+        if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance fetch error: $e');
       });
 
       if (backendAvailable) {
         _fetchPlatformBalance().catchError((e) {
-          debugPrint('[Wallet] Platform balance fetch error: $e');
+          if (kDebugMode) debugPrint('[Wallet] Platform balance fetch error: $e');
         });
       }
     } on WalletException catch (e) {
@@ -179,7 +180,7 @@ class WalletNotifier extends Notifier<WalletState> {
       // Need a stored JWT too — without it we can't auth with the backend.
       if (!_api.hasToken) return;
 
-      debugPrint('[Wallet] Attempting silent reconnect to $walletName…');
+      if (kDebugMode) debugPrint('[Wallet] Attempting silent reconnect to $walletName…');
 
       // Eagerly connect — no popup, fails silently if not trusted.
       final result = await SolanaWalletAdapter.connectEagerly(walletName);
@@ -209,7 +210,8 @@ class WalletNotifier extends Notifier<WalletState> {
         final userResponse = await _api.get('/user/$address');
         gamerTag = userResponse['gamerTag'] as String?;
         _backendConnected = true;
-      } catch (_) {
+      } catch (e) {
+        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
         _backendConnected = false;
       }
 
@@ -227,7 +229,7 @@ class WalletNotifier extends Notifier<WalletState> {
         gamerTag: gamerTag,
       );
 
-      debugPrint('[Wallet] Silent reconnect successful: ${address.substring(0, 8)}…');
+      if (kDebugMode) debugPrint('[Wallet] Silent reconnect successful: ${address.substring(0, 8)}…');
 
       // Fetch balances in background.
       _fetchOnChainUsdcBalance(address).then((balance) {
@@ -239,7 +241,7 @@ class WalletNotifier extends Notifier<WalletState> {
       }
     } catch (e) {
       // Silent reconnect failed — user will need to connect manually.
-      debugPrint('[Wallet] Silent reconnect failed: $e');
+      if (kDebugMode) debugPrint('[Wallet] Silent reconnect failed: $e');
     }
   }
 
@@ -315,7 +317,7 @@ class WalletNotifier extends Notifier<WalletState> {
       final result = await _queryUsdcBalance(walletAddress, rpcUrl);
       if (result != null) return result;
     }
-    debugPrint('[Wallet] All RPCs failed for $walletAddress — returning 0');
+    if (kDebugMode) debugPrint('[Wallet] All RPCs failed for $walletAddress — returning 0');
     return 0;
   }
 
@@ -324,7 +326,7 @@ class WalletNotifier extends Notifier<WalletState> {
   static Future<double?> _queryUsdcBalance(
       String walletAddress, String rpcUrl) async {
     try {
-      debugPrint('[Wallet] Querying USDC balance from $rpcUrl for ${walletAddress.substring(0, 8)}…');
+      if (kDebugMode) debugPrint('[Wallet] Querying USDC balance from $rpcUrl for ${walletAddress.substring(0, 8)}…');
       final response = await http.post(
         Uri.parse(rpcUrl),
         headers: {'Content-Type': 'application/json'},
@@ -341,20 +343,20 @@ class WalletNotifier extends Notifier<WalletState> {
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode != 200) {
-        debugPrint('[Wallet] RPC $rpcUrl returned status ${response.statusCode}');
+        if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl returned status ${response.statusCode}');
         return null;
       }
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (data.containsKey('error')) {
-        debugPrint('[Wallet] RPC $rpcUrl returned error: ${data['error']}');
+        if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl returned error: ${data['error']}');
         return null;
       }
 
       final result = data['result'] as Map<String, dynamic>?;
       final accounts = result?['value'] as List<dynamic>?;
       if (accounts == null || accounts.isEmpty) {
-        debugPrint('[Wallet] No USDC token accounts found for ${walletAddress.substring(0, 8)}…');
+        if (kDebugMode) debugPrint('[Wallet] No USDC token accounts found for ${walletAddress.substring(0, 8)}…');
         return 0;
       }
 
@@ -370,10 +372,10 @@ class WalletNotifier extends Notifier<WalletState> {
           continue;
         }
       }
-      debugPrint('[Wallet] USDC balance from $rpcUrl: $total');
+      if (kDebugMode) debugPrint('[Wallet] USDC balance from $rpcUrl: $total');
       return total;
     } catch (e) {
-      debugPrint('[Wallet] RPC $rpcUrl failed: $e');
+      if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl failed: $e');
       return null;
     }
   }

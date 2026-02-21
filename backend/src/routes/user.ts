@@ -59,6 +59,10 @@ router.post("/auth/verify", async (req, res) => {
 
 /** GET /api/user/:address — Get user profile. */
 router.get("/user/:address", async (req, res) => {
+  if (!isValidSolanaAddress(req.params.address)) {
+    res.status(400).json({ error: "Invalid wallet address" });
+    return;
+  }
   const user = await getUser(req.params.address);
 
   if (!user) {
