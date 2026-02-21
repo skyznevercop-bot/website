@@ -474,7 +474,7 @@ class _PodiumSlot extends StatelessWidget {
               if (!isMobile) ...[
                 const SizedBox(height: 4),
                 Text(
-                  '+\$${player.pnl.toStringAsFixed(0)}',
+                  '${player.pnl >= 0 ? '+' : '-'}\$${player.pnl.abs().toStringAsFixed(0)}',
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -717,7 +717,7 @@ class _LeaderboardRowState extends State<_LeaderboardRow> {
             SizedBox(
               width: 100,
               child: Text(
-                '${p.pnl >= 0 ? '+' : ''}\$${p.pnl.toStringAsFixed(0)}',
+                '${p.pnl >= 0 ? '+' : '-'}\$${p.pnl.abs().toStringAsFixed(0)}',
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,

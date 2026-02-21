@@ -55,7 +55,7 @@ class LeaderboardNotifier extends Notifier<LeaderboardState> {
   /// When [silent] is true, the loading spinner is not shown (used for
   /// background refreshes so the UI doesn't flash).
   Future<void> fetchLeaderboard({
-    String sortBy = 'wins',
+    String sortBy = 'pnl',
     int page = 1,
     bool silent = false,
   }) async {
