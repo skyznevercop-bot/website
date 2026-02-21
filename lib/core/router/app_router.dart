@@ -38,6 +38,7 @@ final routerProvider = Provider<GoRouter>((ref) {
               opponentAddress: qp['opp'],
               opponentGamerTag: qp['oppTag'],
               endTime: int.tryParse(qp['et'] ?? ''),
+              isPracticeMode: qp['practice'] == 'true',
             ),
           );
         },

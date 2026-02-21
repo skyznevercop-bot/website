@@ -678,6 +678,15 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
                   },
                 ),
         ),
+
+        // Practice Mode — subtle secondary CTA below the main button.
+        const SizedBox(height: 16),
+        _PracticeLink(
+          onTap: () {
+            final durationSeconds = _selected.length.inSeconds;
+            context.go('/arena?d=$durationSeconds&bet=0&practice=true');
+          },
+        ),
       ],
     );
   }
@@ -1510,6 +1519,67 @@ class _EnterArenaButtonState extends State<_EnterArenaButton> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Practice Link — subtle text link below the main CTA
+// =============================================================================
+
+class _PracticeLink extends StatefulWidget {
+  final VoidCallback onTap;
+  const _PracticeLink({required this.onTap});
+
+  @override
+  State<_PracticeLink> createState() => _PracticeLinkState();
+}
+
+class _PracticeLinkState extends State<_PracticeLink> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'or try ',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  color: Colors.white38,
+                ),
+              ),
+              Text(
+                'Practice Mode',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: _hovered ? AppTheme.warning : Colors.white60,
+                  decoration: TextDecoration.underline,
+                  decorationColor: _hovered
+                      ? AppTheme.warning.withValues(alpha: 0.5)
+                      : Colors.white24,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.arrow_forward_rounded,
+                size: 14,
+                color: _hovered ? AppTheme.warning : Colors.white38,
+              ),
+            ],
           ),
         ),
       ),

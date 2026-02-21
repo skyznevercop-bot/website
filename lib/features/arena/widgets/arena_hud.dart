@@ -79,7 +79,10 @@ class ArenaHud extends ConsumerWidget {
               const Spacer(),
 
               // ── Right: Opponent + Player stats + Equity + Chat ──
-              if (state.matchActive && state.opponentGamerTag != null) ...[
+              if (state.matchActive && state.isPracticeMode) ...[
+                _PracticeBadge(isMobile: isMobile),
+                const SizedBox(width: 8),
+              ] else if (state.matchActive && state.opponentGamerTag != null) ...[
                 _OpponentBadge(
                   tag: state.opponentGamerTag!,
                   roi: oppRoi,
@@ -108,7 +111,8 @@ class ArenaHud extends ConsumerWidget {
                 ),
                 const SizedBox(width: 6),
               ],
-              _ChatToggle(isOpen: chatOpen, onTap: onChatToggle),
+              if (!state.isPracticeMode)
+                _ChatToggle(isOpen: chatOpen, onTap: onChatToggle),
             ],
           ),
         ),
@@ -465,6 +469,45 @@ class _OpponentBadge extends StatelessWidget {
 }
 
 // =============================================================================
+// Practice Badge — amber pill shown instead of opponent badge
+// =============================================================================
+
+class _PracticeBadge extends StatelessWidget {
+  final bool isMobile;
+
+  const _PracticeBadge({required this.isMobile});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: AppTheme.warning.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.school_rounded,
+              size: 14, color: AppTheme.warning),
+          const SizedBox(width: 6),
+          Text(
+            'PRACTICE',
+            style: interStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.warning,
+              letterSpacing: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
 // Time Progress Bar — phase-colored progress line
 // =============================================================================
 
@@ -557,6 +600,45 @@ class _BackButton extends StatelessWidget {
   }
 
   void _showExitDialog(BuildContext context) {
+    if (state.isPracticeMode) {
+      showDialog(
+        context: context,
+        builder: (ctx) => PointerInterceptor(
+          child: AlertDialog(
+            backgroundColor: AppTheme.surface,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusXl)),
+            title: Text('Leave Practice?',
+                style: GoogleFonts.inter(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: AppTheme.textPrimary)),
+            content: Text(
+                'Your practice session will end and progress will not be saved.',
+                style: GoogleFonts.inter(
+                    fontSize: 14, color: AppTheme.textSecondary)),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Stay')),
+              ElevatedButton(
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: AppTheme.warning),
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  ProviderScope.containerOf(context)
+                      .read(tradingProvider.notifier)
+                      .endMatch(isForfeit: true);
+                  context.go(AppConstants.playRoute);
+                },
+                child: const Text('Leave'),
+              ),
+            ],
+          ),
+        ),
+      );
+      return;
+    }
     showDialog(
       context: context,
       builder: (ctx) => PointerInterceptor(

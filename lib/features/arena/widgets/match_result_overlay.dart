@@ -158,7 +158,9 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   // ── Helpers ──
 
   bool get _hasResult =>
-      widget.state.matchWinner != null || widget.state.matchIsTie;
+      widget.state.isPracticeMode ||
+      widget.state.matchWinner != null ||
+      widget.state.matchIsTie;
 
   bool get _isWinner {
     final wallet = ref.read(walletProvider);
@@ -188,6 +190,7 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
   }
 
   Color get _resultColor {
+    if (widget.state.isPracticeMode) return AppTheme.warning;
     if (widget.state.matchIsTie) return AppTheme.textSecondary;
     return _isWinner ? _gold : AppTheme.error;
   }
@@ -225,7 +228,9 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
 
     // Play result sound.
     final audio = AudioService.instance;
-    if (widget.state.matchIsTie) {
+    if (widget.state.isPracticeMode) {
+      audio.playMatchEnd();
+    } else if (widget.state.matchIsTie) {
       audio.playMatchEnd();
     } else if (_isWinner) {
       audio.playVictory();
@@ -470,27 +475,35 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
     final isTie = widget.state.matchIsTie;
     final isForfeit = widget.state.matchIsForfeit;
 
-    final resultText = isTie
-        ? 'DRAW'
-        : isWinner
-            ? 'VICTORY'
-            : 'DEFEAT';
+    final isPractice = widget.state.isPracticeMode;
 
-    final subtitleText = isForfeit
-        ? (isWinner
-            ? 'Opponent forfeited the match'
-            : 'You forfeited the match')
+    final resultText = isPractice
+        ? 'PRACTICE COMPLETE'
         : isTie
-            ? 'Both players matched ROI'
+            ? 'DRAW'
             : isWinner
-                ? 'You outperformed your opponent'
-                : 'Your opponent had better returns';
+                ? 'VICTORY'
+                : 'DEFEAT';
 
-    final resultIcon = isTie
-        ? Icons.balance_rounded
-        : isWinner
-            ? Icons.emoji_events_rounded
-            : Icons.trending_down_rounded;
+    final subtitleText = isPractice
+        ? 'Solo practice session ended'
+        : isForfeit
+            ? (isWinner
+                ? 'Opponent forfeited the match'
+                : 'You forfeited the match')
+            : isTie
+                ? 'Both players matched ROI'
+                : isWinner
+                    ? 'You outperformed your opponent'
+                    : 'Your opponent had better returns';
+
+    final resultIcon = isPractice
+        ? Icons.school_rounded
+        : isTie
+            ? Icons.balance_rounded
+            : isWinner
+                ? Icons.emoji_events_rounded
+                : Icons.trending_down_rounded;
 
     return Container(
       constraints: BoxConstraints(maxWidth: isMobile ? double.infinity : 520),
@@ -584,7 +597,9 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
           // ── ROI comparison ──
           Padding(
             padding: EdgeInsets.all(isMobile ? 16 : 24),
-            child: _buildRoiComparison(),
+            child: isPractice
+                ? _buildPracticeRoi()
+                : _buildRoiComparison(),
           ),
 
           // ── Match highlights + claim + actions ──
@@ -605,9 +620,13 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                   children: [
                     _buildMatchHighlights(),
                     const SizedBox(height: 12),
-                    _buildClaimSection(),
-                    const SizedBox(height: 12),
-                    _buildActionButtons(context),
+                    if (!isPractice) ...[
+                      _buildClaimSection(),
+                      const SizedBox(height: 12),
+                    ],
+                    isPractice
+                        ? _buildPracticeActions(context)
+                        : _buildActionButtons(context),
                     const SizedBox(height: 14),
                   ],
                 ),
@@ -615,6 +634,82 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
             ),
         ],
       ),
+    );
+  }
+
+  // ── Practice ROI (solo — no opponent) ──
+
+  Widget _buildPracticeRoi() {
+    final roiColor = pnlColor(_animatedMyRoi);
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.border),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'YOUR PERFORMANCE',
+            style: interStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.textTertiary,
+              letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            fmtPercent(_animatedMyRoi),
+            style: interStyle(
+              fontSize: 40,
+              fontWeight: FontWeight.w800,
+              color: roiColor,
+              tabularFigures: true,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Return on Investment',
+            style: interStyle(fontSize: 12, color: AppTheme.textTertiary),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _practiceStatChip('Balance', fmtBalance(widget.state.equity)),
+              const SizedBox(width: 16),
+              _practiceStatChip(
+                'PnL',
+                fmtPnl(widget.state.equity - widget.state.initialBalance),
+                color: roiColor,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _practiceStatChip(String label, String value, {Color? color}) {
+    return Column(
+      children: [
+        Text(label,
+            style: interStyle(
+                fontSize: 10,
+                color: AppTheme.textTertiary,
+                letterSpacing: 1)),
+        const SizedBox(height: 4),
+        Text(value,
+            style: interStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: color ?? AppTheme.textPrimary,
+              tabularFigures: true,
+            )),
+      ],
     );
   }
 
@@ -1064,6 +1159,100 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
                 child: const Center(
                   child: Icon(Icons.share_rounded,
                       size: 18, color: AppTheme.textSecondary),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Practice action buttons ──
+
+  Widget _buildPracticeActions(BuildContext context) {
+    return Row(
+      children: [
+        // Practice Again.
+        Expanded(
+          child: SizedBox(
+            height: 48,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  // Re-enter practice with same duration.
+                  final d = widget.state.totalDurationSeconds;
+                  context.go('/arena?d=$d&bet=0&practice=true');
+                },
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: AppTheme.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppTheme.warning.withValues(alpha: 0.3)),
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.replay_rounded,
+                            size: 16, color: AppTheme.warning),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Practice Again',
+                          style: interStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.warning),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Enter Arena (real match).
+        Expanded(
+          child: SizedBox(
+            height: 48,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () => context.go(AppConstants.playRoute),
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: AppTheme.purpleGradient,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            AppTheme.solanaPurple.withValues(alpha: 0.25),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.bolt_rounded,
+                            size: 16, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Enter Arena',
+                          style: interStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -50,6 +50,9 @@ class TradingState {
   // v3: Limit orders
   final List<LimitOrder> pendingOrders;
 
+  // v4: Practice mode
+  final bool isPracticeMode;
+
   static const double demoBalance = 1000000;
 
   const TradingState({
@@ -82,6 +85,7 @@ class TradingState {
     this.pendingOrders = const [],
     this.serverMyRoi,
     this.serverOppRoi,
+    this.isPracticeMode = false,
   });
 
   TradingAsset get selectedAsset => TradingAsset.all[selectedAssetIndex];
@@ -170,6 +174,7 @@ class TradingState {
     List<LimitOrder>? pendingOrders,
     Object? serverMyRoi = _unchanged,
     Object? serverOppRoi = _unchanged,
+    bool? isPracticeMode,
   }) {
     return TradingState(
       selectedAssetIndex: selectedAssetIndex ?? this.selectedAssetIndex,
@@ -218,6 +223,7 @@ class TradingState {
       serverOppRoi: serverOppRoi == _unchanged
           ? this.serverOppRoi
           : serverOppRoi as double?,
+      isPracticeMode: isPracticeMode ?? this.isPracticeMode,
     );
   }
 }
@@ -244,6 +250,64 @@ class TradingNotifier extends Notifier<TradingState> {
       _priceFeed.stop();
     });
     return const TradingState();
+  }
+
+  /// Start a solo practice match — no wallet, no opponent, no backend.
+  void startPracticeMatch({required int durationSeconds}) {
+    _priceFeed.start();
+
+    state = state.copyWith(
+      positions: [],
+      balance: TradingState.demoBalance,
+      initialBalance: TradingState.demoBalance,
+      matchTimeRemainingSeconds: durationSeconds,
+      matchActive: true,
+      isPracticeMode: true,
+      matchId: 'practice_${DateTime.now().millisecondsSinceEpoch}',
+      opponentAddress: null,
+      opponentGamerTag: null,
+      opponentPnl: 0,
+      opponentEquity: TradingState.demoBalance,
+      opponentPositionCount: 0,
+      arenaRoute: null,
+      matchWinner: null,
+      matchIsTie: false,
+      matchIsForfeit: false,
+      peakEquity: TradingState.demoBalance,
+      matchStats: null,
+      matchPhase: MatchPhase.intro,
+      totalDurationSeconds: durationSeconds,
+      wasLeading: false,
+      leadChangeCount: 0,
+      consecutiveWins: 0,
+      bestStreak: 0,
+      pendingOrders: [],
+      serverMyRoi: null,
+      serverOppRoi: null,
+      opponentServerRoi: null,
+    );
+
+    // Countdown timer (same as competitive).
+    _matchTimer?.cancel();
+    _matchTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (state.matchTimeRemainingSeconds <= 1) {
+        endMatch();
+      } else {
+        final newRemaining = state.matchTimeRemainingSeconds - 1;
+        final newPhase = computePhase(newRemaining, state.totalDurationSeconds);
+        state = state.copyWith(
+          matchTimeRemainingSeconds: newRemaining,
+          matchPhase: newPhase,
+        );
+        if (newPhase != _lastCheckPhase) {
+          _lastCheckPhase = newPhase;
+          _restartCheckTimer(newPhase);
+        }
+      }
+    });
+
+    _lastCheckPhase = MatchPhase.intro;
+    _restartCheckTimer(MatchPhase.openingBell);
   }
 
   /// Start the trading match.
@@ -661,7 +725,7 @@ class TradingNotifier extends Notifier<TradingState> {
         ordersChanged = true;
         changed = true;
 
-        if (state.matchId != null) {
+        if (state.matchId != null && !state.isPracticeMode) {
           _api.wsSend({
             'type': 'open_position',
             'matchId': state.matchId,
@@ -760,7 +824,7 @@ class TradingNotifier extends Notifier<TradingState> {
     );
 
     // Report to server — include the local ID so Firebase uses the same key.
-    if (state.matchId != null) {
+    if (state.matchId != null && !state.isPracticeMode) {
       _api.wsSend({
         'type': 'open_position',
         'matchId': state.matchId,
@@ -822,7 +886,7 @@ class TradingNotifier extends Notifier<TradingState> {
     );
 
     // Report to server.
-    if (state.matchId != null) {
+    if (state.matchId != null && !state.isPracticeMode) {
       _api.wsSend({
         'type': 'close_position',
         'matchId': state.matchId,
@@ -899,7 +963,7 @@ class TradingNotifier extends Notifier<TradingState> {
       bestStreak: newBest,
     );
 
-    if (state.matchId != null) {
+    if (state.matchId != null && !state.isPracticeMode) {
       _api.wsSend({
         'type': 'partial_close',
         'matchId': state.matchId,
@@ -1090,7 +1154,9 @@ class TradingNotifier extends Notifier<TradingState> {
 
     // ── Phase 3: Persist or poll ──
     _resultPollTimer?.cancel();
-    if (hasResult) {
+    if (state.isPracticeMode) {
+      // Practice mode: no backend, no portfolio persistence. Done.
+    } else if (hasResult) {
       _persistMatchResult(
           stats, resolvedWinner, resolvedIsTie, resolvedMyRoi);
     } else if (state.matchId != null) {

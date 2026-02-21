@@ -33,6 +33,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
   final String? opponentAddress;
   final String? opponentGamerTag;
   final int? endTime;
+  final bool isPracticeMode;
 
   const ArenaScreen({
     super.key,
@@ -42,6 +43,7 @@ class ArenaScreen extends ConsumerStatefulWidget {
     this.opponentAddress,
     this.opponentGamerTag,
     this.endTime,
+    this.isPracticeMode = false,
   });
 
   @override
@@ -61,6 +63,13 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
   }
 
   void _initMatch() {
+    if (widget.isPracticeMode) {
+      ref.read(tradingProvider.notifier).startPracticeMatch(
+            durationSeconds: widget.durationSeconds,
+          );
+      return;
+    }
+
     int remaining = widget.durationSeconds;
     if (widget.endTime != null) {
       remaining =
@@ -129,9 +138,10 @@ class _ArenaScreenState extends ConsumerState<ArenaScreen> {
                     setState(() => _chatOpen = !_chatOpen),
               ),
 
-              // ── Battle Bar (tug-of-war) ──
+              // ── Battle Bar (tug-of-war) — hidden in practice mode ──
               if (state.matchActive &&
-                  state.opponentGamerTag != null)
+                  state.opponentGamerTag != null &&
+                  !state.isPracticeMode)
                 BattleBar(state: state),
 
               // ── Main content ──
