@@ -6,7 +6,7 @@
 // ── Allowed values (must match frontend AppConstants) ────────────
 
 export const VALID_DURATIONS = ["5m", "15m", "1h", "4h", "24h"] as const;
-export const VALID_BETS = [5, 10, 50, 100, 1000] as const;
+export const VALID_BETS = [1, 5, 10, 25, 100] as const;
 
 export type ValidDuration = (typeof VALID_DURATIONS)[number];
 export type ValidBet = (typeof VALID_BETS)[number];

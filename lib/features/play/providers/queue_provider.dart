@@ -602,7 +602,7 @@ class QueueNotifier extends Notifier<QueueState> {
   List<LiveMatch> _generateDemoMatches() {
     final shuffled = List<String>.from(_demoTags)..shuffle(_rng);
     final count = 3 + _rng.nextInt(3); // 3-5 matches
-    final bets = [5, 10, 25, 50, 100];
+    final bets = [1, 5, 10, 25, 100];
 
     final now = DateTime.now().millisecondsSinceEpoch;
     return List.generate(count, (i) {

@@ -86,7 +86,7 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'How Matches Work',
             body:
-                'You choose a match duration (15 minutes, 1 hour, 4 hours, 12 hours, or 24 hours) and a bet amount in USDC (\$5, \$10, \$50, \$100, or \$1,000). The system pairs you with an opponent who selected the same duration and bet. Once matched, you both enter the Arena — a real-time trading interface with live price feeds from Pyth, a candlestick chart, Quick Trade buttons, and an in-match chat window. You can go long or short on BTC, ETH, or SOL with up to 100x leverage.',
+                'You choose a match duration (15 minutes, 1 hour, 4 hours, 12 hours, or 24 hours) and a bet amount in USDC (\$1, \$5, \$10, \$25, or \$100). The system pairs you with an opponent who selected the same duration and bet. Once matched, you both enter the Arena — a real-time trading interface with live price feeds from Pyth, a candlestick chart, Quick Trade buttons, and an in-match chat window. You can go long or short on BTC, ETH, or SOL with up to 100x leverage.',
           ),
           LessonSection(
             heading: 'The Prize Pool',
@@ -103,7 +103,7 @@ final allLearningPaths = <LearningPath>[
           'SolFight is PvP trading — you compete against another human, not the house.',
           'Both players trade BTC, ETH, and SOL with the same \$1M demo balance.',
           'Winner takes 90% of the combined pot; 10% goes to the protocol.',
-          'Matches range from 15 minutes to 24 hours with bets from \$5 to \$1,000.',
+          'Matches range from 15 minutes to 24 hours with bets from \$1 to \$100.',
         ],
       ),
       Lesson(
@@ -149,12 +149,12 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'The War Room (Play Screen)',
             body:
-                'The Play screen is your launch pad. At the top, you\'ll see live platform stats — total players, matches played, and total volume. Below that are two selectors: match duration and bet amount. Duration options are 15 minutes, 1 hour, 4 hours, 12 hours, and 24 hours. Bet amounts are \$5, \$10, \$50, \$100, and \$1,000. Each duration chip shows a live badge with how many players are currently in that queue.',
+                'The Play screen is your launch pad. At the top, you\'ll see live platform stats — total players, matches played, and total volume. Below that are two selectors: match duration and bet amount. Duration options are 15 minutes, 1 hour, 4 hours, 12 hours, and 24 hours. Bet amounts are \$1, \$5, \$10, \$25, and \$100. Each duration chip shows a live badge with how many players are currently in that queue.',
           ),
           LessonSection(
             heading: 'Choosing Your Match',
             body:
-                'Start with 15-minute or 1-hour matches to learn the ropes — they\'re fast, action-packed, and the most popular queues. Pick a bet amount you\'re comfortable with (start small at \$5 or \$10). Below the selectors, a match info card shows the total pot size, number of players in queue, and estimated wait time for your selection.',
+                'Start with 15-minute or 1-hour matches to learn the ropes — they\'re fast, action-packed, and the most popular queues. Pick a bet amount you\'re comfortable with (start small at \$1 or \$5). Below the selectors, a match info card shows the total pot size, number of players in queue, and estimated wait time for your selection.',
           ),
           LessonSection(
             heading: 'Joining the Queue',
@@ -563,12 +563,12 @@ final allLearningPaths = <LearningPath>[
           LessonSection(
             heading: 'Your Platform Balance',
             body:
-                'Beyond individual trades, think about your total platform balance across all matches. Available bet amounts are \$5, \$10, \$50, \$100, and \$1,000. Don\'t bet your entire balance on a single match. If you have \$200, play \$5-\$10 matches to give yourself 20-40 opportunities. Even the best traders lose sometimes — bankroll management ensures you survive the losing streaks.',
+                'Beyond individual trades, think about your total platform balance across all matches. Available bet amounts are \$1, \$5, \$10, \$25, and \$100. Don\'t bet your entire balance on a single match. If you have \$200, play \$1-\$5 matches to give yourself many opportunities. Even the best traders lose sometimes — bankroll management ensures you survive the losing streaks.',
           ),
           LessonSection(
             heading: 'Moving Up in Stakes',
             body:
-                'Only move to higher bet amounts when your win rate proves you\'re profitable. A rough guide:\n- Start at \$5 matches to learn the ropes.\n- After 10+ matches with a positive win rate, consider moving to \$10.\n- After consistent success at \$10, try \$50.\n- After a losing streak (3+ losses), drop back down immediately.\n\nCheck your Portfolio page to review your match history, win rate, and total P&L before moving up.',
+                'Only move to higher bet amounts when your win rate proves you\'re profitable. A rough guide:\n- Start at \$1 matches to learn the ropes.\n- After 10+ matches with a positive win rate, consider moving to \$5.\n- After consistent success at \$5, try \$10 or \$25.\n- After a losing streak (3+ losses), drop back down immediately.\n\nCheck your Portfolio page to review your match history, win rate, and total P&L before moving up.',
           ),
           LessonSection(
             heading: 'Tilt Control',

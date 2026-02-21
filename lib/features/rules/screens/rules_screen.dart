@@ -106,7 +106,7 @@ const _matchRules = [
   ),
   _Rule(
     'Bet Amounts',
-    'Both players wager the same amount in USDC. Available stakes: \$5, \$10, \$50, \$100, or \$1,000. The winner takes the combined pot minus platform fees.',
+    'Both players wager the same amount in USDC. Available stakes: \$1, \$5, \$10, \$25, or \$100. The winner takes the combined pot minus platform fees.',
   ),
   _Rule(
     'Winning Condition',

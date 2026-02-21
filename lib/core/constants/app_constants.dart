@@ -16,8 +16,8 @@ class AppConstants {
   ];
 
   // ── Bet Amounts (USDC) ──────────────────────────────────────────────────
-  static const List<int> betAmounts = [5, 10, 50, 100, 1000];
-  static const int defaultBetIndex = 1; // $10
+  static const List<int> betAmounts = [1, 5, 10, 25, 100];
+  static const int defaultBetIndex = 2; // $10
 
   // ── Layout ────────────────────────────────────────────────────────────────
   static const double topBarHeight = 64.0;
