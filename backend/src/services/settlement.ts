@@ -9,6 +9,7 @@ import {
   usersRef,
   referralsRef,
   DbPosition,
+  DbMatch,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
@@ -78,9 +79,9 @@ export function startSettlementLoop(): void {
     } catch (err) {
       console.error("[Settlement] Error:", err);
     }
-  }, 1000);
+  }, config.settlementIntervalMs);
 
-  console.log("[Settlement] Started — checking every 1s (with balance recovery + challenge expiry)");
+  console.log(`[Settlement] Started — checking every ${config.settlementIntervalMs}ms (with balance recovery + challenge expiry)`);
 }
 
 /**
@@ -89,20 +90,20 @@ export function startSettlementLoop(): void {
  */
 async function retryBalanceSettlement(
   matchId: string,
-  match: Record<string, unknown>
+  match: DbMatch
 ): Promise<void> {
   if (_settling.has(matchId)) return;
   _settling.add(matchId);
   try {
     const isTie = match.status === "tied";
-    const winner = isTie ? undefined : (match.winner as string | undefined);
+    const winner = isTie ? undefined : match.winner;
 
     await settleMatchBalances(
       matchId,
       winner,
-      match.player1 as string,
-      match.player2 as string,
-      match.betAmount as number,
+      match.player1,
+      match.player2,
+      match.betAmount,
       isTie
     );
 
@@ -188,7 +189,7 @@ export async function settleByForfeit(
  */
 async function settleMatch(
   matchId: string,
-  match: Record<string, unknown>
+  match: DbMatch
 ): Promise<void> {
   if (_settling.has(matchId)) return;
   _settling.add(matchId);
@@ -201,7 +202,7 @@ async function settleMatch(
 
 async function _doSettleMatch(
   matchId: string,
-  match: Record<string, unknown>
+  match: DbMatch
 ): Promise<void> {
   // Use the last prices that were broadcast to the match room (same prices
   // clients used for their ROI display). Falls back to live prices if no
@@ -216,8 +217,8 @@ async function _doSettleMatch(
 
   const allPositions = await getPositions(matchId);
 
-  const p1Addr = match.player1 as string;
-  const p2Addr = match.player2 as string;
+  const p1Addr = match.player1;
+  const p2Addr = match.player2;
   const p1Count = allPositions.filter((p) => p.playerAddress === p1Addr).length;
   const p2Count = allPositions.filter((p) => p.playerAddress === p2Addr).length;
   const openCount = allPositions.filter((p) => !p.closedAt).length;
@@ -226,9 +227,9 @@ async function _doSettleMatch(
   // Close any open positions at the last-broadcast prices.
   await closeOpenPositions(matchId, allPositions, priceMap);
 
-  const player1 = match.player1 as string;
-  const player2 = match.player2 as string;
-  const betAmount = match.betAmount as number;
+  const player1 = match.player1;
+  const player2 = match.player2;
+  const betAmount = match.betAmount;
 
   // ── Verification: re-read ALL positions from Firebase ──
   // This is the source of truth — guards against stale in-memory data,

@@ -273,9 +273,22 @@ export async function confirmDeposit(
     let senderVerified = false;
 
     // Helper to check a single parsed instruction.
-    const checkInstruction = (ix: any): boolean => {
-      if (!("parsed" in ix) || ix.program !== "spl-token") return false;
-      const parsed = ix.parsed;
+    // Uses `unknown` + runtime checks instead of `any` for type safety.
+    const checkInstruction = (ix: unknown): boolean => {
+      const instruction = ix as Record<string, unknown>;
+      if (!instruction || typeof instruction !== "object") return false;
+      if (!("parsed" in instruction) || instruction.program !== "spl-token") return false;
+      const parsed = instruction.parsed as {
+        type: string;
+        info: {
+          destination?: string;
+          tokenAccount?: string;
+          source?: string;
+          amount?: string | number;
+          tokenAmount?: { uiAmount?: number };
+        };
+      };
+      if (!parsed || typeof parsed !== "object") return false;
       if (parsed.type !== "transfer" && parsed.type !== "transferChecked") return false;
 
       const dest = parsed.info.destination || parsed.info.tokenAccount;
@@ -484,16 +497,18 @@ export async function processWithdrawal(
     );
 
     return { success: true, txSignature: sig };
-  } catch (err: any) {
+  } catch (err: unknown) {
     // The send threw, but the tx may have actually landed on-chain.
     // Check before rolling back to prevent double-spend.
-    console.error(`[Balance] Withdrawal send threw:`, err?.message ?? err);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[Balance] Withdrawal send threw:`, errMsg);
 
     // Try to extract the signature from the error or the pre-signed tx.
     // sendAndConfirmTransaction can throw AFTER broadcasting if confirmation times out.
+    const errObj = err as Record<string, unknown> | null;
     const sigFromError =
       sentSignature ??
-      (typeof err?.signature === "string" ? err.signature : null);
+      (typeof errObj?.signature === "string" ? errObj.signature : null);
 
     if (sigFromError) {
       try {

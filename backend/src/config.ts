@@ -39,4 +39,32 @@ export const config = {
   treasuryAddress:
     process.env.TREASURY_ADDRESS || "",
   rakePercent: 0.10, // 10% rake (informational; enforced on-chain via fee_bps=1000)
+
+  // ── Service intervals ──
+  matchmakingIntervalMs: 500,
+  settlementIntervalMs: 1_000,
+  priceBroadcastIntervalMs: 1_000,
+  opponentBroadcastIntervalMs: 3_000,
+  priceStalenessThresholdMs: 10_000,
+  priceStalenessCheckIntervalMs: 5_000,
+
+  // ── WebSocket ──
+  wsForfeitGraceMs: 60_000,
+  wsAuthTimeoutMs: 5_000,
+  wsMaxConnectionsPerUser: 5,
+  wsRateLimitMax: 30,
+  wsRateLimitWindowMs: 10_000,
+  wsMaxMessageBytes: 4_096,
+  wsPingIntervalMs: 30_000,
+  wsPongTimeoutMs: 10_000,
+
+  // ── Trading ──
+  priceMaxAgeMs: 30_000,
+  maxLeverage: 100,
+  validAssets: ["BTC", "ETH", "SOL"] as readonly string[],
+  chatMaxLength: 200,
+  liquidationThreshold: 0.9, // 90% of margin lost
+
+  // ── Challenge ──
+  challengeExpiryMs: 5 * 60 * 1000,
 } as const;

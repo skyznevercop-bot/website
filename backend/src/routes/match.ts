@@ -241,10 +241,9 @@ router.post(
     const matchId = req.params.id;
 
     // ── Input validation (mirrors WS handler checks) ──
-    const DEMO_BALANCE = 1_000_000;
-    const validAssets = ["BTC", "ETH", "SOL"];
+    const DEMO_BALANCE = config.demoInitialBalance;
 
-    if (!validAssets.includes(asset)) {
+    if (!config.validAssets.includes(asset)) {
       res.status(400).json({ error: "Unknown asset" });
       return;
     }
@@ -256,8 +255,8 @@ router.post(
       res.status(400).json({ error: "Invalid position size (1 – $1M)" });
       return;
     }
-    if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > 100) {
-      res.status(400).json({ error: "Invalid leverage (1x – 100x)" });
+    if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > config.maxLeverage) {
+      res.status(400).json({ error: `Invalid leverage (1x – ${config.maxLeverage}x)` });
       return;
     }
 

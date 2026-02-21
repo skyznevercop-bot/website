@@ -28,20 +28,17 @@ import { getBalance } from "../services/balance";
 import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
 
 const DEMO_BALANCE = config.demoInitialBalance;
-const FORFEIT_GRACE_MS = 60_000; // 60 seconds
-
-/** Max WebSocket connections per wallet address. */
-const MAX_CONNECTIONS_PER_USER = 5;
-
-/** Per-connection rate limit: max messages per window. */
-const WS_RATE_LIMIT_MAX = 30;
-const WS_RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
+const FORFEIT_GRACE_MS = config.wsForfeitGraceMs;
+const MAX_CONNECTIONS_PER_USER = config.wsMaxConnectionsPerUser;
+const WS_RATE_LIMIT_MAX = config.wsRateLimitMax;
+const WS_RATE_LIMIT_WINDOW_MS = config.wsRateLimitWindowMs;
+const WS_MAX_MESSAGE_BYTES = config.wsMaxMessageBytes;
+const AUTH_TIMEOUT_MS = config.wsAuthTimeoutMs;
+const PRICE_MAX_AGE_MS = config.priceMaxAgeMs;
+const CHAT_MAX_LENGTH = config.chatMaxLength;
 
 /** Guard against double-close: position IDs currently being closed. */
 const _closingPositions = new Set<string>();
-
-/** Timeout for the initial auth message (seconds). */
-const AUTH_TIMEOUT_MS = 5_000;
 
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
@@ -51,6 +48,8 @@ interface AuthenticatedSocket extends WebSocket {
   /** Message rate limiting state. */
   _msgCount?: number;
   _msgWindowStart?: number;
+  /** Whether a pong response is pending (heartbeat liveness check). */
+  _isAlive?: boolean;
 }
 
 /** Active forfeit timers: "matchId|playerAddress" → timeout handle. */
@@ -61,7 +60,32 @@ export { broadcastToUser };
 export function setupWebSocket(server: HttpServer): void {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
+  // ── Heartbeat: detect dead connections via ping/pong ──
+  const heartbeatInterval = setInterval(() => {
+    for (const client of wss.clients) {
+      const ws = client as AuthenticatedSocket;
+      if (ws._isAlive === false) {
+        // No pong received since last ping — connection is dead.
+        console.warn(`[WS] Heartbeat timeout: ${ws.userAddress?.slice(0, 8) ?? "unauthenticated"} — terminating`);
+        ws.terminate();
+        continue;
+      }
+      ws._isAlive = false;
+      ws.ping();
+    }
+  }, config.wsPingIntervalMs);
+
+  wss.on("close", () => {
+    clearInterval(heartbeatInterval);
+  });
+
   wss.on("connection", (ws: AuthenticatedSocket) => {
+    // Mark connection as alive on initial connect + on every pong.
+    ws._isAlive = true;
+    ws.on("pong", () => {
+      ws._isAlive = true;
+    });
+
     // Require authentication via the first WebSocket message instead of
     // query parameters (tokens in URLs leak into logs and browser history).
     ws._authenticated = false;
@@ -102,7 +126,9 @@ export function setupWebSocket(server: HttpServer): void {
           cancelForfeitTimersForPlayer(payload.address);
 
           // Send current balance on connect.
-          sendBalanceUpdate(payload.address, ws).catch(() => {});
+          sendBalanceUpdate(payload.address, ws).catch((err) => {
+            console.error(`[WS] Failed to send initial balance for ${payload.address.slice(0, 8)}…:`, err);
+          });
 
           console.log(`[WS] Client authenticated: ${ws.userAddress}`);
           ws.send(JSON.stringify({ type: "auth_ok" }));
@@ -126,9 +152,9 @@ export function setupWebSocket(server: HttpServer): void {
         }
       }
 
-      // Reject oversized messages (max 4 KB).
+      // Reject oversized messages.
       const rawLen = Buffer.isBuffer(raw) ? raw.length : raw.toString().length;
-      if (rawLen > 4096) {
+      if (rawLen > WS_MAX_MESSAGE_BYTES) {
         ws.send(JSON.stringify({ type: "error", message: "Message too large" }));
         return;
       }
@@ -137,6 +163,7 @@ export function setupWebSocket(server: HttpServer): void {
         const data = JSON.parse(raw.toString());
         await handleMessage(ws, data);
       } catch (err) {
+        console.error(`[WS] Message handling error for ${ws.userAddress?.slice(0, 8) ?? "unknown"}:`, err);
         ws.send(
           JSON.stringify({ type: "error", message: "Invalid message format" })
         );
@@ -148,7 +175,9 @@ export function setupWebSocket(server: HttpServer): void {
         unregisterUserConnection(ws.userAddress, ws);
 
         // Clean up queue entries and unfreeze balance.
-        removeFromAllQueues(ws.userAddress).catch(() => {});
+        removeFromAllQueues(ws.userAddress).catch((err) => {
+          console.error(`[WS] Failed to remove ${ws.userAddress?.slice(0, 8)}… from queues on disconnect:`, err);
+        });
 
         if (ws.currentMatchId) {
           leaveMatchRoom(ws.currentMatchId, ws);
@@ -163,7 +192,7 @@ export function setupWebSocket(server: HttpServer): void {
     });
   });
 
-  // Broadcast prices + opponent updates for all active matches every 3 seconds.
+  // Broadcast prices + opponent updates for all active matches.
   setInterval(async () => {
     const matchIds = getActiveMatchIds();
     if (matchIds.length === 0) return;
@@ -177,12 +206,16 @@ export function setupWebSocket(server: HttpServer): void {
 
       broadcastToMatch(matchId, JSON.parse(priceMsg));
 
-      broadcastOpponentUpdate(matchId, match.player1).catch(() => {});
-      broadcastOpponentUpdate(matchId, match.player2).catch(() => {});
+      broadcastOpponentUpdate(matchId, match.player1).catch((err) => {
+        console.error(`[WS] Opponent update failed for P1 in ${matchId}:`, err);
+      });
+      broadcastOpponentUpdate(matchId, match.player2).catch((err) => {
+        console.error(`[WS] Opponent update failed for P2 in ${matchId}:`, err);
+      });
     }
-  }, 3000);
+  }, config.opponentBroadcastIntervalMs);
 
-  // Server-side SL/TP/liquidation monitor — runs every 1 second.
+  // Server-side SL/TP/liquidation monitor.
   setInterval(async () => {
     const matchIds = getActiveMatchIds();
     if (matchIds.length === 0) return;
@@ -245,13 +278,15 @@ export function setupWebSocket(server: HttpServer): void {
             closeReason,
           });
 
-          broadcastOpponentUpdate(matchId, pos.playerAddress).catch(() => {});
+          broadcastOpponentUpdate(matchId, pos.playerAddress).catch((err) => {
+            console.error(`[WS] Opponent update failed after SL/TP close in ${matchId}:`, err);
+          });
         } finally {
           _closingPositions.delete(pos.id);
         }
       }
     }
-  }, 1000);
+  }, config.settlementIntervalMs);
 
   console.log("[WS] WebSocket server started on /ws");
 }
@@ -352,7 +387,9 @@ async function handleMessage(
       ws.send(JSON.stringify({ type: "queue_joined", duration, bet }));
 
       // Send updated balance (frozen amount changed).
-      sendBalanceUpdate(ws.userAddress, ws).catch(() => {});
+      sendBalanceUpdate(ws.userAddress, ws).catch((err) => {
+        console.error(`[WS] Failed to send balance update for ${ws.userAddress?.slice(0, 8)}…:`, err);
+      });
       break;
     }
 
@@ -369,7 +406,9 @@ async function handleMessage(
       ws.send(JSON.stringify({ type: "queue_left" }));
 
       // Send updated balance (unfrozen).
-      sendBalanceUpdate(ws.userAddress, ws).catch(() => {});
+      sendBalanceUpdate(ws.userAddress, ws).catch((err) => {
+        console.error(`[WS] Failed to send balance update for ${ws.userAddress?.slice(0, 8)}…:`, err);
+      });
       break;
     }
 
@@ -488,12 +527,11 @@ async function handleMessage(
         ws.send(JSON.stringify({ type: "error", message: "Invalid position size (1 – $1M)" }));
         return;
       }
-      if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > 100) {
-        ws.send(JSON.stringify({ type: "error", message: "Invalid leverage (1x – 100x)" }));
+      if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > config.maxLeverage) {
+        ws.send(JSON.stringify({ type: "error", message: `Invalid leverage (1x – ${config.maxLeverage}x)` }));
         return;
       }
-      const validAssets = ["BTC", "ETH", "SOL"];
-      if (!validAssets.includes(asset)) {
+      if (!config.validAssets.includes(asset)) {
         ws.send(JSON.stringify({ type: "error", message: "Unknown asset" }));
         return;
       }
@@ -534,7 +572,6 @@ async function handleMessage(
       }
 
       const prices = getLatestPrices();
-      const PRICE_MAX_AGE_MS = 30_000;
       if (Date.now() - prices.timestamp > PRICE_MAX_AGE_MS) {
         ws.send(JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" }));
         return;
@@ -641,8 +678,7 @@ async function handleMessage(
       _closingPositions.add(positionId);
       try {
         const prices = getLatestPrices();
-        const CLOSE_PRICE_MAX_AGE_MS = 30_000;
-        if (Date.now() - prices.timestamp > CLOSE_PRICE_MAX_AGE_MS) {
+        if (Date.now() - prices.timestamp > PRICE_MAX_AGE_MS) {
           ws.send(JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" }));
           return;
         }
@@ -782,7 +818,7 @@ async function handleMessage(
         !matchId ||
         !content ||
         typeof content !== "string" ||
-        content.length > 200
+        content.length > CHAT_MAX_LENGTH
       ) {
         break;
       }

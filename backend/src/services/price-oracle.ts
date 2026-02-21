@@ -1,5 +1,6 @@
 import { EventSource } from "eventsource";
 import { broadcastToMatch, getActiveMatchIds, storeMatchPrices } from "../ws/rooms";
+import { config } from "../config";
 
 export interface PriceData {
   btc: number;
@@ -151,7 +152,8 @@ async function fetchPricesFromCoinGecko(): Promise<PriceData | null> {
       sol: data.solana?.usd ?? latestPrices.sol,
       timestamp: Date.now(),
     };
-  } catch {
+  } catch (err) {
+    console.warn("[PriceOracle] CoinGecko fetch failed:", err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -178,7 +180,8 @@ async function fetchPricesFromBinance(): Promise<PriceData | null> {
       sol: parseFloat(typed[2].price),
       timestamp: Date.now(),
     };
-  } catch {
+  } catch (err) {
+    console.warn("[PriceOracle] Binance fetch failed:", err instanceof Error ? err.message : err);
     return null;
   }
 }
@@ -233,14 +236,14 @@ export function startPriceOracle(): void {
     for (const matchId of getActiveMatchIds()) {
       storeMatchPrices(matchId, { btc: snapshot.btc, eth: snapshot.eth, sol: snapshot.sol });
     }
-  }, 1000);
+  }, config.priceBroadcastIntervalMs);
 
-  // Staleness watchdog: if SSE appears connected but prices are stale
-  // (no updates for 10s), force fallback polling. This catches silent
-  // SSE failures where the connection stays open but data stops flowing.
+  // Staleness watchdog: if SSE appears connected but prices are stale,
+  // force fallback polling. This catches silent SSE failures where the
+  // connection stays open but data stops flowing.
   setInterval(() => {
     const age = Date.now() - latestPrices.timestamp;
-    if (age > 10_000) {
+    if (age > config.priceStalenessThresholdMs) {
       if (pythConnected) {
         console.warn(
           `[PriceOracle] Prices stale (${(age / 1000).toFixed(1)}s) despite SSE "connected" — forcing reconnect + fallback`
@@ -258,9 +261,9 @@ export function startPriceOracle(): void {
         startFallbackPolling();
       }
     }
-  }, 5_000);
+  }, config.priceStalenessCheckIntervalMs);
 
-  console.log("[PriceOracle] Started — Pyth Hermes SSE (primary), CoinGecko/Binance (fallback), broadcasting every 1s");
+  console.log(`[PriceOracle] Started — Pyth Hermes SSE (primary), CoinGecko/Binance (fallback), broadcasting every ${config.priceBroadcastIntervalMs}ms`);
 }
 
 /**

@@ -2,6 +2,7 @@ import { queuesRef, createMatch as createDbMatch, getUser, DbMatch, hasActiveMat
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
 import { freezeForMatch, unfreezeBalance } from "./balance";
+import { config } from "../config";
 
 /** Guard against double-matching: addresses currently being matched. */
 const _matchingPlayers = new Set<string>();
@@ -151,9 +152,9 @@ export function startMatchmakingLoop(): void {
     } catch (err) {
       console.error("[Matchmaking] Error:", err);
     }
-  }, 500);
+  }, config.matchmakingIntervalMs);
 
-  console.log("[Matchmaking] Started — FIFO matching every 500ms (instant, no on-chain)");
+  console.log(`[Matchmaking] Started — FIFO matching every ${config.matchmakingIntervalMs}ms (instant, no on-chain)`);
 }
 
 /**

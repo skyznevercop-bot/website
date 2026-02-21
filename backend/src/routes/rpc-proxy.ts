@@ -81,8 +81,8 @@ router.post("/", async (req: Request, res: Response) => {
       const data = await upstream.json();
       res.json(data);
       return;
-    } catch {
-      // Try next RPC endpoint.
+    } catch (err) {
+      console.warn(`[RPC Proxy] ${rpc} failed for ${method}:`, err instanceof Error ? err.message : err);
     }
   }
 

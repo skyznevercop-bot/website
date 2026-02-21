@@ -12,10 +12,11 @@ import { freezeForMatch, unfreezeBalance } from "../services/balance";
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
 import { isValidSolanaAddress } from "../utils/validation";
+import { config } from "../config";
 
 const router = Router();
 
-const CHALLENGE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
+const CHALLENGE_EXPIRY_MS = config.challengeExpiryMs;
 
 function parseDurationToSeconds(duration: string): number {
   const m = duration.match(/^(\d+)(m|h)$/);
