@@ -839,6 +839,45 @@ class TradingNotifier extends Notifier<TradingState> {
     }
   }
 
+  /// Update SL / TP on an open position.
+  void updatePositionSlTp(
+    String positionId, {
+    double? stopLoss,
+    double? takeProfit,
+    bool clearSl = false,
+    bool clearTp = false,
+  }) {
+    final positions = [...state.positions];
+    final idx = positions.indexWhere((p) => p.id == positionId && p.isOpen);
+    if (idx == -1) return;
+
+    final p = positions[idx];
+    if (clearSl) {
+      p.stopLoss = null;
+    } else if (stopLoss != null) {
+      p.stopLoss = stopLoss;
+    }
+    if (clearTp) {
+      p.takeProfit = null;
+    } else if (takeProfit != null) {
+      p.takeProfit = takeProfit;
+    }
+
+    state = state.copyWith(positions: positions);
+
+    if (state.matchId != null && !state.isPracticeMode) {
+      _api.wsSend({
+        'type': 'update_position',
+        'matchId': state.matchId,
+        'positionId': positionId,
+        if (!clearSl && p.stopLoss != null) 'sl': p.stopLoss,
+        if (!clearTp && p.takeProfit != null) 'tp': p.takeProfit,
+        if (clearSl) 'sl': null,
+        if (clearTp) 'tp': null,
+      });
+    }
+  }
+
   /// Close an open position at market price.
   void closePosition(String positionId) {
     final now = DateTime.now();

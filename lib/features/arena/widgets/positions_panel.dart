@@ -24,6 +24,7 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   String? _hoveredRowId;
+  String? _editingPositionId;
 
   @override
   void initState() {
@@ -113,6 +114,14 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
                         position: pos,
                         price: price,
                         isOpen: isPositions,
+                        isEditing: _editingPositionId == pos.id,
+                        onEditToggle: isPositions
+                            ? () => setState(() =>
+                                _editingPositionId =
+                                    _editingPositionId == pos.id
+                                        ? null
+                                        : pos.id)
+                            : null,
                         onClose: () => ref
                             .read(tradingProvider.notifier)
                             .closePosition(pos.id),
@@ -146,8 +155,16 @@ class _PositionsPanelState extends ConsumerState<PositionsPanel>
                             price: price,
                             isOpen: isPositions,
                             isHovered: _hoveredRowId == pos.id,
+                            isEditing: _editingPositionId == pos.id,
                             onHover: (h) => setState(
                                 () => _hoveredRowId = h ? pos.id : null),
+                            onEditToggle: isPositions
+                                ? () => setState(() =>
+                                    _editingPositionId =
+                                        _editingPositionId == pos.id
+                                            ? null
+                                            : pos.id)
+                                : null,
                             onClose: () => ref
                                 .read(tradingProvider.notifier)
                                 .closePosition(pos.id),
@@ -391,7 +408,7 @@ class _TableHeader extends StatelessWidget {
           _cell('ENTRY', flex: 2),
           _cell(isPositions ? 'MARK' : 'EXIT', flex: 2),
           _cell('PNL', flex: 2),
-          if (isPositions) _cell('', flex: 1),
+          if (isPositions) _cell('', flex: 2),
           if (!isPositions) _cell('TYPE', flex: 1),
         ],
       ),
@@ -420,18 +437,22 @@ class _PositionRow extends StatelessWidget {
   final double price;
   final bool isOpen;
   final bool isHovered;
+  final bool isEditing;
   final ValueChanged<bool> onHover;
   final VoidCallback onClose;
   final VoidCallback? onPartialClose;
+  final VoidCallback? onEditToggle;
 
   const _PositionRow({
     required this.position,
     required this.price,
     required this.isOpen,
     required this.isHovered,
+    this.isEditing = false,
     required this.onHover,
     required this.onClose,
     this.onPartialClose,
+    this.onEditToggle,
   });
 
   @override
@@ -457,7 +478,10 @@ class _PositionRow extends StatelessWidget {
       }
     }
 
-    return MouseRegion(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        MouseRegion(
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
       child: AnimatedContainer(
@@ -596,7 +620,7 @@ class _PositionRow extends StatelessWidget {
                         tabularFigures: true)),
               ),
 
-              // PnL.
+              // PnL + SL/TP badges.
               Expanded(
                 flex: 2,
                 child: Column(
@@ -614,6 +638,31 @@ class _PositionRow extends StatelessWidget {
                             fontSize: 9,
                             color: pnlCol,
                             tabularFigures: true)),
+                    if (isOpen &&
+                        (position.stopLoss != null ||
+                            position.takeProfit != null))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Row(
+                          children: [
+                            if (position.stopLoss != null)
+                              _SlTpBadge(
+                                label: 'SL',
+                                value: position.stopLoss!,
+                                color: AppTheme.error,
+                              ),
+                            if (position.stopLoss != null &&
+                                position.takeProfit != null)
+                              const SizedBox(width: 4),
+                            if (position.takeProfit != null)
+                              _SlTpBadge(
+                                label: 'TP',
+                                value: position.takeProfit!,
+                                color: AppTheme.success,
+                              ),
+                          ],
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -621,11 +670,45 @@ class _PositionRow extends StatelessWidget {
               // Action.
               if (isOpen)
                 Expanded(
-                  flex: 1,
+                  flex: 2,
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Edit SL/TP button.
+                      if (onEditToggle != null)
+                        MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: GestureDetector(
+                            onTap: onEditToggle,
+                            child: Tooltip(
+                              message: 'Edit SL/TP',
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  color: isEditing
+                                      ? AppTheme.solanaPurple
+                                          .withValues(alpha: 0.15)
+                                      : AppTheme.solanaPurple
+                                          .withValues(alpha: 0.08),
+                                  borderRadius:
+                                      BorderRadius.circular(6),
+                                  border: Border.all(
+                                      color: AppTheme.solanaPurple
+                                          .withValues(alpha: 0.25)),
+                                ),
+                                child: Icon(
+                                    Icons.tune_rounded,
+                                    size: 13,
+                                    color: isEditing
+                                        ? AppTheme.solanaPurple
+                                        : AppTheme.textSecondary),
+                              ),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 3),
                       // 50% partial close button.
                       if (onPartialClose != null)
                         MouseRegion(
@@ -635,8 +718,8 @@ class _PositionRow extends StatelessWidget {
                             child: Tooltip(
                               message: 'Close 50%',
                               child: Container(
-                                width: 28,
-                                height: 28,
+                                width: 26,
+                                height: 26,
                                 decoration: BoxDecoration(
                                   color: AppTheme.warning
                                       .withValues(alpha: 0.1),
@@ -649,7 +732,7 @@ class _PositionRow extends StatelessWidget {
                                 child: Center(
                                   child: Text('½',
                                       style: interStyle(
-                                          fontSize: 12,
+                                          fontSize: 11,
                                           fontWeight: FontWeight.w700,
                                           color: AppTheme.warning)),
                                 ),
@@ -657,7 +740,7 @@ class _PositionRow extends StatelessWidget {
                             ),
                           ),
                         ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 3),
                       // Full close button.
                       MouseRegion(
                         cursor: SystemMouseCursors.click,
@@ -668,8 +751,8 @@ class _PositionRow extends StatelessWidget {
                             child: AnimatedContainer(
                               duration:
                                   const Duration(milliseconds: 120),
-                              width: 28,
-                              height: 28,
+                              width: 26,
+                              height: 26,
                               decoration: BoxDecoration(
                                 color: isHovered
                                     ? AppTheme.error
@@ -693,7 +776,7 @@ class _PositionRow extends StatelessWidget {
                               ),
                               child: const Icon(
                                   Icons.close_rounded,
-                                  size: 14,
+                                  size: 13,
                                   color: AppTheme.error),
                             ),
                           ),
@@ -712,6 +795,10 @@ class _PositionRow extends StatelessWidget {
           ),
         ),
       ),
+    ),
+      if (isEditing && isOpen)
+        _SlTpEditor(position: position),
+      ],
     );
   }
 }
@@ -724,15 +811,19 @@ class _PositionCard extends StatelessWidget {
   final Position position;
   final double price;
   final bool isOpen;
+  final bool isEditing;
   final VoidCallback onClose;
   final VoidCallback? onPartialClose;
+  final VoidCallback? onEditToggle;
 
   const _PositionCard({
     required this.position,
     required this.price,
     required this.isOpen,
+    this.isEditing = false,
     required this.onClose,
     this.onPartialClose,
+    this.onEditToggle,
   });
 
   @override
@@ -902,6 +993,45 @@ class _PositionCard extends StatelessWidget {
 
                 const Spacer(),
 
+                // Edit SL/TP button (open only).
+                if (isOpen && onEditToggle != null) ...[
+                  GestureDetector(
+                    onTap: onEditToggle,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: isEditing
+                            ? AppTheme.solanaPurple.withValues(alpha: 0.15)
+                            : AppTheme.solanaPurple.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                            color: AppTheme.solanaPurple
+                                .withValues(alpha: 0.25)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.tune_rounded,
+                              size: 12,
+                              color: isEditing
+                                  ? AppTheme.solanaPurple
+                                  : AppTheme.textSecondary),
+                          const SizedBox(width: 4),
+                          Text('SL/TP',
+                              style: interStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: isEditing
+                                      ? AppTheme.solanaPurple
+                                      : AppTheme.textSecondary)),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+
                 // Partial close button (open only).
                 if (isOpen && onPartialClose != null) ...[
                   GestureDetector(
@@ -949,6 +1079,12 @@ class _PositionCard extends StatelessWidget {
                   ),
               ],
             ),
+
+            // ── SL/TP Editor (expandable) ──
+            if (isEditing && isOpen) ...[
+              const SizedBox(height: 8),
+              _SlTpEditor(position: position),
+            ],
           ],
         ),
       ),
@@ -1235,6 +1371,290 @@ class _LimitOrderCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// =============================================================================
+// SL/TP Badge — small inline indicator in PnL column
+// =============================================================================
+
+class _SlTpBadge extends StatelessWidget {
+  final String label;
+  final double value;
+  final Color color;
+
+  const _SlTpBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(
+        '$label \$${fmtPrice(value)}',
+        style: interStyle(
+          fontSize: 8,
+          fontWeight: FontWeight.w600,
+          color: color,
+          tabularFigures: true,
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// SL/TP Editor — inline expandable editor for modifying SL/TP on open positions
+// =============================================================================
+
+class _SlTpEditor extends ConsumerStatefulWidget {
+  final Position position;
+
+  const _SlTpEditor({required this.position});
+
+  @override
+  ConsumerState<_SlTpEditor> createState() => _SlTpEditorState();
+}
+
+class _SlTpEditorState extends ConsumerState<_SlTpEditor> {
+  late final TextEditingController _slController;
+  late final TextEditingController _tpController;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _slController = TextEditingController(
+      text: widget.position.stopLoss != null
+          ? fmtPrice(widget.position.stopLoss!)
+          : '',
+    );
+    _tpController = TextEditingController(
+      text: widget.position.takeProfit != null
+          ? fmtPrice(widget.position.takeProfit!)
+          : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _slController.dispose();
+    _tpController.dispose();
+    super.dispose();
+  }
+
+  String? _validate() {
+    final slText = _slController.text.trim();
+    final tpText = _tpController.text.trim();
+    final entry = widget.position.entryPrice;
+    final isLong = widget.position.isLong;
+
+    if (slText.isNotEmpty) {
+      final sl = double.tryParse(slText);
+      if (sl == null || sl <= 0) return 'Invalid SL price';
+      if (isLong && sl >= entry) return 'SL must be below entry for longs';
+      if (!isLong && sl <= entry) return 'SL must be above entry for shorts';
+    }
+    if (tpText.isNotEmpty) {
+      final tp = double.tryParse(tpText);
+      if (tp == null || tp <= 0) return 'Invalid TP price';
+      if (isLong && tp <= entry) return 'TP must be above entry for longs';
+      if (!isLong && tp >= entry) return 'TP must be below entry for shorts';
+    }
+    return null;
+  }
+
+  void _save() {
+    final err = _validate();
+    if (err != null) {
+      setState(() => _error = err);
+      return;
+    }
+    setState(() => _error = null);
+
+    final slText = _slController.text.trim();
+    final tpText = _tpController.text.trim();
+    final currentSl = widget.position.stopLoss;
+    final currentTp = widget.position.takeProfit;
+
+    final newSl = slText.isNotEmpty ? double.tryParse(slText) : null;
+    final newTp = tpText.isNotEmpty ? double.tryParse(tpText) : null;
+    final clearSl = slText.isEmpty && currentSl != null;
+    final clearTp = tpText.isEmpty && currentTp != null;
+
+    ref.read(tradingProvider.notifier).updatePositionSlTp(
+          widget.position.id,
+          stopLoss: newSl,
+          takeProfit: newTp,
+          clearSl: clearSl,
+          clearTp: clearTp,
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isMobile = Responsive.isMobile(context);
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 8 : 16,
+        vertical: 8,
+      ),
+      decoration: const BoxDecoration(
+        color: AppTheme.surfaceAlt,
+        border: Border(
+            top: BorderSide(color: AppTheme.border, width: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // SL field.
+              Expanded(
+                child: _SlTpField(
+                  label: 'SL',
+                  color: AppTheme.error,
+                  controller: _slController,
+                  onClear: () {
+                    _slController.clear();
+                    setState(() => _error = null);
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              // TP field.
+              Expanded(
+                child: _SlTpField(
+                  label: 'TP',
+                  color: AppTheme.success,
+                  controller: _tpController,
+                  onClear: () {
+                    _tpController.clear();
+                    setState(() => _error = null);
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Save button.
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: _save,
+                  child: Container(
+                    height: 28,
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.solanaPurple,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Center(
+                      child: Text('Save',
+                          style: interStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(_error!,
+                  style: interStyle(
+                      fontSize: 10, color: AppTheme.error)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// SL/TP Field — individual input with label and clear button
+// =============================================================================
+
+class _SlTpField extends StatelessWidget {
+  final String label;
+  final Color color;
+  final TextEditingController controller;
+  final VoidCallback onClear;
+
+  const _SlTpField({
+    required this.label,
+    required this.color,
+    required this.controller,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: Text(label,
+              style: interStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: color)),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Container(
+            height: 28,
+            decoration: BoxDecoration(
+              color: AppTheme.background,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: TextField(
+              controller: controller,
+              style: interStyle(
+                fontSize: 12,
+                tabularFigures: true,
+              ),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
+              decoration: InputDecoration(
+                hintText: '0.00',
+                hintStyle: interStyle(
+                    fontSize: 11, color: AppTheme.textTertiary),
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 6),
+                isDense: true,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 4),
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: onClear,
+            child: const Icon(Icons.close_rounded,
+                size: 14, color: AppTheme.textTertiary),
+          ),
+        ),
+      ],
     );
   }
 }

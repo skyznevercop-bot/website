@@ -267,7 +267,7 @@ class Position {
   final double leverage;
   final DateTime openedAt;
   double? stopLoss;
-  final double? takeProfit;
+  double? takeProfit;
   final double? trailingStopDistance;
   /// Peak favorable price since open — used for trailing stop calculation.
   double? trailingPeakPrice;
