@@ -95,7 +95,7 @@ router.get("/", async (req, res) => {
   res.json({ players: ranked, total, page, limit });
 });
 
-/** GET /api/leaderboard/rank/:address — Get a player's rank (by wins). */
+/** GET /api/leaderboard/rank/:address — Get a player's rank (by PnL). */
 router.get("/rank/:address", async (req, res) => {
   const address = req.params.address;
   if (!isValidSolanaAddress(address)) {
@@ -124,12 +124,11 @@ router.get("/rank/:address", async (req, res) => {
     }
   });
 
-  // Sort by wins (same as default leaderboard).
+  // Sort by PnL (same as default leaderboard).
   players.sort((a, b) => {
+    if (b.totalPnl !== a.totalPnl) return b.totalPnl - a.totalPnl;
     if (b.wins !== a.wins) return b.wins - a.wins;
-    if (b.winRate !== a.winRate) return b.winRate - a.winRate;
-    if (a.losses !== b.losses) return a.losses - b.losses;
-    return b.totalPnl - a.totalPnl;
+    return b.winRate - a.winRate;
   });
 
   const idx = players.findIndex((p) => p.address === address);
