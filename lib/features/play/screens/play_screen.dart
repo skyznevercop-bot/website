@@ -1750,81 +1750,40 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
           child: SizedBox(
             height: 60,
             child: connected
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (needsDeposit) ...[
-                                    const Icon(Icons.add_rounded,
-                                        size: 20, color: AppTheme.info),
-                                    const SizedBox(width: 4),
-                                  ],
-                                  Text(
-                                    needsDeposit ? 'Deposit' : 'Balance',
-                                    style: GoogleFonts.inter(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                needsDeposit
-                                    ? 'Top up to play'
-                                    : 'Available',
-                                style: GoogleFonts.inter(
-                                    fontSize: 12, color: Colors.white38),
-                              ),
-                            ],
+                ? needsDeposit
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.add_rounded,
+                              size: 20, color: AppTheme.info),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Deposit',
+                            style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white),
                           ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 32,
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                        Expanded(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '\$ ',
-                                    style: GoogleFonts.inter(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppTheme.solanaGreen),
-                                  ),
-                                  Text(
-                                    balance.toStringAsFixed(2),
-                                    style: GoogleFonts.inter(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppTheme.solanaGreen),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 2),
-                              Text('USDC',
-                                  style: GoogleFonts.inter(
-                                      fontSize: 12,
-                                      color: Colors.white38)),
-                            ],
+                        ],
+                      )
+                    : Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            '\$${balance.toStringAsFixed(2)}',
+                            style: GoogleFonts.inter(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.solanaGreen),
                           ),
-                        ),
-                      ],
-                    ),
-                  )
+                          const SizedBox(width: 6),
+                          Text(
+                            'USDC',
+                            style: GoogleFonts.inter(
+                                fontSize: 12, color: Colors.white38),
+                          ),
+                        ],
+                      )
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
