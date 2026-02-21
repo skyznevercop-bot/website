@@ -44,7 +44,7 @@ export const config = {
   matchmakingIntervalMs: 500,
   settlementIntervalMs: 1_000,
   priceBroadcastIntervalMs: 1_000,
-  opponentBroadcastIntervalMs: 3_000,
+  opponentBroadcastIntervalMs: 1_000,
   priceStalenessThresholdMs: 10_000,
   priceStalenessCheckIntervalMs: 5_000,
 
