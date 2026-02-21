@@ -17,13 +17,20 @@ export async function joinQueue(
   duration: string,
   bet: number
 ): Promise<boolean> {
+  const queueKey = `${duration}_${bet}`;
+
+  // Idempotency: if already in this queue, don't double-freeze.
+  const existing = await queuesRef.child(queueKey).child(address).once("value");
+  if (existing.exists()) {
+    return true;
+  }
+
   // Freeze the bet amount.
   const frozen = await freezeForMatch(address, bet);
   if (!frozen) {
     return false;
   }
 
-  const queueKey = `${duration}_${bet}`;
   await queuesRef.child(queueKey).child(address).set({
     joinedAt: Date.now(),
   });
