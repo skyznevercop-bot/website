@@ -6,6 +6,7 @@ import {
   processWithdrawal,
   getBalanceTransactions,
   getVaultAddress,
+  reconcileFrozenBalance,
 } from "../services/balance";
 
 const router = Router();
@@ -116,6 +117,24 @@ router.get("/balance/transactions", requireAuth, async (req: AuthRequest, res) =
   } catch (err) {
     console.error("[Balance] GET /balance/transactions error:", err);
     res.status(500).json({ error: "Failed to fetch transactions" });
+  }
+});
+
+/**
+ * GET /api/balance/debug/:address
+ * Public debug endpoint — shows balance + frozen for a wallet.
+ * Also triggers reconciliation to fix stale freezes.
+ */
+router.get("/balance/debug/:address", async (req, res) => {
+  try {
+    const { address } = req.params;
+    const before = await getBalance(address);
+    await reconcileFrozenBalance(address);
+    const after = await getBalance(address);
+    res.json({ before, after, reconciled: before.frozenBalance !== after.frozenBalance });
+  } catch (err) {
+    console.error("[Balance] GET /balance/debug error:", err);
+    res.status(500).json({ error: "Failed to debug balance" });
   }
 });
 

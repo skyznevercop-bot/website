@@ -1,6 +1,7 @@
 import {
   usersRef,
   matchesRef,
+  queuesRef,
   getUser,
   db,
 } from "./firebase";
@@ -219,8 +220,6 @@ export async function settleMatchBalances(
  * server restarts or missed unfreezes.
  */
 export async function reconcileFrozenBalance(address: string): Promise<void> {
-  const { queuesRef } = await import("./firebase");
-
   // 1. Sum up bet amounts from actual queue entries.
   const queueSnap = await queuesRef.once("value");
   let expectedFrozen = 0;
