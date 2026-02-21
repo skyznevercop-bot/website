@@ -200,33 +200,6 @@ router.get("/history/:address", async (req, res) => {
   });
 });
 
-/** GET /api/match/profile/:address — Check if player has an on-chain profile. */
-router.get("/profile/:address", async (req, res) => {
-  // Keep this endpoint for profile creation flow during onboarding.
-  const { address } = req.params;
-  if (!isValidSolanaAddress(address)) {
-    res.status(400).json({ error: "Invalid wallet address" });
-    return;
-  }
-  try {
-    const { playerProfileExists, getPlayerProfilePDA } = await import("../utils/solana");
-    const { PublicKey } = await import("@solana/web3.js");
-    const { config } = await import("../config");
-
-    const exists = await playerProfileExists(address);
-    const [profilePda] = getPlayerProfilePDA(new PublicKey(address));
-
-    res.json({
-      exists,
-      profilePda: profilePda.toBase58(),
-      programId: config.programId,
-    });
-  } catch (err) {
-    console.error(`[Match] Profile check error for ${address}:`, err);
-    res.status(500).json({ error: "Failed to check profile" });
-  }
-});
-
 /** GET /api/match/:id — Get match details. */
 router.get("/:id", async (req, res) => {
   const match = await getMatch(req.params.id);

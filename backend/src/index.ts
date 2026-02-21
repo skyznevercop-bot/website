@@ -8,7 +8,7 @@ import { setupWebSocket } from "./ws/handler";
 import { startMatchmakingLoop } from "./services/matchmaking";
 import { startPriceOracle } from "./services/price-oracle";
 import { startSettlementLoop } from "./services/settlement";
-import { startOnChainRecorderLoop } from "./services/on-chain-recorder";
+
 
 // Routes
 import userRoutes from "./routes/user";
@@ -65,11 +65,10 @@ app.use("/api/profile", profileRoutes);
 // WebSocket
 setupWebSocket(server);
 
-// Start background services (only 3 loops vs the old 5)
+// Start background services
 startMatchmakingLoop();       // 500ms — FIFO matching (instant, no on-chain)
 startPriceOracle();           // SSE streaming + 1s broadcast
 startSettlementLoop();        // 5s — check for ended matches
-startOnChainRecorderLoop();   // 60s — background audit trail (non-critical)
 
 // Start server
 server.listen(config.port, () => {
@@ -85,19 +84,13 @@ server.listen(config.port, () => {
   │    ✓ Matchmaking (500ms FIFO, instant)  │
   │    ✓ Price Oracle (Pyth SSE + fallback) │
   │    ✓ Settlement (5s check, instant pay) │
-  │    ✓ On-Chain Recorder (60s audit)      │
   │    ✓ Firebase Realtime Database         │
-  │                                         │
-  │  Removed (no longer needed):            │
-  │    ✗ Escrow Deposit Monitor             │
-  │    ✗ On-chain Retry Loop                │
-  │    ✗ Deposit Timeout Loop               │
   └─────────────────────────────────────────┘
   `);
 
   if (!config.authorityKeypair) {
     console.warn(
-      `\n  ⚠️  WARNING: AUTHORITY_KEYPAIR not set — withdrawals and on-chain recording will fail!\n`
+      `\n  ⚠️  WARNING: AUTHORITY_KEYPAIR not set — withdrawals will fail!\n`
     );
   }
 });

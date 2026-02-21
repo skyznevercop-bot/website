@@ -253,6 +253,87 @@ class ClanNotifier extends Notifier<ClanState> {
     }
   }
 
+  /// Update clan details (leader only).
+  Future<bool> updateClan({String? name, String? tag, String? description}) async {
+    if (!state.hasClan) return false;
+
+    try {
+      final body = <String, dynamic>{};
+      if (name != null) body['name'] = name;
+      if (tag != null) body['tag'] = tag.toUpperCase();
+      if (description != null) body['description'] = description;
+
+      await _api.patch('/clan/${state.userClan!.id}', body);
+      await loadMyClan();
+      loadClans();
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+
+  /// Delete the clan (leader only).
+  Future<bool> deleteClan() async {
+    if (!state.hasClan) return false;
+
+    try {
+      await _api.delete('/clan/${state.userClan!.id}');
+      state = state.copyWith(clearUserClan: true, clearError: true);
+      loadClans();
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+
+  /// Kick a member from the clan (leader only).
+  Future<bool> kickMember(String address) async {
+    if (!state.hasClan) return false;
+
+    try {
+      await _api.delete('/clan/${state.userClan!.id}/members/$address');
+      await loadMyClan();
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+
+  /// Change a member's role (leader only).
+  Future<bool> changeMemberRole(String address, String role) async {
+    if (!state.hasClan) return false;
+
+    try {
+      await _api.patch('/clan/${state.userClan!.id}/members/$address', {
+        'role': role,
+      });
+      await loadMyClan();
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+
+  /// Transfer leadership to another member (leader only).
+  Future<bool> transferLeadership(String toAddress) async {
+    if (!state.hasClan) return false;
+
+    try {
+      await _api.post('/clan/${state.userClan!.id}/transfer', {
+        'toAddress': toAddress,
+      });
+      await loadMyClan();
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(errorMessage: e.message);
+      return false;
+    }
+  }
+
   /// Filter clans by search query (client-side filter on loaded list).
   void searchClans(String query) {
     // Update query first, then filter.

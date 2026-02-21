@@ -72,6 +72,8 @@ class ClanScreen extends ConsumerWidget {
               child: _MembersList(
                 members: state.userClan!.members,
                 isMobile: isMobile,
+                isLeader: state.userClan!.leaderAddress == wallet.address,
+                ref: ref,
               ),
             ),
             const SizedBox(height: 24),
@@ -252,6 +254,171 @@ class _SectionHeader extends StatelessWidget {
       ],
     );
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Clan Management Dialogs
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void _showEditClanDialog(BuildContext context, WidgetRef ref, Clan clan) {
+  final nameCtrl = TextEditingController(text: clan.name);
+  final tagCtrl = TextEditingController(text: clan.tag);
+  final descCtrl = TextEditingController(text: clan.description);
+
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF1E1E2E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      title: Text(
+        'Edit Clan',
+        style: GoogleFonts.inter(
+            fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
+      content: SizedBox(
+        width: 340,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
+              decoration: InputDecoration(
+                labelText: 'Clan Name',
+                labelStyle: GoogleFonts.inter(
+                    fontSize: 12, color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tagCtrl,
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
+              textCapitalization: TextCapitalization.characters,
+              maxLength: 5,
+              decoration: InputDecoration(
+                labelText: 'Tag',
+                labelStyle: GoogleFonts.inter(
+                    fontSize: 12, color: AppTheme.textTertiary),
+                counterStyle:
+                    GoogleFonts.inter(fontSize: 10, color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descCtrl,
+              style: GoogleFonts.inter(fontSize: 14, color: Colors.white),
+              maxLines: 2,
+              maxLength: 200,
+              decoration: InputDecoration(
+                labelText: 'Description',
+                labelStyle: GoogleFonts.inter(
+                    fontSize: 12, color: AppTheme.textTertiary),
+                counterStyle:
+                    GoogleFonts.inter(fontSize: 10, color: AppTheme.textTertiary),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.04),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide:
+                      BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('Cancel',
+              style: GoogleFonts.inter(color: AppTheme.textTertiary)),
+        ),
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            await ref.read(clanProvider.notifier).updateClan(
+                  name: nameCtrl.text.trim(),
+                  tag: tagCtrl.text.trim(),
+                  description: descCtrl.text.trim(),
+                );
+          },
+          child: Text('Save',
+              style: GoogleFonts.inter(
+                  color: _gold, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    ),
+  );
+}
+
+void _showDeleteClanDialog(BuildContext context, WidgetRef ref, Clan clan) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF1E1E2E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      title: Text(
+        'Delete ${clan.name}?',
+        style: GoogleFonts.inter(
+            fontSize: 16, fontWeight: FontWeight.w700, color: Colors.white),
+      ),
+      content: Text(
+        'This will permanently delete the clan and remove all members. This action cannot be undone.',
+        style: GoogleFonts.inter(fontSize: 13, color: AppTheme.textTertiary),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: Text('Cancel',
+              style: GoogleFonts.inter(color: AppTheme.textTertiary)),
+        ),
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            await ref.read(clanProvider.notifier).deleteClan();
+          },
+          child: Text('Delete',
+              style: GoogleFonts.inter(
+                  color: AppTheme.error, fontWeight: FontWeight.w600)),
+        ),
+      ],
+    ),
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -445,9 +612,33 @@ class _MyClanBanner extends StatelessWidget {
                         ],
                       ),
                     ),
-                    // Leave button
-                    _LeaveButton(
-                      onTap: () => ref.read(clanProvider.notifier).leaveClan(),
+                    // Management buttons
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (clan.leaderAddress ==
+                            ref.read(walletProvider).address) ...[
+                          _IconActionButton(
+                            icon: Icons.edit_rounded,
+                            tooltip: 'Edit Clan',
+                            onTap: () => _showEditClanDialog(
+                                context, ref, clan),
+                          ),
+                          const SizedBox(height: 6),
+                          _IconActionButton(
+                            icon: Icons.delete_outline_rounded,
+                            tooltip: 'Delete Clan',
+                            color: AppTheme.error,
+                            onTap: () => _showDeleteClanDialog(
+                                context, ref, clan),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        _LeaveButton(
+                          onTap: () =>
+                              ref.read(clanProvider.notifier).leaveClan(),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -651,7 +842,14 @@ class _StatItem extends StatelessWidget {
 class _MembersList extends StatelessWidget {
   final List<ClanMember> members;
   final bool isMobile;
-  const _MembersList({required this.members, required this.isMobile});
+  final bool isLeader;
+  final WidgetRef ref;
+  const _MembersList({
+    required this.members,
+    required this.isMobile,
+    required this.isLeader,
+    required this.ref,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -736,6 +934,8 @@ class _MembersList extends StatelessWidget {
               member: m,
               isLast: i == members.length - 1,
               isMobile: isMobile,
+              isLeader: isLeader,
+              ref: ref,
             );
           }),
         ],
@@ -748,10 +948,14 @@ class _MemberRow extends StatefulWidget {
   final ClanMember member;
   final bool isLast;
   final bool isMobile;
+  final bool isLeader;
+  final WidgetRef ref;
   const _MemberRow({
     required this.member,
     required this.isLast,
     required this.isMobile,
+    required this.isLeader,
+    required this.ref,
   });
 
   @override
@@ -804,6 +1008,119 @@ class _MemberRowState extends State<_MemberRow> {
     if (rate >= 60) return AppTheme.success;
     if (rate >= 50) return AppTheme.warning;
     return AppTheme.error;
+  }
+
+  PopupMenuItem<String> _popupItem(
+      String value, IconData icon, String label, Color color) {
+    return PopupMenuItem(
+      value: value,
+      height: 38,
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _handleMemberAction(String action, ClanMember member) {
+    final notifier = widget.ref.read(clanProvider.notifier);
+    switch (action) {
+      case 'promote':
+        final newRole = member.role == ClanRole.elder ? 'CO_LEADER' : 'ELDER';
+        notifier.changeMemberRole(member.address, newRole);
+      case 'demote':
+        final newRole =
+            member.role == ClanRole.coLeader ? 'ELDER' : 'MEMBER';
+        notifier.changeMemberRole(member.address, newRole);
+      case 'kick':
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E2E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            title: Text(
+              'Kick ${member.gamerTag}?',
+              style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white),
+            ),
+            content: Text(
+              'This member will be removed from the clan.',
+              style: GoogleFonts.inter(
+                  fontSize: 13, color: AppTheme.textTertiary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel',
+                    style: GoogleFonts.inter(color: AppTheme.textTertiary)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  notifier.kickMember(member.address);
+                },
+                child: Text('Kick',
+                    style: GoogleFonts.inter(
+                        color: AppTheme.error, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+      case 'transfer':
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E2E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+            ),
+            title: Text(
+              'Transfer Leadership?',
+              style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white),
+            ),
+            content: Text(
+              '${member.gamerTag} will become the new leader. You will become a regular member.',
+              style: GoogleFonts.inter(
+                  fontSize: 13, color: AppTheme.textTertiary),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text('Cancel',
+                    style: GoogleFonts.inter(color: AppTheme.textTertiary)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  notifier.transferLeadership(member.address);
+                },
+                child: Text('Transfer',
+                    style: GoogleFonts.inter(
+                        color: _gold, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+        );
+    }
   }
 
   @override
@@ -976,6 +1293,36 @@ class _MemberRowState extends State<_MemberRow> {
               ),
             ] else
               const SizedBox(width: 36),
+
+            // Leader actions menu
+            if (widget.isLeader && m.role != ClanRole.leader) ...[
+              const SizedBox(width: 4),
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert_rounded,
+                    size: 18, color: Colors.white.withValues(alpha: 0.3)),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                splashRadius: 16,
+                color: const Color(0xFF1E1E2E),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+                ),
+                onSelected: (action) => _handleMemberAction(action, m),
+                itemBuilder: (_) => [
+                  if (m.role != ClanRole.coLeader)
+                    _popupItem('promote', Icons.arrow_upward_rounded,
+                        'Promote', AppTheme.solanaGreen),
+                  if (m.role != ClanRole.member)
+                    _popupItem('demote', Icons.arrow_downward_rounded,
+                        'Demote', AppTheme.warning),
+                  _popupItem('kick', Icons.person_remove_rounded,
+                      'Kick', AppTheme.error),
+                  _popupItem('transfer', Icons.swap_horiz_rounded,
+                      'Transfer Leadership', _gold),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -1902,6 +2249,62 @@ class _LeaveButtonState extends State<_LeaveButton> {
                   ? AppTheme.error
                   : Colors.white.withValues(alpha: 0.5),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Icon Action Button — small icon-only button for clan management
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _IconActionButton extends StatefulWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Color? color;
+  const _IconActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    this.color,
+  });
+
+  @override
+  State<_IconActionButton> createState() => _IconActionButtonState();
+}
+
+class _IconActionButtonState extends State<_IconActionButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.color ?? Colors.white.withValues(alpha: 0.5);
+    return Tooltip(
+      message: widget.tooltip,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: _hovered
+                  ? c.withValues(alpha: 0.12)
+                  : Colors.white.withValues(alpha: 0.04),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _hovered
+                    ? c.withValues(alpha: 0.3)
+                    : Colors.white.withValues(alpha: 0.08),
+              ),
+            ),
+            child: Icon(widget.icon, size: 14, color: c),
           ),
         ),
       ),

@@ -24,7 +24,6 @@ export const config = {
       return null;
     }
   })(),
-  programId: process.env.PROGRAM_ID || "268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8",
   usdcMint:
     process.env.USDC_MINT || "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
 
@@ -40,5 +39,4 @@ export const config = {
   treasuryAddress:
     process.env.TREASURY_ADDRESS || "",
   rakePercent: 0.10, // 10% rake (informational; enforced on-chain via fee_bps=1000)
-  depositTimeoutMs: 300_000, // 5 minutes for both players to deposit
 } as const;

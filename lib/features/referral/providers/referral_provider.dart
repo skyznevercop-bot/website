@@ -24,18 +24,21 @@ class ReferralNotifier extends Notifier<ReferralState> {
       final referrals = referralsJson.map((json) {
         final r = json as Map<String, dynamic>;
         return ReferredUser(
-          gamerTag: r['gamerTag'] as String,
-          status: _parseStatus(r['status'] as String),
-          joinedAt: DateTime.parse(r['joinedAt'] as String),
-          rewardEarned: (r['rewardEarned'] as num).toDouble(),
+          gamerTag: (r['gamerTag'] as String?) ?? 'Unknown',
+          status: _parseStatus(r['status'] as String? ?? 'JOINED'),
+          joinedAt: DateTime.fromMillisecondsSinceEpoch(
+              (r['joinedAt'] as num?)?.toInt() ?? 0),
+          gamesPlayed: (r['gamesPlayed'] as num?)?.toInt() ?? 0,
+          rewardEarned: (r['rewardEarned'] as num?)?.toDouble() ?? 0,
         );
       }).toList();
 
       state = state.copyWith(
         referralCode: code,
         referredUsers: referrals,
-        totalEarned: (response['totalEarned'] as num).toDouble(),
-        pendingReward: (response['pendingReward'] as num).toDouble(),
+        totalEarned: (response['totalEarned'] as num?)?.toDouble() ?? 0,
+        referralBalance:
+            (response['referralBalance'] as num?)?.toDouble() ?? 0,
         isLoading: false,
       );
     } catch (_) {
@@ -52,22 +55,24 @@ class ReferralNotifier extends Notifier<ReferralState> {
     fetchReferralStats();
   }
 
-  /// Claim pending referral rewards.
+  /// Claim pending referral rewards — moves referralBalance to main balance.
   Future<void> claimRewards() async {
-    if (state.isClaiming || state.pendingReward <= 0) return;
+    if (state.isClaiming || state.referralBalance <= 0) return;
 
     state = state.copyWith(isClaiming: true);
 
     try {
-      await _api.post('/referral/claim');
+      final response = await _api.post('/referral/claim');
+      final amount = (response['amount'] as num?)?.toDouble() ?? 0;
 
-      final amount = state.pendingReward;
-      ref.read(walletProvider.notifier).addBalance(amount);
+      if (amount > 0) {
+        ref.read(walletProvider.notifier).addBalance(amount);
+      }
 
       state = state.copyWith(
         isClaiming: false,
         totalEarned: state.totalEarned + amount,
-        pendingReward: 0,
+        referralBalance: 0,
       );
     } catch (_) {
       state = state.copyWith(isClaiming: false);
@@ -78,8 +83,6 @@ class ReferralNotifier extends Notifier<ReferralState> {
     switch (status) {
       case 'PLAYED':
         return ReferralStatus.played;
-      case 'DEPOSITED':
-        return ReferralStatus.deposited;
       default:
         return ReferralStatus.joined;
     }

@@ -402,6 +402,15 @@ class QueueNotifier extends Notifier<QueueState> {
     state = state.copyWith(clearMatchFound: true);
   }
 
+  /// Set match found data externally (e.g. from challenge accept response).
+  void setMatchFound(MatchFoundData data) {
+    state = state.copyWith(
+      isInQueue: false,
+      searchPhase: SearchPhase.found,
+      matchFound: data,
+    );
+  }
+
   /// Reset search phase to idle (after navigation or cancel).
   void resetSearchPhase() {
     state = state.copyWith(searchPhase: SearchPhase.idle);

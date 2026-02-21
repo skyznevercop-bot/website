@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/services/api_client.dart';
+import '../../play/providers/queue_provider.dart';
 import '../models/friend_models.dart';
 
 /// Manages friends, friend requests, and challenges via the backend API.
@@ -170,6 +171,21 @@ class FriendNotifier extends Notifier<FriendsState> {
       final response = await _api.post('/challenge/$challengeId/accept');
       final matchId = response['matchId'] as String?;
       if (matchId != null) {
+        // Directly set matchFound on the queue provider so the app shell
+        // navigates to the arena immediately, without waiting for WebSocket.
+        final opponent = response['opponent'] as Map<String, dynamic>?;
+        ref.read(queueProvider.notifier).setMatchFound(
+          MatchFoundData(
+            matchId: matchId,
+            opponentGamerTag:
+                (opponent?['gamerTag'] as String?) ?? 'Opponent',
+            opponentAddress: (opponent?['address'] as String?) ?? '',
+            duration: (response['duration'] as String?) ?? '',
+            bet: (response['bet'] as num?)?.toDouble() ?? 0,
+            startTime: (response['startTime'] as num?)?.toInt(),
+            endTime: (response['endTime'] as num?)?.toInt(),
+          ),
+        );
         state = state.copyWith(successMessage: 'Challenge accepted! Entering arena...');
       }
       await loadChallenges();

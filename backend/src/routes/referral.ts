@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { AuthRequest, requireAuth } from "../middleware/auth";
-import { referralsRef, usersRef } from "../services/firebase";
+import { referralsRef, usersRef, getUser } from "../services/firebase";
 
 const router = Router();
 
@@ -14,33 +14,51 @@ router.get("/code", requireAuth, async (req: AuthRequest, res) => {
 
 /** GET /api/referral/stats — Get referral statistics. */
 router.get("/stats", requireAuth, async (req: AuthRequest, res) => {
+  const address = req.userAddress!;
+
   const snap = await referralsRef
     .orderByChild("referrerAddress")
-    .equalTo(req.userAddress!)
+    .equalTo(address)
     .once("value");
 
   const referrals: Array<Record<string, unknown>> = [];
   let totalEarned = 0;
 
   if (snap.exists()) {
+    const fetchTasks: Array<Promise<void>> = [];
+
     snap.forEach((child) => {
       const r = child.val();
-      referrals.push({
-        refereeAddress: child.key,
-        status: r.status,
-        rewardEarned: r.rewardPaid || 0,
-        joinedAt: r.createdAt,
-      });
-      totalEarned += r.rewardPaid || 0;
+      const refereeAddress = child.key!;
+
+      fetchTasks.push(
+        getUser(refereeAddress).then((user) => {
+          const earned = r.rewardPaid || 0;
+          referrals.push({
+            refereeAddress,
+            gamerTag: user?.gamerTag || refereeAddress.slice(0, 8),
+            status: r.status || "JOINED",
+            gamesPlayed: r.gamesPlayed || 0,
+            rewardEarned: earned,
+            joinedAt: r.createdAt,
+          });
+          totalEarned += earned;
+        })
+      );
     });
+
+    await Promise.all(fetchTasks);
   }
 
-  const address = req.userAddress!;
+  // Get the referrer's claimable referral balance.
+  const user = await getUser(address);
+  const referralBalance = user?.referralBalance || 0;
+
   res.json({
     code: `${address.substring(0, 4)}${address.substring(address.length - 4)}`.toUpperCase(),
     referrals,
     totalEarned,
-    pendingReward: 0,
+    referralBalance,
   });
 });
 
@@ -88,15 +106,43 @@ router.post("/apply", requireAuth, async (req: AuthRequest, res) => {
     referrerAddress,
     status: "JOINED",
     rewardPaid: 0,
+    gamesPlayed: 0,
     createdAt: Date.now(),
   });
 
   res.json({ status: "applied", referrer: referrerAddress });
 });
 
-/** POST /api/referral/claim — Claim pending referral rewards. */
-router.post("/claim", requireAuth, async (_req: AuthRequest, res) => {
-  res.json({ status: "ok", message: "Rewards are auto-credited on referral milestones" });
+/** POST /api/referral/claim — Claim accumulated referral rewards to main balance. */
+router.post("/claim", requireAuth, async (req: AuthRequest, res) => {
+  const address = req.userAddress!;
+
+  try {
+    let claimedAmount = 0;
+
+    await usersRef.child(address).transaction((current: Record<string, unknown> | null) => {
+      if (!current) return current;
+      const referralBalance = (current.referralBalance as number) || 0;
+      if (referralBalance <= 0) return current;
+
+      claimedAmount = referralBalance;
+      return {
+        ...current,
+        balance: ((current.balance as number) || 0) + referralBalance,
+        referralBalance: 0,
+      };
+    });
+
+    if (claimedAmount <= 0) {
+      res.status(400).json({ error: "No referral rewards to claim" });
+      return;
+    }
+
+    res.json({ success: true, amount: claimedAmount });
+  } catch (err) {
+    console.error("[Referral] POST /claim error:", err);
+    res.status(500).json({ error: "Failed to claim rewards" });
+  }
 });
 
 export default router;

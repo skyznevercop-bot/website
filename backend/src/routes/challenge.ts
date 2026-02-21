@@ -282,7 +282,20 @@ router.post("/:id/accept", requireAuth, async (req: AuthRequest, res) => {
       `[Challenge] Match created from challenge: ${matchId} | ${player1.slice(0, 8)}… vs ${player2.slice(0, 8)}… | ${duration} | $${bet}`
     );
 
-    res.json({ status: "matched", matchId });
+    // Return full match data so the acceptor can navigate directly to the arena
+    // without depending on a WebSocket message.
+    res.json({
+      status: "matched",
+      matchId,
+      opponent: {
+        address: player1,
+        gamerTag: p1User?.gamerTag || player1.slice(0, 8),
+      },
+      duration,
+      bet,
+      startTime: now,
+      endTime: now + durationSeconds * 1000,
+    });
   } catch (err) {
     console.error("[Challenge] POST /:id/accept error:", err);
     res.status(500).json({ error: "Failed to accept challenge" });

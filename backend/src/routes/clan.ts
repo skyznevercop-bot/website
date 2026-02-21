@@ -351,4 +351,234 @@ router.delete("/:id/leave", requireAuth, async (req: AuthRequest, res) => {
   res.json({ status: "left" });
 });
 
+// ── Leader-only management ─────────────────────────────────────────────────
+
+const VALID_ROLES = ["CO_LEADER", "ELDER", "MEMBER"] as const;
+
+/** PATCH /api/clan/:id — Update clan details (leader only). */
+router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const clanSnap = await clansRef.child(req.params.id).once("value");
+    if (!clanSnap.exists()) {
+      res.status(404).json({ error: "Clan not found" });
+      return;
+    }
+
+    const clan = clanSnap.val();
+    if (clan.leaderAddress !== req.userAddress) {
+      res.status(403).json({ error: "Only the leader can edit the clan" });
+      return;
+    }
+
+    const updates: Record<string, unknown> = {};
+
+    if (req.body.name != null) {
+      const name = sanitizeText(String(req.body.name));
+      if (name.length < 1 || name.length > 30) {
+        res.status(400).json({ error: "Name must be 1-30 characters" });
+        return;
+      }
+      updates.name = name;
+    }
+
+    if (req.body.tag != null) {
+      const tag = sanitizeText(String(req.body.tag));
+      if (tag.length < 1 || tag.length > 5) {
+        res.status(400).json({ error: "Tag must be 1-5 characters" });
+        return;
+      }
+      updates.tag = tag.toUpperCase();
+    }
+
+    if (req.body.description !== undefined) {
+      updates.description = req.body.description
+        ? sanitizeText(String(req.body.description)).slice(0, 200)
+        : null;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: "No fields to update" });
+      return;
+    }
+
+    await clansRef.child(req.params.id).update(updates);
+    res.json({ status: "updated", ...updates });
+  } catch (err) {
+    console.error("[Clan] PATCH /:id error:", err);
+    res.status(500).json({ error: "Failed to update clan" });
+  }
+});
+
+/** DELETE /api/clan/:id — Delete clan (leader only). */
+router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const clanSnap = await clansRef.child(req.params.id).once("value");
+    if (!clanSnap.exists()) {
+      res.status(404).json({ error: "Clan not found" });
+      return;
+    }
+
+    const clan = clanSnap.val();
+    if (clan.leaderAddress !== req.userAddress) {
+      res.status(403).json({ error: "Only the leader can delete the clan" });
+      return;
+    }
+
+    // Clear clanId on all members.
+    const members = clan.members || {};
+    await Promise.all(
+      Object.keys(members).map((addr) => updateUser(addr, { clanId: null }))
+    );
+
+    await clansRef.child(req.params.id).remove();
+    res.json({ status: "deleted" });
+  } catch (err) {
+    console.error("[Clan] DELETE /:id error:", err);
+    res.status(500).json({ error: "Failed to delete clan" });
+  }
+});
+
+/** DELETE /api/clan/:id/members/:address — Kick a member (leader only). */
+router.delete("/:id/members/:address", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const clanSnap = await clansRef.child(req.params.id).once("value");
+    if (!clanSnap.exists()) {
+      res.status(404).json({ error: "Clan not found" });
+      return;
+    }
+
+    const clan = clanSnap.val();
+    if (clan.leaderAddress !== req.userAddress) {
+      res.status(403).json({ error: "Only the leader can kick members" });
+      return;
+    }
+
+    const targetAddress = req.params.address;
+
+    if (targetAddress === req.userAddress) {
+      res.status(400).json({ error: "Cannot kick yourself — use leave instead" });
+      return;
+    }
+
+    if (!clan.members || !clan.members[targetAddress]) {
+      res.status(404).json({ error: "Member not found in this clan" });
+      return;
+    }
+
+    await clansRef
+      .child(req.params.id)
+      .child("members")
+      .child(targetAddress)
+      .remove();
+
+    await updateUser(targetAddress, { clanId: null });
+    res.json({ status: "kicked", address: targetAddress });
+  } catch (err) {
+    console.error("[Clan] DELETE /:id/members/:address error:", err);
+    res.status(500).json({ error: "Failed to kick member" });
+  }
+});
+
+/** PATCH /api/clan/:id/members/:address — Change member role (leader only). */
+router.patch("/:id/members/:address", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const clanSnap = await clansRef.child(req.params.id).once("value");
+    if (!clanSnap.exists()) {
+      res.status(404).json({ error: "Clan not found" });
+      return;
+    }
+
+    const clan = clanSnap.val();
+    if (clan.leaderAddress !== req.userAddress) {
+      res.status(403).json({ error: "Only the leader can change roles" });
+      return;
+    }
+
+    const targetAddress = req.params.address;
+    const { role } = req.body;
+
+    if (targetAddress === req.userAddress) {
+      res.status(400).json({ error: "Cannot change your own role" });
+      return;
+    }
+
+    if (!clan.members || !clan.members[targetAddress]) {
+      res.status(404).json({ error: "Member not found in this clan" });
+      return;
+    }
+
+    if (!role || !(VALID_ROLES as readonly string[]).includes(role)) {
+      res.status(400).json({ error: `Role must be one of: ${VALID_ROLES.join(", ")}` });
+      return;
+    }
+
+    await clansRef
+      .child(req.params.id)
+      .child("members")
+      .child(targetAddress)
+      .update({ role });
+
+    res.json({ status: "updated", address: targetAddress, role });
+  } catch (err) {
+    console.error("[Clan] PATCH /:id/members/:address error:", err);
+    res.status(500).json({ error: "Failed to change role" });
+  }
+});
+
+/** POST /api/clan/:id/transfer — Transfer leadership (leader only). */
+router.post("/:id/transfer", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const clanSnap = await clansRef.child(req.params.id).once("value");
+    if (!clanSnap.exists()) {
+      res.status(404).json({ error: "Clan not found" });
+      return;
+    }
+
+    const clan = clanSnap.val();
+    if (clan.leaderAddress !== req.userAddress) {
+      res.status(403).json({ error: "Only the leader can transfer leadership" });
+      return;
+    }
+
+    const { toAddress } = req.body;
+    if (!toAddress || typeof toAddress !== "string") {
+      res.status(400).json({ error: "toAddress is required" });
+      return;
+    }
+
+    if (toAddress === req.userAddress) {
+      res.status(400).json({ error: "Already the leader" });
+      return;
+    }
+
+    if (!clan.members || !clan.members[toAddress]) {
+      res.status(404).json({ error: "Target is not a member of this clan" });
+      return;
+    }
+
+    // Update roles and leader address atomically.
+    await clansRef.child(req.params.id).update({
+      leaderAddress: toAddress,
+    });
+
+    await Promise.all([
+      clansRef
+        .child(req.params.id)
+        .child("members")
+        .child(toAddress)
+        .update({ role: "LEADER" }),
+      clansRef
+        .child(req.params.id)
+        .child("members")
+        .child(req.userAddress!)
+        .update({ role: "MEMBER" }),
+    ]);
+
+    res.json({ status: "transferred", newLeader: toAddress });
+  } catch (err) {
+    console.error("[Clan] POST /:id/transfer error:", err);
+    res.status(500).json({ error: "Failed to transfer leadership" });
+  }
+});
+
 export default router;

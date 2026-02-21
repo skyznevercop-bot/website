@@ -66,38 +66,17 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      'Referral Program',
-                      style: GoogleFonts.inter(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        gradient: AppTheme.purpleGradient,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'Coming Soon',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
+                Text(
+                  'Referral Program',
+                  style: GoogleFonts.inter(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.textPrimary,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Invite friends and earn USDC rewards when they join and play. This feature is coming soon!',
+                  'Invite friends and earn USDC every time they play. You get 10% of the platform fee on every match.',
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     color: AppTheme.textSecondary,
@@ -386,23 +365,23 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             const SizedBox(height: 16),
             _RewardTier(
               step: '1',
-              label: 'Friend joins SolFight',
+              label: 'Share your link with a friend',
               reward: 'Free',
               color: AppTheme.textSecondary,
             ),
             const SizedBox(height: 10),
             _RewardTier(
               step: '2',
-              label: 'Friend deposits USDC',
-              reward: '+5 USDC',
-              color: AppTheme.solanaGreen,
+              label: 'Friend signs up with your link',
+              reward: 'Tracked',
+              color: AppTheme.solanaPurple,
             ),
             const SizedBox(height: 10),
             _RewardTier(
               step: '3',
-              label: 'Friend plays first match',
-              reward: '+5 USDC',
-              color: AppTheme.solanaPurple,
+              label: 'You earn 10% of the fee on every match they play',
+              reward: '1% of pot',
+              color: AppTheme.solanaGreen,
             ),
           ],
         ),
@@ -433,9 +412,9 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
             width: isMobile ? double.infinity : null,
           ),
           _StatCard(
-            title: 'Pending Rewards',
-            value: '\$${referral.pendingReward.toStringAsFixed(2)}',
-            icon: Icons.access_time_rounded,
+            title: 'Active Players',
+            value: '${referral.referredUsers.where((u) => u.gamesPlayed > 0).length}',
+            icon: Icons.sports_esports_rounded,
             color: AppTheme.warning,
             width: isMobile ? double.infinity : null,
           ),
@@ -445,7 +424,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
   }
 
   Widget _buildClaimButton(BuildContext context, ReferralState referral) {
-    final canClaim = referral.pendingReward > 0 && !referral.isClaiming;
+    final canClaim = referral.referralBalance > 0 && !referral.isClaiming;
 
     return Padding(
       padding: Responsive.horizontalPadding(context),
@@ -468,7 +447,7 @@ class _ReferralScreenState extends ConsumerState<ReferralScreen> {
           label: Text(
             referral.isClaiming
                 ? 'Claiming...'
-                : 'Claim \$${referral.pendingReward.toStringAsFixed(2)} USDC',
+                : 'Claim \$${referral.referralBalance.toStringAsFixed(2)} USDC',
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w700,
@@ -757,22 +736,7 @@ class _ReferredUserRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color statusColor;
-    String statusLabel;
-    switch (user.status) {
-      case ReferralStatus.played:
-        statusColor = AppTheme.success;
-        statusLabel = 'Played';
-        break;
-      case ReferralStatus.deposited:
-        statusColor = AppTheme.solanaPurple;
-        statusLabel = 'Deposited';
-        break;
-      case ReferralStatus.joined:
-        statusColor = AppTheme.textTertiary;
-        statusLabel = 'Joined';
-        break;
-    }
+    final isActive = user.gamesPlayed > 0;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -799,15 +763,28 @@ class _ReferredUserRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
 
-          // Name
+          // Name + games played
           Expanded(
-            child: Text(
-              user.gamerTag,
-              style: GoogleFonts.inter(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.gamerTag,
+                  style: GoogleFonts.inter(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                if (isActive)
+                  Text(
+                    '${user.gamesPlayed} game${user.gamesPlayed == 1 ? '' : 's'} played',
+                    style: GoogleFonts.inter(
+                      fontSize: 11,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+              ],
             ),
           ),
 
@@ -815,15 +792,17 @@ class _ReferredUserRow extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: statusColor.withValues(alpha: 0.1),
+              color: isActive
+                  ? AppTheme.success.withValues(alpha: 0.1)
+                  : AppTheme.textTertiary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
-              statusLabel,
+              isActive ? 'Active' : 'Joined',
               style: GoogleFonts.inter(
                 fontSize: 10,
                 fontWeight: FontWeight.w700,
-                color: statusColor,
+                color: isActive ? AppTheme.success : AppTheme.textTertiary,
               ),
             ),
           ),
@@ -832,7 +811,7 @@ class _ReferredUserRow extends StatelessWidget {
           // Reward earned
           Text(
             user.rewardEarned > 0
-                ? '+\$${user.rewardEarned.toStringAsFixed(0)}'
+                ? '+\$${user.rewardEarned.toStringAsFixed(2)}'
                 : '-',
             style: GoogleFonts.inter(
               fontSize: 13,

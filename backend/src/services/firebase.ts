@@ -80,6 +80,7 @@ export interface DbUser {
   frozenBalance?: number;
   totalDeposited?: number;
   totalWithdrawn?: number;
+  referralBalance?: number;
 }
 
 export async function getUser(address: string): Promise<DbUser | null> {

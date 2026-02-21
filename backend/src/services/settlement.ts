@@ -6,6 +6,8 @@ import {
   updateMatch,
   updateUser,
   getUser,
+  usersRef,
+  referralsRef,
   DbPosition,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
@@ -324,6 +326,56 @@ function calculatePnl(pos: DbPosition, currentPrice: number): number {
   return (priceDiff / pos.entryPrice) * pos.size * pos.leverage;
 }
 
+/** Credit referral rewards to referrers for both players in a match. */
+async function creditReferralRewards(
+  player1: string,
+  player2: string,
+  betAmount: number
+): Promise<void> {
+  if (betAmount <= 0) return;
+
+  const pot = betAmount * 2;
+  const rake = pot * config.rakePercent;          // 10% of pot
+  const referralReward = rake * 0.10;             // 10% of rake = 1% of pot
+
+  for (const playerAddress of [player1, player2]) {
+    try {
+      const refSnap = await referralsRef.child(playerAddress).once("value");
+      if (!refSnap.exists()) continue;
+
+      const refData = refSnap.val();
+      const referrerAddress = refData.referrerAddress as string;
+      if (!referrerAddress) continue;
+
+      // Credit referrer's referralBalance
+      await usersRef.child(referrerAddress).transaction((current: Record<string, unknown> | null) => {
+        if (!current) return current;
+        return {
+          ...current,
+          referralBalance: ((current.referralBalance as number) || 0) + referralReward,
+        };
+      });
+
+      // Update referral record: increment gamesPlayed + rewardPaid, set status
+      await referralsRef.child(playerAddress).transaction((current: Record<string, unknown> | null) => {
+        if (!current) return current;
+        return {
+          ...current,
+          gamesPlayed: ((current.gamesPlayed as number) || 0) + 1,
+          rewardPaid: ((current.rewardPaid as number) || 0) + referralReward,
+          status: "PLAYED",
+        };
+      });
+
+      console.log(
+        `[Referral] Credited $${referralReward.toFixed(4)} to ${referrerAddress.slice(0, 8)}… (referee: ${playerAddress.slice(0, 8)}…)`
+      );
+    } catch (err) {
+      console.error(`[Referral] Failed to credit reward for ${playerAddress.slice(0, 8)}…:`, err);
+    }
+  }
+}
+
 async function updatePlayerStats(
   player1: string,
   player2: string,
@@ -482,4 +534,7 @@ async function updatePlayerStats(
       checkAndAwardAchievements(loser, loserAchStats, loserStats.achievements || {}, loserCtx),
     ]);
   }
+
+  // Credit referral rewards (non-blocking — errors are logged but don't fail settlement).
+  void creditReferralRewards(player1, player2, betAmount);
 }
