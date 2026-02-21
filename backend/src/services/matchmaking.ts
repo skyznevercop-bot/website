@@ -166,29 +166,34 @@ async function matchPair(
   player1: string,
   player2: string
 ): Promise<void> {
-  // Remove both from queue first (prevents duplicate matching).
+  const parts = queueKey.split("_");
+  const bet = parseFloat(parts[1]);
+
+  // Guard: check connection BEFORE removing from queue so the connected
+  // player keeps their queue position if the other is offline.
+  const p1Connected = isUserConnected(player1);
+  const p2Connected = isUserConnected(player2);
+
+  if (!p1Connected || !p2Connected) {
+    // Only remove the disconnected player(s) — the connected one stays queued.
+    if (!p1Connected) {
+      await queuesRef.child(queueKey).child(player1).remove();
+      await unfreezeBalance(player1, bet);
+      console.log(`[Matchmaking] Removed offline ${player1.slice(0, 8)}… from queue — balance unfrozen`);
+    }
+    if (!p2Connected) {
+      await queuesRef.child(queueKey).child(player2).remove();
+      await unfreezeBalance(player2, bet);
+      console.log(`[Matchmaking] Removed offline ${player2.slice(0, 8)}… from queue — balance unfrozen`);
+    }
+    return;
+  }
+
+  // Both players are connected — remove from queue and proceed.
   await Promise.all([
     queuesRef.child(queueKey).child(player1).remove(),
     queuesRef.child(queueKey).child(player2).remove(),
   ]);
-
-  // Guard: if either player has disconnected, unfreeze their balance and abort.
-  if (!isUserConnected(player1) || !isUserConnected(player2)) {
-    const disconnected = !isUserConnected(player1) ? player1 : player2;
-    const parts = queueKey.split("_");
-    const bet = parseFloat(parts[1]);
-
-    // Unfreeze both players.
-    await Promise.all([
-      unfreezeBalance(player1, bet),
-      unfreezeBalance(player2, bet),
-    ]);
-
-    console.log(
-      `[Matchmaking] Aborted match: ${disconnected.slice(0, 8)}… is offline — balance unfrozen`
-    );
-    return;
-  }
 
   // Guard: if either player is already in an active match, abort.
   const [p1Active, p2Active] = await Promise.all([
@@ -196,8 +201,6 @@ async function matchPair(
     hasActiveMatch(player2),
   ]);
   if (p1Active || p2Active) {
-    const parts = queueKey.split("_");
-    const bet = parseFloat(parts[1]);
     await Promise.all([
       unfreezeBalance(player1, bet),
       unfreezeBalance(player2, bet),
@@ -209,9 +212,7 @@ async function matchPair(
     return;
   }
 
-  const parts = queueKey.split("_");
   const duration = parts[0];
-  const bet = parseFloat(parts[1]);
 
   const durationSeconds = parseDurationToSeconds(duration);
   const now = Date.now();

@@ -174,15 +174,18 @@ export function setupWebSocket(server: HttpServer): void {
       if (ws.userAddress) {
         unregisterUserConnection(ws.userAddress, ws);
 
-        // Clean up queue entries and unfreeze balance.
-        removeFromAllQueues(ws.userAddress).catch((err) => {
-          console.error(`[WS] Failed to remove ${ws.userAddress?.slice(0, 8)}… from queues on disconnect:`, err);
-        });
+        // Only remove from queues if the user has NO other active connections.
+        // This prevents brief WS blips from kicking players out of the queue.
+        if (!isUserConnected(ws.userAddress)) {
+          removeFromAllQueues(ws.userAddress).catch((err) => {
+            console.error(`[WS] Failed to remove ${ws.userAddress?.slice(0, 8)}… from queues on disconnect:`, err);
+          });
+        }
 
         if (ws.currentMatchId) {
           leaveMatchRoom(ws.currentMatchId, ws);
 
-          // Start 30s forfeit timer if player has no other connections.
+          // Start forfeit timer if player has no other connections.
           if (!isUserConnected(ws.userAddress)) {
             startForfeitTimer(ws.currentMatchId, ws.userAddress);
           }

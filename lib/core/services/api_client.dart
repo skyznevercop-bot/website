@@ -28,6 +28,8 @@ class ApiClient {
     'open_position',
     'close_position',
     'partial_close',
+    'join_queue',
+    'leave_queue',
   };
 
   /// Max age for queued messages before they are discarded (60 seconds).
