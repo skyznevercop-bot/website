@@ -80,15 +80,21 @@
   </script>
 
   <!-- lightweight-charts v5 (MIT) -->
-  <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"></script>
+  <script src="https://unpkg.com/lightweight-charts@5.1.0/dist/lightweight-charts.standalone.production.js"
+          integrity="sha384-ExNwjbclSLY2LS3S2c6aDJDjpBHGZLct23WX65fLzj0ob1bRrCh9H90WThES5wQA"
+          crossorigin="anonymous"></script>
   <script src="lw_chart.js"></script>
 
   <!-- Buffer polyfill (required by @solana/web3.js in browsers) -->
-  <script src="https://unpkg.com/buffer@6.0.3/index.js"></script>
+  <script src="https://unpkg.com/buffer@6.0.3/index.js"
+          integrity="sha384-6B8ozEFhuZn2qIdiSFvavhK+0npysdbGHKzvVAWKzMKn68xoF5zjAWKpc35R8x5c"
+          crossorigin="anonymous"></script>
   <script>window.Buffer = buffer.Buffer;</script>
 
   <!-- Solana Web3.js (required for wallet adapter JS interop) -->
-  <script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"></script>
+  <script src="https://unpkg.com/@solana/web3.js@1.95.3/lib/index.iife.min.js"
+          integrity="sha384-xo1g+ODR6i1cxIVZeALc/apXFHeaJHO1j1whMO3dhtdBChWeaihnDs7UnXs9ch78"
+          crossorigin="anonymous"></script>
   <script>
     // Expose solanaWeb3 globally for Dart JS interop.
     window.solanaWeb3 = solanaWeb3;

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "buildCommand": null,
+  "outputDirectory": "build/web",
+  "rewrites": [
+    {
+      "source": "/((?!assets|canvaskit|icons|flutter|main|manifest|version|favicon|tradingview).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
