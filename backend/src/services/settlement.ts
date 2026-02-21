@@ -258,9 +258,40 @@ async function _doSettleMatch(
   const player2 = match.player2 as string;
   const betAmount = match.betAmount as number;
 
-  // Recalculate PnL for EVERY position from entry/exit prices.
-  // Never rely on stored p.pnl — it may be undefined or stale.
-  const p1Pnl = allPositions
+  // ── Verification: re-read ALL positions from Firebase ──
+  // This is the source of truth — guards against stale in-memory data,
+  // race conditions with concurrent WS closes, or partial write failures.
+  const verifiedPositions = await getPositions(matchId);
+
+  const openAfterClose = verifiedPositions.filter((p) => !p.closedAt);
+  if (openAfterClose.length > 0) {
+    console.warn(`[Settlement] Match ${matchId}: ${openAfterClose.length} positions still open after close pass — closing now`);
+    for (const pos of openAfterClose) {
+      const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
+      const liquidationPrice = pos.isLong
+        ? pos.entryPrice * (1 - 0.9 / pos.leverage)
+        : pos.entryPrice * (1 + 0.9 / pos.leverage);
+      const shouldLiquidate = pos.isLong
+        ? currentPrice <= liquidationPrice
+        : currentPrice >= liquidationPrice;
+      const exitPrice = shouldLiquidate ? liquidationPrice : currentPrice;
+      const pnl = calculatePnl(pos, exitPrice);
+
+      await updatePosition(matchId, pos.id, {
+        exitPrice,
+        pnl,
+        closedAt: Date.now(),
+        closeReason: shouldLiquidate ? "liquidation" : "match_end",
+      });
+
+      pos.exitPrice = exitPrice;
+      pos.pnl = pnl;
+      pos.closedAt = Date.now();
+    }
+  }
+
+  // Calculate final PnL from verified (persisted) positions.
+  const p1Pnl = verifiedPositions
     .filter((p) => p.playerAddress === player1)
     .reduce((sum, p) => {
       const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
@@ -268,7 +299,7 @@ async function _doSettleMatch(
       return sum + pnl;
     }, 0);
 
-  const p2Pnl = allPositions
+  const p2Pnl = verifiedPositions
     .filter((p) => p.playerAddress === player2)
     .reduce((sum, p) => {
       const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
@@ -276,12 +307,11 @@ async function _doSettleMatch(
       return sum + pnl;
     }, 0);
 
-  // ROI = (finalBalance - initialBalance) / initialBalance * 100
-  // Since finalBalance = DEMO_BALANCE + totalPnl, this simplifies to totalPnl / DEMO_BALANCE.
+  // ROI = totalPnl / DEMO_BALANCE (since finalBalance = DEMO_BALANCE + totalPnl).
   const p1Roi = p1Pnl / DEMO_BALANCE;
   const p2Roi = p2Pnl / DEMO_BALANCE;
 
-  console.log(`[Settlement] Match ${matchId}: P1 PnL=$${p1Pnl.toFixed(2)} ROI=${(p1Roi * 100).toFixed(2)}% | P2 PnL=$${p2Pnl.toFixed(2)} ROI=${(p2Roi * 100).toFixed(2)}%`);
+  console.log(`[Settlement] Match ${matchId} VERIFIED: P1 PnL=$${p1Pnl.toFixed(2)} ROI=${(p1Roi * 100).toFixed(2)}% | P2 PnL=$${p2Pnl.toFixed(2)} ROI=${(p2Roi * 100).toFixed(2)}% (${verifiedPositions.length} positions)`);
 
   const isTie = Math.abs(p1Roi - p2Roi) <= TIE_TOLERANCE;
   let winner: string | undefined;
