@@ -175,7 +175,7 @@ router.get("/history/:address", async (req, res) => {
       pnl = 0;
     } else if (m.winner === address) {
       result = "WIN";
-      pnl = betAmount * (1 - rake); // net winnings after rake
+      pnl = betAmount * (2 * (1 - rake) - 1); // net winnings after rake
     } else {
       result = "LOSS";
       pnl = -betAmount;

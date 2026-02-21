@@ -12,8 +12,8 @@ import {
   DbMatch,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch, broadcastToAll, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
-import { settleMatchBalances } from "./balance";
+import { broadcastToMatch, broadcastToAll, broadcastToUser, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
+import { settleMatchBalances, getBalance } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
 import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
@@ -23,6 +23,18 @@ const TIE_TOLERANCE = config.tieTolerance;
 
 /** Guard against concurrent settleMatch calls for the same matchId. */
 const _settling = new Set<string>();
+
+/** Send balance_update WS to both players after settlement. */
+async function sendBalanceUpdates(player1: string, player2: string): Promise<void> {
+  for (const addr of [player1, player2]) {
+    try {
+      const balanceInfo = await getBalance(addr);
+      broadcastToUser(addr, { type: "balance_update", ...balanceInfo });
+    } catch (err) {
+      console.error(`[Settlement] Failed to send balance_update to ${addr.slice(0, 8)}…:`, err);
+    }
+  }
+}
 
 /**
  * Start the settlement loop — checks every 5 seconds for matches
@@ -160,6 +172,9 @@ export async function settleByForfeit(
   );
   await updateMatch(matchId, { balancesSettled: true });
 
+  // 2b. Send updated balances to both players via WS.
+  void sendBalanceUpdates(match.player1, match.player2);
+
   // 3. Update player stats.
   await updatePlayerStats(match.player1, match.player2, winner, match.betAmount, false, matchId);
 
@@ -288,6 +303,9 @@ async function _doSettleMatch(
   // 2. Settle balances INSTANTLY — no on-chain waiting.
   await settleMatchBalances(matchId, winner, player1, player2, betAmount, isTie);
   await updateMatch(matchId, { balancesSettled: true });
+
+  // 2b. Send updated balances to both players via WS.
+  void sendBalanceUpdates(player1, player2);
 
   // 3. Update player stats + check achievements.
   await updatePlayerStats(player1, player2, winner, betAmount, isTie, matchId);
