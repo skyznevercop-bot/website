@@ -201,23 +201,6 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                     color: AppTheme.textPrimary,
                   ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.solanaPurple.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'Soon',
-                    style: GoogleFonts.inter(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.solanaPurple,
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
