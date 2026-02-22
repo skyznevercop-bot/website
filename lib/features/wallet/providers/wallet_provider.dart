@@ -125,7 +125,7 @@ class WalletNotifier extends Notifier<WalletState> {
       });
 
       if (backendAvailable) {
-        _fetchPlatformBalance().catchError((e) {
+        _fetchPlatformBalanceWithRetry().catchError((e) {
           if (kDebugMode) debugPrint('[Wallet] Platform balance fetch error: $e');
         });
       }
@@ -186,7 +186,55 @@ class WalletNotifier extends Notifier<WalletState> {
       final result = await SolanaWalletAdapter.connectEagerly(walletName);
       final address = result.publicKey;
 
-      // Reconnect WebSocket with the existing JWT.
+      // Try using the stored JWT first.
+      String? gamerTag;
+      bool tokenValid = false;
+      try {
+        final userResponse = await _api.get('/user/$address');
+        gamerTag = userResponse['gamerTag'] as String?;
+        tokenValid = true;
+      } catch (e) {
+        if (kDebugMode) debugPrint('[Wallet] Stored JWT failed: $e — re-authenticating…');
+      }
+
+      // If stored JWT is expired/invalid, re-authenticate with a fresh token.
+      if (!tokenValid) {
+        try {
+          final nonceResponse =
+              await _api.get('/auth/nonce?address=$address');
+          final nonce = nonceResponse['nonce'] as String;
+          final message = nonceResponse['message'] as String;
+
+          final messageBytes = Uint8List.fromList(utf8.encode(message));
+          final signatureBytes =
+              await SolanaWalletAdapter.signMessage(walletName, messageBytes);
+          final signatureBase58 = _base58Encode(signatureBytes);
+
+          final authResponse = await _api.post('/auth/verify', {
+            'address': address,
+            'signature': signatureBase58,
+            'nonce': nonce,
+          });
+
+          final token = authResponse['token'] as String;
+          await _api.setToken(token);
+
+          // Retry user profile with the fresh token.
+          try {
+            final userResponse = await _api.get('/user/$address');
+            gamerTag = userResponse['gamerTag'] as String?;
+          } catch (_) {}
+
+          tokenValid = true;
+          if (kDebugMode) debugPrint('[Wallet] Re-authentication successful');
+        } catch (e) {
+          if (kDebugMode) debugPrint('[Wallet] Re-authentication failed: $e');
+        }
+      }
+
+      _backendConnected = tokenValid;
+
+      // Connect WebSocket with the (possibly refreshed) JWT.
       _api.connectWebSocket();
 
       // Listen for balance_update events.
@@ -203,17 +251,6 @@ class WalletNotifier extends Notifier<WalletState> {
           }
         }
       });
-
-      // Fetch user profile.
-      String? gamerTag;
-      try {
-        final userResponse = await _api.get('/user/$address');
-        gamerTag = userResponse['gamerTag'] as String?;
-        _backendConnected = true;
-      } catch (e) {
-        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
-        _backendConnected = false;
-      }
 
       // Resolve wallet type enum from stored string.
       final walletType = WalletType.values.firstWhere(
@@ -237,7 +274,7 @@ class WalletNotifier extends Notifier<WalletState> {
       }).catchError((_) {});
 
       if (_backendConnected) {
-        _fetchPlatformBalance().catchError((_) {});
+        _fetchPlatformBalanceWithRetry();
       }
     } catch (e) {
       // Silent reconnect failed — user will need to connect manually.
@@ -296,7 +333,30 @@ class WalletNotifier extends Notifier<WalletState> {
         platformBalance: balance,
         frozenBalance: frozen,
       );
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Wallet] Platform balance fetch failed: $e');
+    }
+  }
+
+  /// Fetch platform balance with retries (handles backend cold starts).
+  Future<void> _fetchPlatformBalanceWithRetry() async {
+    for (int attempt = 0; attempt < 4; attempt++) {
+      try {
+        final response = await _api.get('/balance');
+        final balance = (response['balance'] as num?)?.toDouble() ?? 0;
+        final frozen = (response['frozenBalance'] as num?)?.toDouble() ?? 0;
+        state = state.copyWith(
+          platformBalance: balance,
+          frozenBalance: frozen,
+        );
+        return; // Success — stop retrying.
+      } catch (e) {
+        if (kDebugMode) debugPrint('[Wallet] Balance fetch attempt ${attempt + 1}/4 failed: $e');
+        if (attempt < 3) {
+          await Future.delayed(Duration(seconds: 2 * (attempt + 1)));
+        }
+      }
+    }
   }
 
   /// Refresh only the platform balance (called after deposit/withdraw).
