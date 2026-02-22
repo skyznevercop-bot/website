@@ -3,6 +3,7 @@ import { AuthRequest, requireAuth } from "../middleware/auth";
 import { joinQueue, leaveQueue, getQueueStats } from "../services/matchmaking";
 import { VALID_DURATIONS, VALID_BETS, isValidDuration, isValidBet } from "../utils/validation";
 import { getOnlinePlayerCount } from "../ws/rooms";
+import { usersRef, matchesRef } from "../services/firebase";
 
 const router = Router();
 
@@ -50,6 +51,39 @@ const DURATION_INDEX: Record<string, number> = {
   "24h": 4,
 };
 
+// ── Cached platform stats (refreshed every 60s) ────────────────────
+let _cachedPlatformStats: { totalPlayers: number; totalMatches: number; totalVolume: number } | null = null;
+let _platformStatsCachedAt = 0;
+const STATS_CACHE_MS = 60_000;
+
+async function getPlatformStats() {
+  const now = Date.now();
+  if (_cachedPlatformStats && now - _platformStatsCachedAt < STATS_CACHE_MS) {
+    return _cachedPlatformStats;
+  }
+
+  const [usersSnap, matchesSnap] = await Promise.all([
+    usersRef.once("value"),
+    matchesRef.orderByChild("status").equalTo("completed").once("value"),
+  ]);
+
+  const totalPlayers = usersSnap.numChildren();
+  let totalMatches = 0;
+  let totalVolume = 0;
+
+  if (matchesSnap.exists()) {
+    matchesSnap.forEach((child) => {
+      totalMatches++;
+      const m = child.val();
+      totalVolume += (m.betAmount ?? 0) * 2; // both players' bets
+    });
+  }
+
+  _cachedPlatformStats = { totalPlayers, totalMatches, totalVolume };
+  _platformStatsCachedAt = now;
+  return _cachedPlatformStats;
+}
+
 /** GET /api/queue/stats — Get current queue statistics. */
 router.get("/stats", async (_req, res) => {
   const stats = await getQueueStats();
@@ -67,7 +101,19 @@ router.get("/stats", async (_req, res) => {
     avgWaitSeconds: null,
   }));
 
-  res.json({ queues, onlinePlayers: getOnlinePlayerCount() });
+  // Include real platform stats.
+  let platformStats = { totalPlayers: 0, totalMatches: 0, totalVolume: 0 };
+  try {
+    platformStats = await getPlatformStats();
+  } catch (err) {
+    console.error("[Queue] Platform stats error:", err);
+  }
+
+  res.json({
+    queues,
+    onlinePlayers: getOnlinePlayerCount(),
+    ...platformStats,
+  });
 });
 
 export default router;
