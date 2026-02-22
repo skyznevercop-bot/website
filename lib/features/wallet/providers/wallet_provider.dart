@@ -254,7 +254,9 @@ class WalletNotifier extends Notifier<WalletState> {
       // Fetch balances in background.
       _fetchOnChainUsdcBalance(address).then((balance) {
         state = state.copyWith(usdcBalance: balance);
-      }).catchError((_) {});
+      }).catchError((e) {
+        if (kDebugMode) debugPrint('[Wallet] Reconnect on-chain balance failed: $e');
+      });
 
       if (_backendConnected) {
         _fetchPlatformBalanceWithRetry();
@@ -300,7 +302,9 @@ class WalletNotifier extends Notifier<WalletState> {
     try {
       final balance = await _fetchOnChainUsdcBalance(state.address!);
       state = state.copyWith(usdcBalance: balance);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Wallet] refreshBalance on-chain failed: $e');
+    }
     if (_backendConnected) {
       await _fetchPlatformBalance();
     }

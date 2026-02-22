@@ -982,7 +982,8 @@ class _TabbedFeedState extends ConsumerState<_TabbedFeed> {
           Expanded(
             child: switch (_activeTab) {
               _FeedTab.live => _LiveContent(
-                  matches: widget.queue.liveMatches),
+                  matches: widget.queue.liveMatches,
+                  isLoaded: widget.queue.isLoaded),
               _FeedTab.challenges => _ChallengesContent(
                   received: friends.receivedChallenges,
                   sent: friends.sentChallenges),
@@ -1085,14 +1086,24 @@ class _TabChipState extends State<_TabChip> {
 
 class _LiveContent extends StatelessWidget {
   final List<LiveMatch> matches;
-  const _LiveContent({required this.matches});
+  final bool isLoaded;
+  const _LiveContent({required this.matches, this.isLoaded = true});
 
   @override
   Widget build(BuildContext context) {
     if (matches.isEmpty) {
       return Center(
-        child: Text('No active matches right now',
-            style: GoogleFonts.inter(fontSize: 12, color: Colors.white38)),
+        child: isLoaded
+            ? Text('No active matches right now',
+                style: GoogleFonts.inter(fontSize: 12, color: Colors.white38))
+            : const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white24,
+                ),
+              ),
       );
     }
     return ListView.separated(

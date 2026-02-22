@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/config/environment.dart';
 import '../../../core/services/api_client.dart';
@@ -41,7 +42,9 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       }).toList();
 
       state = state.copyWith(transactions: transactions);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Portfolio] fetchTransactions failed: $e');
+    }
   }
 
   static TransactionType _parseTransactionType(String type) {
@@ -66,7 +69,8 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
   }
 
   /// Withdraw USDC via backend platform balance API.
-  Future<bool> withdraw(double amount, String destinationAddress) async {
+  /// Funds are always sent to the authenticated wallet address.
+  Future<bool> withdraw(double amount) async {
     if (state.isWithdrawing) return false;
 
     final wallet = ref.read(walletProvider);
@@ -80,17 +84,12 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       state = state.copyWith(withdrawError: 'Insufficient platform balance');
       return false;
     }
-    if (!isValidSolanaAddress(destinationAddress)) {
-      state = state.copyWith(withdrawError: 'Invalid Solana address');
-      return false;
-    }
 
     state = state.copyWith(isWithdrawing: true, clearError: true);
 
     try {
       final response = await _api.post('/balance/withdraw', {
         'amount': amount,
-        'destinationAddress': destinationAddress,
       });
 
       final sig = response['txSignature'] as String?;
@@ -98,14 +97,14 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
         id: 'tx_${DateTime.now().millisecondsSinceEpoch}',
         type: TransactionType.withdraw,
         amount: amount,
-        address: destinationAddress,
+        address: wallet.address ?? '',
         status: TransactionStatus.confirmed,
         signature: sig,
         createdAt: DateTime.now(),
       );
 
       // Refresh platform balance from backend.
-      ref.read(walletProvider.notifier).refreshPlatformBalance();
+      await ref.read(walletProvider.notifier).refreshPlatformBalance();
 
       state = state.copyWith(
         isWithdrawing: false,
@@ -206,8 +205,8 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
 
       // ── Step 3: Crediting balance ──
       state = state.copyWith(depositStep: DepositStep.crediting);
-      ref.read(walletProvider.notifier).refreshPlatformBalance();
-      ref.read(walletProvider.notifier).refreshBalance();
+      await ref.read(walletProvider.notifier).refreshPlatformBalance();
+      await ref.read(walletProvider.notifier).refreshBalance();
       await fetchTransactions();
 
       state = state.copyWith(
@@ -273,7 +272,8 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     try {
       final response = await _api.get('/balance/vault');
       return response['vaultAddress'] as String?;
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Portfolio] getVaultAddress failed: $e');
       return null;
     }
   }
@@ -303,8 +303,8 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       }).toList();
 
       state = state.copyWith(matchHistory: matches, isLoadingHistory: false);
-    } catch (_) {
-      // Backend unavailable — keep existing state.
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Portfolio] fetchMatchHistory failed: $e');
       state = state.copyWith(isLoadingHistory: false);
     }
   }
@@ -327,7 +327,8 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
       final isAdmin = response['isAdmin'] as bool? ?? false;
       state = state.copyWith(isAdmin: isAdmin);
       if (isAdmin) await fetchRakeStats();
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Portfolio] checkAdminStatus failed: $e');
       state = state.copyWith(isAdmin: false);
     }
   }
@@ -340,7 +341,9 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
         accumulatedRake: (response['accumulatedRake'] as num?)?.toDouble() ?? 0,
         totalRakeCollected: (response['totalRakeCollected'] as num?)?.toDouble() ?? 0,
       );
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Portfolio] fetchRakeStats failed: $e');
+    }
   }
 
   /// Withdraw accumulated rake to admin wallet (admin only).

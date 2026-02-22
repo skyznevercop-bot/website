@@ -30,7 +30,6 @@ class _WithdrawModal extends ConsumerStatefulWidget {
 
 class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
   final _amountController = TextEditingController();
-  final _addressController = TextEditingController();
   String? _localError;
   _Step _step = _Step.form;
   String? _txSignature;
@@ -38,13 +37,11 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
   @override
   void dispose() {
     _amountController.dispose();
-    _addressController.dispose();
     super.dispose();
   }
 
   Future<void> _onWithdraw() async {
     final amountText = _amountController.text.trim();
-    final address = _addressController.text.trim();
 
     final amount = double.tryParse(amountText);
     if (amount == null || amount <= 0) {
@@ -62,15 +59,10 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
       return;
     }
 
-    if (!PortfolioNotifier.isValidSolanaAddress(address)) {
-      setState(() => _localError = 'Invalid Solana address');
-      return;
-    }
-
     setState(() => _localError = null);
 
     final success =
-        await ref.read(portfolioProvider.notifier).withdraw(amount, address);
+        await ref.read(portfolioProvider.notifier).withdraw(amount);
 
     if (success && mounted) {
       final state = ref.read(portfolioProvider);
@@ -89,13 +81,6 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
   void _fillMax() {
     final balance = ref.read(walletProvider).platformBalance;
     _amountController.text = balance.toStringAsFixed(2);
-  }
-
-  Future<void> _pasteAddress() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (data?.text != null) {
-      _addressController.text = data!.text!.trim();
-    }
   }
 
   void _openExplorer() {
@@ -284,60 +269,19 @@ class _WithdrawModalState extends ConsumerState<_WithdrawModal> {
 
         const SizedBox(height: 16),
 
-        // ── Destination Address ─────────────────────────────────────
+        // ── Destination info ──────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
             children: [
+              Icon(Icons.info_outline_rounded,
+                  size: 14, color: AppTheme.textTertiary),
+              const SizedBox(width: 6),
               Text(
-                'Destination Address',
+                'Funds will be sent to your connected wallet',
                 style: GoogleFonts.inter(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              TextField(
-                controller: _addressController,
-                style: GoogleFonts.inter(
-                  fontSize: 13,
-                  color: AppTheme.textPrimary,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Solana wallet address',
-                  hintStyle: GoogleFonts.inter(
-                    fontSize: 13,
-                    color: AppTheme.textTertiary,
-                  ),
-                  suffixIcon: IconButton(
-                    onPressed: _pasteAddress,
-                    icon: const Icon(Icons.content_paste_rounded,
-                        size: 18),
-                    color: AppTheme.solanaPurple,
-                    splashRadius: 18,
-                  ),
-                  filled: true,
-                  fillColor: AppTheme.background,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 14),
-                  border: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppTheme.radiusMd),
-                    borderSide: BorderSide(color: AppTheme.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppTheme.radiusMd),
-                    borderSide: BorderSide(color: AppTheme.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius:
-                        BorderRadius.circular(AppTheme.radiusMd),
-                    borderSide: const BorderSide(
-                        color: AppTheme.solanaPurple, width: 1.5),
-                  ),
+                  fontSize: 12,
+                  color: AppTheme.textTertiary,
                 ),
               ),
             ],

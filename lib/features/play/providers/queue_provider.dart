@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -62,6 +63,9 @@ class QueueState {
   /// Recent match results for lobby display.
   final List<RecentMatchResult> recentMatches;
 
+  /// Whether initial data has been loaded from the backend.
+  final bool isLoaded;
+
   const QueueState({
     this.queueSizes = const [0, 0, 0, 0, 0],
     this.waitTimes = const ['--', '--', '--', '--', '--'],
@@ -83,6 +87,7 @@ class QueueState {
     this.rankTotal = 0,
     this.liveMatches = const [],
     this.recentMatches = const [],
+    this.isLoaded = false,
   });
 
   int get userGamesPlayed => userWins + userLosses;
@@ -116,6 +121,7 @@ class QueueState {
     int? rankTotal,
     List<LiveMatch>? liveMatches,
     List<RecentMatchResult>? recentMatches,
+    bool? isLoaded,
   }) {
     return QueueState(
       queueSizes: queueSizes ?? this.queueSizes,
@@ -145,6 +151,7 @@ class QueueState {
       rankTotal: rankTotal ?? this.rankTotal,
       liveMatches: liveMatches ?? this.liveMatches,
       recentMatches: recentMatches ?? this.recentMatches,
+      isLoaded: isLoaded ?? this.isLoaded,
     );
   }
 }
@@ -249,6 +256,9 @@ class QueueNotifier extends Notifier<QueueState> {
   Future<void> _fetchAll() async {
     await fetchQueueStats();
     await fetchLiveMatches();
+    if (!state.isLoaded) {
+      state = state.copyWith(isLoaded: true);
+    }
   }
 
   /// Stop listening.
@@ -450,8 +460,8 @@ class QueueNotifier extends Notifier<QueueState> {
       if (online != null) {
         state = state.copyWith(onlinePlayers: online);
       }
-    } catch (_) {
-      // Backend unavailable — stats stay at 0, UI shows "--".
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Queue] fetchQueueStats failed: $e');
     }
   }
 
@@ -472,7 +482,9 @@ class QueueNotifier extends Notifier<QueueState> {
         clearUserRank: rankResp['rank'] == null,
         rankTotal: rankResp['total'] as int? ?? 0,
       );
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Queue] fetchUserStats failed: $e');
+    }
     // Fetch recent matches separately (non-blocking).
     fetchRecentMatches(address);
   }
@@ -497,7 +509,9 @@ class QueueNotifier extends Notifier<QueueState> {
       }).toList();
 
       state = state.copyWith(recentMatches: matches);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Queue] fetchRecentMatches failed: $e');
+    }
   }
 
   /// Fetch live matches from the backend.
@@ -525,8 +539,8 @@ class QueueNotifier extends Notifier<QueueState> {
       }).toList();
 
       state = state.copyWith(liveMatches: matches);
-    } catch (_) {
-      // Backend unavailable — live matches stay empty.
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Queue] fetchLiveMatches failed: $e');
     }
   }
 
