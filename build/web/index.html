@@ -20,6 +20,16 @@
   <title>SolFight</title>
   <link rel="manifest" href="manifest.json">
 
+  <script>
+    // Unregister any cached service workers — this is a real-time app,
+    // always serve the latest build to avoid stale UI flashes.
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        for (var i = 0; i < regs.length; i++) regs[i].unregister();
+      });
+    }
+  </script>
+
   <style>
     /* Loading indicator styles */
     body {
