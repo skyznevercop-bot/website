@@ -24,15 +24,18 @@ class FriendNotifier extends Notifier<FriendsState> {
   }
 
   Future<void> _init() async {
-    if (!_api.hasToken) return;
-    // Attach WS listener FIRST so events during loadAll aren't lost.
+    // Always attach WS listener so we catch ws_connected even if
+    // the wallet hasn't authenticated yet.
     _listenWs();
-    await loadAll();
     // Poll every 15s as fallback for missed WebSocket events.
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       if (_api.hasToken) loadAll();
     });
+    // If already authenticated, load immediately.
+    if (_api.hasToken) {
+      await loadAll();
+    }
   }
 
   void _listenWs() {
@@ -52,10 +55,13 @@ class FriendNotifier extends Notifier<FriendsState> {
 
   /// Load friends, requests, and challenges in parallel.
   Future<void> loadAll() async {
+    if (!_api.hasToken) return;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       await Future.wait([loadFriends(), loadRequests(), loadChallenges()]);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Friends] loadAll failed: $e');
+    }
     state = state.copyWith(isLoading: false);
   }
 
