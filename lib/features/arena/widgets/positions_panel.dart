@@ -1502,80 +1502,170 @@ class _SlTpEditorState extends ConsumerState<_SlTpEditor> {
   @override
   Widget build(BuildContext context) {
     final isMobile = Responsive.isMobile(context);
+    final entry = widget.position.entryPrice;
+    final isLong = widget.position.isLong;
+
+    // Smart hint prices: ~2% away from entry in the correct direction.
+    final slHint = isLong
+        ? fmtPrice(entry * 0.98)
+        : fmtPrice(entry * 1.02);
+    final tpHint = isLong
+        ? fmtPrice(entry * 1.02)
+        : fmtPrice(entry * 0.98);
 
     return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 8 : 16,
-        vertical: 8,
+      margin: EdgeInsets.symmetric(
+        horizontal: isMobile ? 6 : 12,
+        vertical: 6,
       ),
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        border: Border(
-            top: BorderSide(color: AppTheme.border, width: 0.5)),
+      padding: EdgeInsets.all(isMobile ? 10 : 14),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: _error != null
+              ? AppTheme.error.withValues(alpha: 0.4)
+              : AppTheme.border,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Header row with entry price context.
           Row(
             children: [
-              // SL field.
+              Icon(Icons.tune_rounded,
+                  size: 13, color: AppTheme.textTertiary),
+              const SizedBox(width: 6),
+              Text('Risk Management',
+                  style: interStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.textTertiary,
+                    letterSpacing: 0.8,
+                  )),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceAlt,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'Entry \$${fmtPrice(entry)}',
+                  style: interStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textSecondary,
+                    tabularFigures: true,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // SL + TP fields side by side.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Expanded(
                 child: _SlTpField(
-                  label: 'SL',
+                  label: 'Stop Loss',
+                  shortLabel: 'SL',
                   color: AppTheme.error,
+                  icon: Icons.shield_outlined,
                   controller: _slController,
+                  hintText: slHint,
                   onClear: () {
                     _slController.clear();
                     setState(() => _error = null);
                   },
                 ),
               ),
-              const SizedBox(width: 10),
-              // TP field.
+              const SizedBox(width: 8),
               Expanded(
                 child: _SlTpField(
-                  label: 'TP',
+                  label: 'Take Profit',
+                  shortLabel: 'TP',
                   color: AppTheme.success,
+                  icon: Icons.flag_outlined,
                   controller: _tpController,
+                  hintText: tpHint,
                   onClear: () {
                     _tpController.clear();
                     setState(() => _error = null);
                   },
                 ),
               ),
-              const SizedBox(width: 10),
-              // Save button.
+            ],
+          ),
+
+          const SizedBox(height: 10),
+
+          // Error message + Save button row.
+          Row(
+            children: [
+              if (_error != null)
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline_rounded,
+                          size: 12, color: AppTheme.error),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(_error!,
+                            style: interStyle(
+                                fontSize: 10, color: AppTheme.error)),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                const Spacer(),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   onTap: _save,
                   child: Container(
-                    height: 28,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12),
+                    height: 30,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     decoration: BoxDecoration(
-                      color: AppTheme.solanaPurple,
-                      borderRadius: BorderRadius.circular(4),
+                      gradient: const LinearGradient(
+                        colors: [
+                          AppTheme.solanaPurple,
+                          Color(0xFF7C3AED),
+                        ],
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.solanaPurple.withValues(alpha: 0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
-                    child: Center(
-                      child: Text('Save',
-                          style: interStyle(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_rounded,
+                            size: 14, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text('Save',
+                            style: interStyle(
                               fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white)),
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            )),
+                      ],
                     ),
                   ),
                 ),
               ),
             ],
           ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Text(_error!,
-                  style: interStyle(
-                      fontSize: 10, color: AppTheme.error)),
-            ),
         ],
       ),
     );
@@ -1586,75 +1676,140 @@ class _SlTpEditorState extends ConsumerState<_SlTpEditor> {
 // SL/TP Field — individual input with label and clear button
 // =============================================================================
 
-class _SlTpField extends StatelessWidget {
+class _SlTpField extends StatefulWidget {
   final String label;
+  final String shortLabel;
   final Color color;
+  final IconData icon;
   final TextEditingController controller;
+  final String hintText;
   final VoidCallback onClear;
 
   const _SlTpField({
     required this.label,
+    required this.shortLabel,
     required this.color,
+    required this.icon,
     required this.controller,
+    required this.hintText,
     required this.onClear,
   });
 
   @override
+  State<_SlTpField> createState() => _SlTpFieldState();
+}
+
+class _SlTpFieldState extends State<_SlTpField> {
+  bool _focused = false;
+
+  @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(3),
+    final hasValue = widget.controller.text.trim().isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _focused
+            ? widget.color.withValues(alpha: 0.04)
+            : AppTheme.surfaceAlt,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _focused
+              ? widget.color.withValues(alpha: 0.5)
+              : AppTheme.border,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Label header.
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(10, 6, 8, 0),
+            child: Row(
+              children: [
+                Icon(widget.icon,
+                    size: 11,
+                    color: _focused
+                        ? widget.color
+                        : AppTheme.textTertiary),
+                const SizedBox(width: 4),
+                Text(widget.label,
+                    style: interStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w600,
+                      color: _focused
+                          ? widget.color
+                          : AppTheme.textTertiary,
+                      letterSpacing: 0.3,
+                    )),
+                const Spacer(),
+                if (hasValue)
+                  MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: () {
+                        widget.onClear();
+                        setState(() {});
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.textTertiary
+                              .withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Icon(Icons.close_rounded,
+                            size: 10,
+                            color: AppTheme.textTertiary),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-          child: Text(label,
-              style: interStyle(
-                  fontSize: 9,
+
+          // Price input.
+          SizedBox(
+            height: 30,
+            child: Focus(
+              onFocusChange: (f) => setState(() => _focused = f),
+              child: TextField(
+                controller: widget.controller,
+                onChanged: (_) => setState(() {}),
+                style: interStyle(
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
-                  color: color)),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Container(
-            height: 28,
-            decoration: BoxDecoration(
-              color: AppTheme.background,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: AppTheme.border),
-            ),
-            child: TextField(
-              controller: controller,
-              style: interStyle(
-                fontSize: 12,
-                tabularFigures: true,
-              ),
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              decoration: InputDecoration(
-                hintText: '0.00',
-                hintStyle: interStyle(
-                    fontSize: 11, color: AppTheme.textTertiary),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 6),
-                isDense: true,
+                  color: hasValue
+                      ? widget.color
+                      : AppTheme.textPrimary,
+                  tabularFigures: true,
+                ),
+                keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true),
+                decoration: InputDecoration(
+                  hintText: widget.hintText,
+                  hintStyle: interStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textTertiary.withValues(alpha: 0.5),
+                    tabularFigures: true,
+                  ),
+                  prefixText: '\$ ',
+                  prefixStyle: interStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.textTertiary,
+                  ),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  isDense: true,
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(width: 4),
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: onClear,
-            child: const Icon(Icons.close_rounded,
-                size: 14, color: AppTheme.textTertiary),
-          ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
