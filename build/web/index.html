@@ -1,24 +1,97 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <base href="/">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="SolFight - 1v1 Competitive Trading Game on Solana">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Primary SEO Meta Tags -->
+  <title>SolFight — 1v1 Competitive Trading Arena on Solana</title>
+  <meta name="description" content="SolFight is the first 1v1 competitive trading arena on Solana. Bet USDC, trade head-to-head, and prove you're the best trader. Connect your wallet and enter the arena.">
+  <meta name="keywords" content="SolFight, Solana trading, 1v1 trading, competitive trading, crypto trading game, Solana DeFi, USDC betting, trading arena, PvP trading, web3 gaming">
+  <meta name="author" content="SolFight">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://solfight.io/">
+  <link rel="alternate" hreflang="en" href="https://solfight.io/">
+  <link rel="alternate" hreflang="x-default" href="https://solfight.io/">
+  <meta name="theme-color" content="#9945FF">
+  <meta name="color-scheme" content="dark">
+  <meta name="rating" content="general">
+
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://solfight.io/">
+  <meta property="og:title" content="SolFight — 1v1 Competitive Trading Arena on Solana">
+  <meta property="og:description" content="The first 1v1 competitive trading arena on Solana. Bet USDC, trade head-to-head, and prove you're the best trader.">
+  <meta property="og:image" content="https://solfight.io/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="SolFight - 1v1 Competitive Trading Arena on Solana">
+  <meta property="og:site_name" content="SolFight">
+  <meta property="og:locale" content="en_US">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@Solfight_io">
+  <meta name="twitter:creator" content="@Solfight_io">
+  <meta name="twitter:url" content="https://solfight.io/">
+  <meta name="twitter:title" content="SolFight — 1v1 Competitive Trading Arena on Solana">
+  <meta name="twitter:description" content="The first 1v1 competitive trading arena on Solana. Bet USDC, trade head-to-head, and prove you're the best trader.">
+  <meta name="twitter:image" content="https://solfight.io/og-image.png">
+  <meta name="twitter:image:alt" content="SolFight - 1v1 Competitive Trading Arena on Solana">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SolFight">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/Icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/Icon-512.png">
 
-  <title>SolFight</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Structured Data (JSON-LD) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "SolFight",
+    "url": "https://solfight.io",
+    "description": "The first 1v1 competitive trading arena on Solana. Bet USDC, trade head-to-head, and prove you're the best trader.",
+    "applicationCategory": "GameApplication",
+    "operatingSystem": "Web",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "image": "https://solfight.io/og-image.png",
+    "screenshot": "https://solfight.io/og-image.png",
+    "sameAs": [
+      "https://x.com/Solfight_io"
+    ]
+  }
+  </script>
+
+  <!-- Organization Schema -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "SolFight",
+    "url": "https://solfight.io",
+    "logo": "https://solfight.io/icons/Icon-512.png",
+    "sameAs": [
+      "https://x.com/Solfight_io"
+    ]
+  }
+  </script>
 
   <script>
     // Unregister any cached service workers — this is a real-time app,
@@ -75,11 +148,34 @@
 </head>
 <body>
   <div class="loading" id="loading">
-    <img src="icons/Icon-192.png" alt="SolFight" width="80" height="80" style="border-radius: 16px; margin-bottom: 16px;">
+    <img src="icons/Icon-192.png" alt="SolFight - 1v1 Competitive Trading Arena on Solana" width="80" height="80" style="border-radius: 16px; margin-bottom: 16px;">
     <h1>Sol<span>Fight</span></h1>
     <p>Loading the arena...</p>
     <div class="spinner"></div>
   </div>
+
+  <!-- Crawlable content for search engines (hidden when JS runs) -->
+  <noscript>
+    <div style="background:#131722;color:#D1D4DC;font-family:'Inter',sans-serif;padding:40px 20px;max-width:800px;margin:0 auto;">
+      <h1 style="color:#9945FF;">SolFight — 1v1 Competitive Trading Arena on Solana</h1>
+      <p>SolFight is the first 1v1 competitive trading arena built on Solana. Challenge other traders to head-to-head USDC battles and prove you're the best.</p>
+      <h2>How It Works</h2>
+      <ul>
+        <li><strong>Connect Your Wallet</strong> — Link your Solana wallet (Phantom, Solflare, or Backpack) to get started.</li>
+        <li><strong>Enter the Arena</strong> — Find an opponent and set your USDC bet amount.</li>
+        <li><strong>Trade Head-to-Head</strong> — Compete in real-time trading battles with live charts.</li>
+        <li><strong>Claim Your Winnings</strong> — The better trader takes the pot. All payouts are on-chain.</li>
+      </ul>
+      <h2>Why SolFight?</h2>
+      <ul>
+        <li>Fully on-chain escrow — your funds are secured by a Solana smart contract.</li>
+        <li>Real-time PvP trading with live price charts.</li>
+        <li>Transparent, verifiable results on the Solana blockchain.</li>
+        <li>Low fees, instant settlement.</li>
+      </ul>
+      <p>This application requires JavaScript to run. Please enable JavaScript in your browser to use SolFight.</p>
+    </div>
+  </noscript>
 
   <script>
     // Remove loading indicator once Flutter app loads

@@ -1,13 +1,15 @@
 {
-    "name": "SolFight",
+    "name": "SolFight — 1v1 Competitive Trading Arena on Solana",
     "short_name": "SolFight",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#131722",
     "theme_color": "#9945FF",
-    "description": "1v1 Competitive Trading Arena on Solana",
+    "description": "The first 1v1 competitive trading arena on Solana. Bet USDC, trade head-to-head, and prove you're the best trader.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
+    "categories": ["games", "finance"],
+    "lang": "en",
     "icons": [
         {
             "src": "icons/Icon-192.png",

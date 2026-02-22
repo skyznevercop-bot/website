@@ -87,26 +87,18 @@ class ArenaHud extends ConsumerWidget {
                 ),
                 const SizedBox(width: 8),
               ],
-              if (!isMobile) ...[
+              if (!isMobile)
                 _PlayerBadge(
                   equity: state.equity,
                   roi: roi,
                   balance: state.balance,
-                ),
-                const SizedBox(width: 8),
-                _StatChip(
-                  label: 'Equity',
-                  value: fmtBalance(state.equity),
-                ),
-                const SizedBox(width: 8),
-              ] else ...[
+                )
+              else
                 _MobileStatCycler(
                   roi: roi,
                   balance: state.balance,
                   equity: state.equity,
                 ),
-                const SizedBox(width: 6),
-              ],
             ],
           ),
         ),
@@ -226,27 +218,9 @@ class _PlayerBadge extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Balance.
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text('Balance',
-                style: interStyle(
-                    fontSize: 9, color: AppTheme.textTertiary)),
-            Text(fmtBalance(balance),
-                style: interStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  tabularFigures: true,
-                )),
-          ],
-        ),
-        const SizedBox(width: 10),
-
-        // ROI badge.
+        // ROI badge — sized to match the stacked Balance/Equity height.
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           decoration: BoxDecoration(
             color: roiCol.withValues(alpha: 0.1),
             borderRadius: BorderRadius.circular(8),
@@ -255,12 +229,51 @@ class _PlayerBadge extends StatelessWidget {
           child: Text(
             fmtPercent(roi),
             style: interStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: FontWeight.w700,
               color: roiCol,
               tabularFigures: true,
             ),
           ),
+        ),
+        const SizedBox(width: 10),
+
+        // Balance on top, Equity on bottom.
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Balance: ',
+                    style: interStyle(
+                        fontSize: 10, color: AppTheme.textTertiary)),
+                Text(fmtBalance(balance),
+                    style: interStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      tabularFigures: true,
+                    )),
+              ],
+            ),
+            const SizedBox(height: 1),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Equity: ',
+                    style: interStyle(
+                        fontSize: 10, color: AppTheme.textTertiary)),
+                Text(fmtBalance(equity),
+                    style: interStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      tabularFigures: true,
+                    )),
+              ],
+            ),
+          ],
         ),
       ],
     );
@@ -689,34 +702,3 @@ class _BackButton extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// Stat Chip
-// =============================================================================
-
-class _StatChip extends StatelessWidget {
-  final String label;
-  final String value;
-
-  const _StatChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(label,
-            style: interStyle(
-              fontSize: 9,
-              color: AppTheme.textTertiary,
-            )),
-        Text(value,
-            style: interStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              tabularFigures: true,
-            )),
-      ],
-    );
-  }
-}
