@@ -165,7 +165,7 @@ class _EventToastState extends ConsumerState<EventToast>
       duration: const Duration(milliseconds: 300),
     );
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(1, 0),
+      begin: const Offset(0, -1),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _controller,
@@ -208,9 +208,11 @@ class _EventToastState extends ConsumerState<EventToast>
     final icon = event.icon ?? eventIcon(event.type);
 
     return Positioned(
-      top: 12,
-      right: 12,
-      child: SlideTransition(
+      top: 60,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: SlideTransition(
         position: _slideAnimation,
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -256,6 +258,7 @@ class _EventToastState extends ConsumerState<EventToast>
             ),
           ),
         ),
+      ),
       ),
     );
   }

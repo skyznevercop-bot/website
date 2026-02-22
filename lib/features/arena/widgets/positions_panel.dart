@@ -210,10 +210,12 @@ class _TabHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 38,
+      height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppTheme.border)),
+      decoration: BoxDecoration(
+        color: AppTheme.background,
+        border: const Border(
+            bottom: BorderSide(color: AppTheme.border, width: 0.5)),
       ),
       child: Row(
         children: [
@@ -222,13 +224,13 @@ class _TabHeader extends StatelessWidget {
               index: 0,
               count: openCount,
               controller: tabController),
-          const SizedBox(width: 16),
+          const SizedBox(width: 20),
           _PosTab(
               label: 'History',
               index: 1,
               count: closedCount,
               controller: tabController),
-          const SizedBox(width: 16),
+          const SizedBox(width: 20),
           _PosTab(
               label: 'Orders',
               index: 2,
@@ -237,14 +239,19 @@ class _TabHeader extends StatelessWidget {
 
           // Unrealized PnL summary.
           if (openCount > 0) ...[
-            const SizedBox(width: 12),
-            Container(
+            const SizedBox(width: 14),
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
               padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: pnlColor(totalUnrealizedPnl)
-                    .withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
+                    .withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: pnlColor(totalUnrealizedPnl)
+                      .withValues(alpha: 0.15),
+                ),
               ),
               child: Text(
                 fmtPnl(totalUnrealizedPnl),
@@ -264,36 +271,39 @@ class _TabHeader extends StatelessWidget {
           if (onCloseAll != null)
             Tooltip(
               message: 'Close all open positions at market price',
-              child: GestureDetector(
-                onTap: onCloseAll,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: onCloseAll,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 4),
+                        horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: AppTheme.error.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(5),
+                      color: AppTheme.error.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
                       border: Border.all(
                           color:
-                              AppTheme.error.withValues(alpha: 0.25)),
+                              AppTheme.error.withValues(alpha: 0.2)),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        const Icon(Icons.close_rounded,
+                            size: 12, color: AppTheme.error),
+                        const SizedBox(width: 4),
                         Text('Close All',
                             style: interStyle(
-                                fontSize: 11,
+                                fontSize: 10,
                                 fontWeight: FontWeight.w600,
                                 color: AppTheme.error)),
-                        const SizedBox(width: 4),
+                        const SizedBox(width: 5),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 4, vertical: 1),
+                              horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
                             color:
-                                AppTheme.error.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(3),
+                                AppTheme.error.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text('$openCount',
                               style: interStyle(
@@ -333,8 +343,10 @@ class _PosTab extends StatelessWidget {
       onTap: () => controller.animateTo(index),
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(vertical: 9),
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
@@ -347,30 +359,39 @@ class _PosTab extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Text(label,
-                  style: interStyle(
-                    fontSize: 12,
-                    fontWeight:
-                        isActive ? FontWeight.w700 : FontWeight.w500,
-                    color: isActive
-                        ? AppTheme.textPrimary
-                        : AppTheme.textTertiary,
-                  )),
+              AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 200),
+                style: interStyle(
+                  fontSize: 12,
+                  fontWeight:
+                      isActive ? FontWeight.w700 : FontWeight.w500,
+                  color: isActive
+                      ? AppTheme.textPrimary
+                      : AppTheme.textTertiary,
+                ),
+                child: Text(label),
+              ),
               if (count > 0) ...[
-                const SizedBox(width: 4),
-                Container(
+                const SizedBox(width: 5),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 5, vertical: 1),
                   decoration: BoxDecoration(
-                    color: AppTheme.solanaPurple
-                        .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
+                    color: isActive
+                        ? AppTheme.solanaPurple
+                            .withValues(alpha: 0.15)
+                        : AppTheme.textTertiary
+                            .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text('$count',
                       style: interStyle(
-                          fontSize: 10,
+                          fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.solanaPurple)),
+                          color: isActive
+                              ? AppTheme.solanaPurple
+                              : AppTheme.textTertiary)),
                 ),
               ],
             ],
@@ -393,11 +414,12 @@ class _TableHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 28,
+      height: 30,
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: const BoxDecoration(
-        color: AppTheme.surfaceAlt,
-        border: Border(bottom: BorderSide(color: AppTheme.border)),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceAlt.withValues(alpha: 0.5),
+        border: const Border(
+            bottom: BorderSide(color: AppTheme.border, width: 0.5)),
       ),
       child: Row(
         children: [
@@ -420,9 +442,9 @@ class _TableHeader extends StatelessWidget {
       flex: flex,
       child: Text(label,
           style: interStyle(
-              fontSize: 10,
+              fontSize: 9,
               fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
+              letterSpacing: 0.8,
               color: AppTheme.textTertiary)),
     );
   }
@@ -485,19 +507,20 @@ class _PositionRow extends StatelessWidget {
       onEnter: (_) => onHover(true),
       onExit: (_) => onHover(false),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 100),
-        height: 42,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        height: 44,
         decoration: BoxDecoration(
           color: isHovered
-              ? AppTheme.surfaceAlt.withValues(alpha: 0.5)
+              ? AppTheme.surfaceAlt.withValues(alpha: 0.4)
               : Colors.transparent,
           border: Border(
             left: BorderSide(
-              color: isOpen ? pnlCol.withValues(alpha: 0.6) : Colors.transparent,
+              color: isOpen ? pnlCol.withValues(alpha: 0.5) : Colors.transparent,
               width: 3,
             ),
             bottom:
-                const BorderSide(color: AppTheme.border, width: 0.5),
+                BorderSide(color: AppTheme.border.withValues(alpha: 0.4), width: 0.5),
           ),
         ),
         child: Padding(
@@ -538,20 +561,22 @@ class _PositionRow extends StatelessWidget {
               // Side.
               Expanded(
                 flex: 1,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: sideColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(3),
-                  ),
-                  child: Text(
-                    position.isLong ? 'Long' : 'Short',
-                    textAlign: TextAlign.center,
-                    style: interStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: sideColor),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: sideColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      position.isLong ? 'Long' : 'Short',
+                      style: interStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: sideColor),
+                    ),
                   ),
                 ),
               ),
@@ -850,30 +875,47 @@ class _PositionCard extends StatelessWidget {
     }
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border(
-          left: BorderSide(
-            color: isOpen ? pnlCol.withValues(alpha: 0.7) : AppTheme.border,
-            width: 3,
-          ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isOpen
+              ? pnlCol.withValues(alpha: 0.15)
+              : AppTheme.border.withValues(alpha: 0.5),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                color: isOpen ? pnlCol.withValues(alpha: 0.6) : Colors.transparent,
+                width: 3,
+              ),
+            ),
+          ),
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(12),
         child: Column(
           children: [
             // Header: Asset + Side badge.
             Row(
               children: [
                 Container(
-                  width: 22,
-                  height: 22,
+                  width: 24,
+                  height: 24,
                   decoration: BoxDecoration(
                     color: assetColor(position.assetSymbol)
-                        .withValues(alpha: 0.15),
+                        .withValues(alpha: 0.12),
                     shape: BoxShape.circle,
                   ),
                   child: Center(
@@ -885,17 +927,19 @@ class _PositionCard extends StatelessWidget {
                                 assetColor(position.assetSymbol))),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 Text(position.assetSymbol,
                     style: interStyle(
                         fontSize: 14, fontWeight: FontWeight.w700)),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
+                      horizontal: 7, vertical: 2),
                   decoration: BoxDecoration(
                     color: sideColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                        color: sideColor.withValues(alpha: 0.15)),
                   ),
                   child: Text(
                     position.isLong ? 'LONG' : 'SHORT',
@@ -907,47 +951,74 @@ class _PositionCard extends StatelessWidget {
                 ),
                 const Spacer(),
                 // PnL (large, colored).
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(fmtPnl(pnl),
-                        style: interStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: pnlCol,
-                            tabularFigures: true)),
-                    Text(fmtPercent(pnlPct),
-                        style: interStyle(
-                            fontSize: 10,
-                            color: pnlCol,
-                            tabularFigures: true)),
-                  ],
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: pnlCol.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(fmtPnl(pnl),
+                          style: interStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: pnlCol,
+                              tabularFigures: true)),
+                      Text(fmtPercent(pnlPct),
+                          style: interStyle(
+                              fontSize: 10,
+                              color: pnlCol,
+                              tabularFigures: true)),
+                    ],
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
             // Body: Entry → Current price.
-            Row(
-              children: [
-                Text('\$${fmtPrice(position.entryPrice)}',
-                    style: interStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                        tabularFigures: true)),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Icon(Icons.arrow_forward_rounded,
-                      size: 12, color: AppTheme.textTertiary),
-                ),
-                Text('\$${fmtPrice(price)}',
-                    style: interStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        tabularFigures: true)),
-              ],
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.surfaceAlt.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                children: [
+                  Text('Entry',
+                      style: interStyle(
+                          fontSize: 9,
+                          color: AppTheme.textTertiary)),
+                  const SizedBox(width: 6),
+                  Text('\$${fmtPrice(position.entryPrice)}',
+                      style: interStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.textSecondary,
+                          tabularFigures: true)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.trending_flat_rounded,
+                        size: 14, color: AppTheme.textTertiary),
+                  ),
+                  Text(isOpen ? 'Mark' : 'Exit',
+                      style: interStyle(
+                          fontSize: 9,
+                          color: AppTheme.textTertiary)),
+                  const SizedBox(width: 6),
+                  Text('\$${fmtPrice(price)}',
+                      style: interStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          tabularFigures: true)),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
 
             // Footer: Leverage + Liq + Close/Reason.
             Row(
@@ -1088,6 +1159,8 @@ class _PositionCard extends StatelessWidget {
           ],
         ),
       ),
+        ),
+      ),
     );
   }
 }
@@ -1123,10 +1196,11 @@ class _CloseReasonBadge extends StatelessWidget {
 
     return Container(
       padding:
-          const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+          const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(3),
+        color: c.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: c.withValues(alpha: 0.12)),
       ),
       child: Text(
         labels[reason] ?? reason,
@@ -1153,24 +1227,34 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-              isPositions
-                  ? Icons.show_chart_rounded
-                  : Icons.history_rounded,
-              size: 32,
-              color: AppTheme.textTertiary),
-          const SizedBox(height: 8),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceAlt.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+                isPositions
+                    ? Icons.show_chart_rounded
+                    : Icons.history_rounded,
+                size: 22,
+                color: AppTheme.textTertiary),
+          ),
+          const SizedBox(height: 12),
           Text(
             isPositions ? 'No open positions' : 'No trade history',
             style: interStyle(
-                fontSize: 12, color: AppTheme.textTertiary),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary),
           ),
           if (isPositions) ...[
             const SizedBox(height: 4),
             Text(
-              'Use Quick Trade or the form above to open a position',
+              'Open a position to start trading',
               style: interStyle(
-                  fontSize: 10, color: AppTheme.textTertiary),
+                  fontSize: 11, color: AppTheme.textTertiary),
             ),
           ],
         ],
@@ -1192,16 +1276,26 @@ class _EmptyOrdersState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.pending_actions_rounded,
-              size: 32, color: AppTheme.textTertiary),
-          const SizedBox(height: 8),
+          Container(
+            width: 48,
+            height: 48,
+            decoration: BoxDecoration(
+              color: AppTheme.surfaceAlt.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.pending_actions_rounded,
+                size: 22, color: AppTheme.textTertiary),
+          ),
+          const SizedBox(height: 12),
           Text('No pending orders',
               style: interStyle(
-                  fontSize: 12, color: AppTheme.textTertiary)),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textSecondary)),
           const SizedBox(height: 4),
           Text('Place a limit order to trigger at a target price',
               style: interStyle(
-                  fontSize: 10, color: AppTheme.textTertiary)),
+                  fontSize: 11, color: AppTheme.textTertiary)),
         ],
       ),
     );
@@ -1226,149 +1320,193 @@ class _LimitOrderCard extends StatelessWidget {
     final sideColor = order.isLong ? AppTheme.success : AppTheme.error;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 6),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border(
-          left: BorderSide(
-            color: AppTheme.solanaPurple.withValues(alpha: 0.7),
-            width: 3,
-          ),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: AppTheme.solanaPurple.withValues(alpha: 0.15),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Column(
-          children: [
-            // Header: Asset + Side + Limit price.
-            Row(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          decoration: const BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                color: AppTheme.solanaPurple,
+                width: 3,
+              ),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
               children: [
-                Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    color: assetColor(order.assetSymbol)
-                        .withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(order.assetSymbol[0],
+                // Header: Asset + Side + Limit price.
+                Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: assetColor(order.assetSymbol)
+                            .withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(order.assetSymbol[0],
+                            style: interStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: assetColor(order.assetSymbol))),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(order.assetSymbol,
+                        style: interStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700)),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: sideColor.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                            color: sideColor.withValues(alpha: 0.15)),
+                      ),
+                      child: Text(
+                        order.isLong ? 'LONG' : 'SHORT',
                         style: interStyle(
                             fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: assetColor(order.assetSymbol))),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Text(order.assetSymbol,
-                    style: interStyle(
-                        fontSize: 14, fontWeight: FontWeight.w700)),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: sideColor.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    order.isLong ? 'LONG' : 'SHORT',
-                    style: interStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: sideColor),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.solanaPurple.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    'LIMIT',
-                    style: interStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.solanaPurple),
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  '\$${fmtPrice(order.limitPrice)}',
-                  style: interStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      tabularFigures: true),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            // Footer: Size + Leverage + Cancel.
-            Row(
-              children: [
-                Text(
-                  '\$${order.size.toStringAsFixed(0)}',
-                  style: interStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                      tabularFigures: true),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceAlt,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(fmtLeverage(order.leverage),
-                      style: interStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textSecondary)),
-                ),
-                if (order.stopLoss != null) ...[
-                  const SizedBox(width: 6),
-                  Text('SL \$${fmtPrice(order.stopLoss!)}',
-                      style: interStyle(
-                          fontSize: 9, color: AppTheme.error)),
-                ],
-                if (order.takeProfit != null) ...[
-                  const SizedBox(width: 6),
-                  Text('TP \$${fmtPrice(order.takeProfit!)}',
-                      style: interStyle(
-                          fontSize: 9, color: AppTheme.success)),
-                ],
-                const Spacer(),
-                GestureDetector(
-                  onTap: onCancel,
-                  child: MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: AppTheme.error.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                            color:
-                                AppTheme.error.withValues(alpha: 0.25)),
+                            fontWeight: FontWeight.w700,
+                            color: sideColor),
                       ),
-                      child: Text('Cancel',
-                          style: interStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.error)),
                     ),
-                  ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.solanaPurple.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                            color: AppTheme.solanaPurple
+                                .withValues(alpha: 0.15)),
+                      ),
+                      child: Text(
+                        'LIMIT',
+                        style: interStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.solanaPurple),
+                      ),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceAlt.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text('@ ',
+                              style: interStyle(
+                                  fontSize: 10,
+                                  color: AppTheme.textTertiary)),
+                          Text(
+                            '\$${fmtPrice(order.limitPrice)}',
+                            style: interStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                tabularFigures: true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Footer: Size + Leverage + Cancel.
+                Row(
+                  children: [
+                    Text(
+                      '\$${order.size.toStringAsFixed(0)}',
+                      style: interStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.textSecondary,
+                          tabularFigures: true),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surfaceAlt,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(fmtLeverage(order.leverage),
+                          style: interStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.textSecondary)),
+                    ),
+                    if (order.stopLoss != null) ...[
+                      const SizedBox(width: 6),
+                      _SlTpBadge(
+                        label: 'SL',
+                        value: order.stopLoss!,
+                        color: AppTheme.error,
+                      ),
+                    ],
+                    if (order.takeProfit != null) ...[
+                      const SizedBox(width: 6),
+                      _SlTpBadge(
+                        label: 'TP',
+                        value: order.takeProfit!,
+                        color: AppTheme.success,
+                      ),
+                    ],
+                    const Spacer(),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: onCancel,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.error.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                                color:
+                                    AppTheme.error.withValues(alpha: 0.2)),
+                          ),
+                          child: Text('Cancel',
+                              style: interStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.error)),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
+          ),
         ),
       ),
     );
