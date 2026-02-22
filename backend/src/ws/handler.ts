@@ -2,6 +2,7 @@ import { Server as HttpServer } from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import jwt from "jsonwebtoken";
 import { config } from "../config";
+import { log } from "../utils/logger";
 import {
   joinMatchRoom,
   leaveMatchRoom,
@@ -40,6 +41,9 @@ const CHAT_MAX_LENGTH = config.chatMaxLength;
 /** Guard against double-close: position IDs currently being closed. */
 const _closingPositions = new Set<string>();
 
+/** Seconds to wait for a pong reply before terminating the connection. */
+const PONG_TIMEOUT_MS = 10_000;
+
 interface AuthenticatedSocket extends WebSocket {
   userAddress?: string;
   currentMatchId?: string;
@@ -50,6 +54,8 @@ interface AuthenticatedSocket extends WebSocket {
   _msgWindowStart?: number;
   /** Whether a pong response is pending (heartbeat liveness check). */
   _isAlive?: boolean;
+  /** Explicit pong deadline timer — fires PONG_TIMEOUT_MS after a ping. */
+  _pongTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Active forfeit timers: "matchId|playerAddress" → timeout handle. */
@@ -66,12 +72,22 @@ export function setupWebSocket(server: HttpServer): void {
       const ws = client as AuthenticatedSocket;
       if (ws._isAlive === false) {
         // No pong received since last ping — connection is dead.
-        console.warn(`[WS] Heartbeat timeout: ${ws.userAddress?.slice(0, 8) ?? "unauthenticated"} — terminating`);
+        log.warn("heartbeat_timeout", { user: ws.userAddress?.slice(0, 8) ?? "unauthenticated" });
         ws.terminate();
         continue;
       }
       ws._isAlive = false;
       ws.ping();
+
+      // Explicit pong deadline: if no pong arrives within PONG_TIMEOUT_MS,
+      // terminate immediately instead of waiting for the next heartbeat cycle.
+      if (ws._pongTimer) clearTimeout(ws._pongTimer);
+      ws._pongTimer = setTimeout(() => {
+        if (ws._isAlive === false && ws.readyState === WebSocket.OPEN) {
+          log.warn("pong_timeout", { user: ws.userAddress?.slice(0, 8) ?? "unauthenticated", deadlineMs: PONG_TIMEOUT_MS });
+          ws.terminate();
+        }
+      }, PONG_TIMEOUT_MS);
     }
   }, config.wsPingIntervalMs);
 
@@ -84,6 +100,7 @@ export function setupWebSocket(server: HttpServer): void {
     ws._isAlive = true;
     ws.on("pong", () => {
       ws._isAlive = true;
+      if (ws._pongTimer) { clearTimeout(ws._pongTimer); ws._pongTimer = undefined; }
     });
 
     // Require authentication via the first WebSocket message instead of
@@ -129,10 +146,10 @@ export function setupWebSocket(server: HttpServer): void {
           reconcileFrozenBalance(payload.address)
             .then(() => sendBalanceUpdate(payload.address, ws))
             .catch((err) => {
-              console.error(`[WS] Failed to reconcile/send balance for ${payload.address.slice(0, 8)}…:`, err);
+              log.error("balance_reconcile_failed", { user: payload.address.slice(0, 8), error: String(err) });
             });
 
-          console.log(`[WS] Client authenticated: ${ws.userAddress}`);
+          log.info("client_authenticated", { user: ws.userAddress });
           ws.send(JSON.stringify({ type: "auth_ok" }));
           return;
         } catch {
@@ -149,6 +166,7 @@ export function setupWebSocket(server: HttpServer): void {
       } else {
         ws._msgCount = (ws._msgCount ?? 0) + 1;
         if (ws._msgCount > WS_RATE_LIMIT_MAX) {
+          log.warn("rate_limit_exceeded", { user: ws.userAddress?.slice(0, 8), count: ws._msgCount, windowMs: WS_RATE_LIMIT_WINDOW_MS });
           ws.send(JSON.stringify({ type: "error", message: "Rate limit exceeded — slow down" }));
           return;
         }
@@ -165,7 +183,7 @@ export function setupWebSocket(server: HttpServer): void {
         const data = JSON.parse(raw.toString());
         await handleMessage(ws, data);
       } catch (err) {
-        console.error(`[WS] Message handling error for ${ws.userAddress?.slice(0, 8) ?? "unknown"}:`, err);
+        log.error("message_handling_error", { user: ws.userAddress?.slice(0, 8) ?? "unknown", error: String(err) });
         ws.send(
           JSON.stringify({ type: "error", message: "Invalid message format" })
         );
@@ -180,7 +198,7 @@ export function setupWebSocket(server: HttpServer): void {
         // This prevents brief WS blips from kicking players out of the queue.
         if (!isUserConnected(ws.userAddress)) {
           removeFromAllQueues(ws.userAddress).catch((err) => {
-            console.error(`[WS] Failed to remove ${ws.userAddress?.slice(0, 8)}… from queues on disconnect:`, err);
+            log.error("queue_remove_failed", { user: ws.userAddress?.slice(0, 8), error: String(err) });
           });
         }
 
@@ -193,7 +211,7 @@ export function setupWebSocket(server: HttpServer): void {
           }
         }
       }
-      console.log(`[WS] Client disconnected: ${ws.userAddress}`);
+      log.info("client_disconnected", { user: ws.userAddress ?? "unauthenticated", matchId: ws.currentMatchId ?? null });
     });
   });
 
@@ -212,10 +230,10 @@ export function setupWebSocket(server: HttpServer): void {
       broadcastToMatch(matchId, JSON.parse(priceMsg));
 
       broadcastOpponentUpdate(matchId, match.player1).catch((err) => {
-        console.error(`[WS] Opponent update failed for P1 in ${matchId}:`, err);
+        log.error("opponent_update_failed", { matchId, player: "p1", error: String(err) });
       });
       broadcastOpponentUpdate(matchId, match.player2).catch((err) => {
-        console.error(`[WS] Opponent update failed for P2 in ${matchId}:`, err);
+        log.error("opponent_update_failed", { matchId, player: "p2", error: String(err) });
       });
     }
   }, config.opponentBroadcastIntervalMs);
@@ -268,6 +286,17 @@ export function setupWebSocket(server: HttpServer): void {
         try {
           const pnl = calculatePnl(pos, exitPrice);
 
+          log.info("position_auto_closed", {
+            matchId,
+            positionId: pos.id,
+            user: pos.playerAddress.slice(0, 8),
+            asset: pos.assetSymbol,
+            reason: closeReason,
+            entryPrice: pos.entryPrice,
+            exitPrice,
+            pnl,
+          });
+
           await updatePosition(matchId, pos.id, {
             exitPrice,
             pnl,
@@ -284,7 +313,7 @@ export function setupWebSocket(server: HttpServer): void {
           });
 
           broadcastOpponentUpdate(matchId, pos.playerAddress).catch((err) => {
-            console.error(`[WS] Opponent update failed after SL/TP close in ${matchId}:`, err);
+            log.error("opponent_update_failed", { matchId, player: pos.playerAddress.slice(0, 8), trigger: closeReason, error: String(err) });
           });
         } finally {
           _closingPositions.delete(pos.id);
@@ -293,7 +322,7 @@ export function setupWebSocket(server: HttpServer): void {
     }
   }, config.settlementIntervalMs);
 
-  console.log("[WS] WebSocket server started on /ws");
+  log.info("ws_server_started", { path: "/ws", pingIntervalMs: config.wsPingIntervalMs, pongTimeoutMs: PONG_TIMEOUT_MS });
 }
 
 // ── Forfeit Timers ────────────────────────────────────────────
@@ -302,9 +331,7 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
   const key = `${matchId}|${playerAddress}`;
   if (forfeitTimers.has(key)) return;
 
-  console.log(
-    `[WS] Disconnect detected: ${playerAddress.slice(0, 8)}… in match ${matchId} — 60s grace period`
-  );
+  log.info("forfeit_timer_started", { matchId, user: playerAddress.slice(0, 8), graceMs: FORFEIT_GRACE_MS });
 
   broadcastToMatch(matchId, {
     type: "opponent_disconnected",
@@ -316,11 +343,11 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
     forfeitTimers.delete(key);
 
     if (isUserConnected(playerAddress)) {
-      console.log(`[WS] Player ${playerAddress.slice(0, 8)}… reconnected — forfeit cancelled`);
+      log.info("forfeit_cancelled_reconnected", { matchId, user: playerAddress.slice(0, 8) });
       return;
     }
 
-    console.log(`[WS] Forfeit triggered: ${playerAddress.slice(0, 8)}… in match ${matchId}`);
+    log.warn("forfeit_triggered", { matchId, user: playerAddress.slice(0, 8) });
     await settleByForfeit(matchId, playerAddress);
   }, FORFEIT_GRACE_MS);
 
@@ -333,7 +360,7 @@ function cancelForfeitTimersForPlayer(playerAddress: string): void {
     if (addr === playerAddress) {
       clearTimeout(timer);
       forfeitTimers.delete(key);
-      console.log(`[WS] Forfeit timer cancelled for ${playerAddress.slice(0, 8)}… in match ${matchId}`);
+      log.info("forfeit_timer_cancelled", { matchId, user: playerAddress.slice(0, 8) });
       broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
     }
   }
@@ -345,7 +372,7 @@ function cancelForfeitTimerForMatch(matchId: string, playerAddress: string): voi
   if (timer) {
     clearTimeout(timer);
     forfeitTimers.delete(key);
-    console.log(`[WS] Forfeit timer cancelled for ${playerAddress.slice(0, 8)}… in match ${matchId}`);
+    log.info("forfeit_timer_cancelled", { matchId, user: playerAddress.slice(0, 8) });
     broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
   }
 }
@@ -376,14 +403,14 @@ async function handleMessage(
       };
 
       if (!isValidDuration(duration) || !isValidBet(bet)) {
-        console.log(`[WS] join_queue rejected: invalid params — duration=${duration}, bet=${bet}, user=${ws.userAddress.slice(0, 8)}…`);
+        log.warn("join_queue_rejected", { user: ws.userAddress.slice(0, 8), reason: "invalid_params", duration, bet });
         ws.send(JSON.stringify({ type: "error", message: "Invalid duration or bet amount" }));
         return;
       }
 
       const success = await joinQueue(ws.userAddress, duration, bet);
       if (!success) {
-        console.log(`[WS] join_queue rejected: insufficient balance — user=${ws.userAddress.slice(0, 8)}…, bet=${bet}`);
+        log.warn("join_queue_rejected", { user: ws.userAddress.slice(0, 8), reason: "insufficient_balance", bet });
         ws.send(JSON.stringify({
           type: "error",
           message: "Insufficient balance",
@@ -391,12 +418,12 @@ async function handleMessage(
         return;
       }
 
-      console.log(`[WS] join_queue success: ${ws.userAddress.slice(0, 8)}… → ${duration} / $${bet}`);
+      log.info("join_queue_success", { user: ws.userAddress.slice(0, 8), duration, bet });
       ws.send(JSON.stringify({ type: "queue_joined", duration, bet }));
 
       // Send updated balance (frozen amount changed).
       sendBalanceUpdate(ws.userAddress, ws).catch((err) => {
-        console.error(`[WS] Failed to send balance update for ${ws.userAddress?.slice(0, 8)}…:`, err);
+        log.error("balance_update_failed", { user: ws.userAddress?.slice(0, 8), trigger: "join_queue", error: String(err) });
       });
       break;
     }
@@ -415,7 +442,7 @@ async function handleMessage(
 
       // Send updated balance (unfrozen).
       sendBalanceUpdate(ws.userAddress, ws).catch((err) => {
-        console.error(`[WS] Failed to send balance update for ${ws.userAddress?.slice(0, 8)}…:`, err);
+        log.error("balance_update_failed", { user: ws.userAddress?.slice(0, 8), trigger: "leave_queue", error: String(err) });
       });
       break;
     }

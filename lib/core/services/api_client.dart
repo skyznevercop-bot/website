@@ -9,6 +9,9 @@ import 'package:web/web.dart' as web;
 
 import '../config/environment.dart';
 
+/// WebSocket connection state for UI reactivity.
+enum WsConnectionState { disconnected, connecting, connected }
+
 /// Singleton HTTP + WebSocket client for the SolFight backend.
 class ApiClient {
   ApiClient._();
@@ -19,6 +22,11 @@ class ApiClient {
   final _wsController = StreamController<Map<String, dynamic>>.broadcast();
   Timer? _reconnectTimer;
   int _reconnectAttempts = 0;
+
+  /// Observable connection state (disconnected → connecting → connected).
+  final _connectionStateController =
+      StreamController<WsConnectionState>.broadcast();
+  WsConnectionState _connectionState = WsConnectionState.disconnected;
 
   /// Messages queued while WS was disconnected (replayed on reconnect).
   final List<_PendingMessage> _pendingMessages = [];
@@ -35,8 +43,18 @@ class ApiClient {
   /// Max age for queued messages before they are discarded (60 seconds).
   static const _maxPendingAge = Duration(seconds: 60);
 
+  /// Max pending messages to prevent unbounded memory growth.
+  static const _maxPendingMessages = 50;
+
   /// Stream of incoming WebSocket messages.
   Stream<Map<String, dynamic>> get wsStream => _wsController.stream;
+
+  /// Stream of connection state changes.
+  Stream<WsConnectionState> get connectionStateStream =>
+      _connectionStateController.stream;
+
+  /// Current connection state.
+  WsConnectionState get connectionState => _connectionState;
 
   /// Whether the WebSocket is connected.
   bool get isWsConnected => _ws?.readyState == web.WebSocket.OPEN;
@@ -149,12 +167,19 @@ class ApiClient {
 
   // ── WebSocket ──────────────────────────────────────────
 
+  void _setConnectionState(WsConnectionState state) {
+    if (_connectionState == state) return;
+    _connectionState = state;
+    _connectionStateController.add(state);
+  }
+
   /// Connect to the WebSocket server.
   void connectWebSocket() {
     if (_jwtToken == null) return;
 
     _ws?.close();
     _reconnectTimer?.cancel();
+    _setConnectionState(WsConnectionState.connecting);
 
     // Connect without token in URL — authenticate via first message instead.
     final url = Environment.wsUrl;
@@ -174,12 +199,16 @@ class ApiClient {
         // On successful auth, replay queued messages and notify listeners.
         if (data['type'] == 'auth_ok') {
           _reconnectAttempts = 0;
+          _setConnectionState(WsConnectionState.connected);
 
           final now = DateTime.now();
           final pending = _pendingMessages
               .where((m) => now.difference(m.queuedAt) < _maxPendingAge)
               .toList();
           _pendingMessages.clear();
+          if (pending.isNotEmpty) {
+            debugPrint('[WS] Replaying ${pending.length} queued messages');
+          }
           for (final msg in pending) {
             _ws!.send(jsonEncode(msg.data).toJS);
           }
@@ -190,11 +219,13 @@ class ApiClient {
 
         _wsController.add(data);
       } catch (e) {
-        if (kDebugMode) debugPrint('[WS] Parse error: $e');
+        debugPrint('[WS] Parse error: $e');
       }
     }).toJS;
 
     _ws!.onclose = ((web.Event e) {
+      _setConnectionState(WsConnectionState.disconnected);
+      _wsController.add({'type': 'ws_disconnected'});
       _scheduleReconnect();
     }).toJS;
 
@@ -212,6 +243,11 @@ class ApiClient {
     } else {
       final type = data['type'] as String?;
       if (type != null && _queueableTypes.contains(type)) {
+        // Cap queue to prevent unbounded memory growth.
+        if (_pendingMessages.length >= _maxPendingMessages) {
+          debugPrint('[WS] Pending message queue full — dropping oldest');
+          _pendingMessages.removeAt(0);
+        }
         _pendingMessages.add(_PendingMessage(data));
       }
     }
@@ -223,6 +259,7 @@ class ApiClient {
     _pendingMessages.clear();
     _ws?.close();
     _ws = null;
+    _setConnectionState(WsConnectionState.disconnected);
   }
 
   /// Exponential backoff reconnection.
@@ -234,6 +271,7 @@ class ApiClient {
     );
     _reconnectAttempts++;
 
+    debugPrint('[WS] Reconnecting in ${delay.inMilliseconds}ms (attempt $_reconnectAttempts)');
     _reconnectTimer = Timer(delay, connectWebSocket);
   }
 
@@ -241,6 +279,7 @@ class ApiClient {
   void dispose() {
     disconnectWebSocket();
     _wsController.close();
+    _connectionStateController.close();
   }
 }
 

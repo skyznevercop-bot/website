@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { log } from "../utils/logger";
 
 /**
  * Klines (candlestick) proxy — fetches OHLC data server-side.
@@ -142,7 +143,7 @@ router.get("/:symbol", async (req: Request, res: Response) => {
         return;
       }
     } catch (err) {
-      console.warn(`[Klines] ${name} failed for ${symbol}:`, err);
+      log.warn("klines_source_failed", { source: name, symbol, error: String(err) });
     }
   }
 
