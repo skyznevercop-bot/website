@@ -86,14 +86,14 @@ describe("calculatePnl", () => {
 describe("liquidationPrice", () => {
   it("calculates liquidation price for a long position", () => {
     const pos: PnlPosition = { entryPrice: 100, isLong: true, size: 1000, leverage: 10 };
-    // liqPrice = 100 * (1 - 0.9 / 10) = 100 * 0.91 = 91
-    expect(liquidationPrice(pos)).toBe(91);
+    // liqPrice = 100 * (1 - 1.0 / 10) = 100 * 0.90 = 90
+    expect(liquidationPrice(pos)).toBe(90);
   });
 
   it("calculates liquidation price for a short position", () => {
     const pos: PnlPosition = { entryPrice: 100, isLong: false, size: 1000, leverage: 10 };
-    // liqPrice = 100 * (1 + 0.9 / 10) = 100 * 1.09 = 109
-    expect(liquidationPrice(pos)).toBeCloseTo(109, 10);
+    // liqPrice = 100 * (1 + 1.0 / 10) = 100 * 1.10 = 110
+    expect(liquidationPrice(pos)).toBeCloseTo(110, 10);
   });
 
   it("liquidation price is closer to entry with higher leverage", () => {
@@ -110,19 +110,19 @@ describe("liquidationPrice", () => {
     expect(liq100x).toBeLessThan(50000);
   });
 
-  it("liquidation triggers at 90% margin loss for long", () => {
+  it("liquidation triggers at 100% margin loss for long", () => {
     const pos: PnlPosition = { entryPrice: 100, isLong: true, size: 1000, leverage: 10 };
     const liqPrice = liquidationPrice(pos);
     const pnlAtLiq = calculatePnl(pos, liqPrice);
-    // At liquidation, PnL should be -90% of size = -900
-    expect(pnlAtLiq).toBeCloseTo(-900, 5);
+    // At liquidation, PnL should be -100% of size = -1000
+    expect(pnlAtLiq).toBeCloseTo(-1000, 5);
   });
 
-  it("liquidation triggers at 90% margin loss for short", () => {
+  it("liquidation triggers at 100% margin loss for short", () => {
     const pos: PnlPosition = { entryPrice: 100, isLong: false, size: 1000, leverage: 10 };
     const liqPrice = liquidationPrice(pos);
     const pnlAtLiq = calculatePnl(pos, liqPrice);
-    expect(pnlAtLiq).toBeCloseTo(-900, 5);
+    expect(pnlAtLiq).toBeCloseTo(-1000, 5);
   });
 
   it("accepts a custom threshold parameter", () => {
@@ -131,10 +131,10 @@ describe("liquidationPrice", () => {
     expect(liquidationPrice(pos, 0.5)).toBe(95);
   });
 
-  it("1x leverage long has liquidation price near zero", () => {
+  it("1x leverage long has liquidation price at zero", () => {
     const pos: PnlPosition = { entryPrice: 100, isLong: true, size: 1000, leverage: 1 };
-    // liqPrice = 100 * (1 - 0.9/1) = 10
-    expect(liquidationPrice(pos)).toBeCloseTo(10, 10);
+    // liqPrice = 100 * (1 - 1.0/1) = 0
+    expect(liquidationPrice(pos)).toBeCloseTo(0, 10);
   });
 });
 

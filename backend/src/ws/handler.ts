@@ -244,7 +244,7 @@ export function setupWebSocket(server: HttpServer): void {
 
         const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
 
-        // Liquidation: player loses 90% of margin.
+        // Liquidation: player loses 100% of margin.
         const liqPrice = liquidationPrice(pos);
 
         let closeReason: string | null = null;

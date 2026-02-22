@@ -354,7 +354,7 @@ async function _doSettleMatch(
 
 /**
  * Close all open positions at settlement prices.
- * If a position should have been liquidated (PnL exceeds 90% of margin),
+ * If a position should have been liquidated (PnL exceeds 100% of margin),
  * it is closed at the liquidation price instead of market price.
  */
 async function closeOpenPositions(

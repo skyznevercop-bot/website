@@ -30,9 +30,9 @@ export function calculatePnl(pos: PnlPosition, currentPrice: number): number {
 
 /**
  * Liquidation price for a position.
- * @param threshold — fraction of margin loss that triggers liquidation (default 0.9 = 90%).
+ * @param threshold — fraction of margin loss that triggers liquidation (default 1.0 = 100%).
  */
-export function liquidationPrice(pos: PnlPosition, threshold = 0.9): number {
+export function liquidationPrice(pos: PnlPosition, threshold = 1.0): number {
   return pos.isLong
     ? pos.entryPrice * (1 - threshold / pos.leverage)
     : pos.entryPrice * (1 + threshold / pos.leverage);

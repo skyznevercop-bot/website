@@ -64,7 +64,7 @@ export const config = {
   maxLeverage: 100,
   validAssets: ["BTC", "ETH", "SOL"] as readonly string[],
   chatMaxLength: 200,
-  liquidationThreshold: 0.9, // 90% of margin lost
+  liquidationThreshold: 1.0, // 100% of margin lost
 
   // ── Challenge ──
   challengeExpiryMs: 5 * 60 * 1000,
