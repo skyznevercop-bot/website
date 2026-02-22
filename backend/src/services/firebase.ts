@@ -89,23 +89,26 @@ export async function getUser(address: string): Promise<DbUser | null> {
 }
 
 export async function getOrCreateUser(address: string): Promise<DbUser> {
-  const existing = await getUser(address);
-  if (existing) return existing;
+  const userRef = usersRef.child(address);
 
-  const newUser: DbUser = {
-    wins: 0,
-    losses: 0,
-    ties: 0,
-    totalPnl: 0,
-    currentStreak: 0,
-    bestStreak: 0,
-    gamesPlayed: 0,
-    totalTrades: 0,
-    achievements: {},
-    createdAt: Date.now(),
-  };
-  await usersRef.child(address).set(newUser);
-  return newUser;
+  const result = await userRef.transaction((current) => {
+    if (current !== null) return current; // Already exists — keep it.
+
+    return {
+      wins: 0,
+      losses: 0,
+      ties: 0,
+      totalPnl: 0,
+      currentStreak: 0,
+      bestStreak: 0,
+      gamesPlayed: 0,
+      totalTrades: 0,
+      achievements: {},
+      createdAt: Date.now(),
+    };
+  });
+
+  return result.snapshot.val() as DbUser;
 }
 
 export async function updateUser(

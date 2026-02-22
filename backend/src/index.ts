@@ -68,7 +68,7 @@ setupWebSocket(server);
 // Start background services
 startMatchmakingLoop();       // 500ms — FIFO matching (instant, no on-chain)
 startPriceOracle();           // SSE streaming + 1s broadcast
-startSettlementLoop();        // 5s — check for ended matches
+startSettlementLoop();        // 1s — check for ended matches
 
 // Start server
 server.listen(config.port, () => {

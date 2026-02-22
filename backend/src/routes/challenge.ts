@@ -11,7 +11,7 @@ import {
 import { freezeForMatch, unfreezeBalance } from "../services/balance";
 import { broadcastToUser } from "../ws/handler";
 import { isUserConnected } from "../ws/rooms";
-import { isValidSolanaAddress } from "../utils/validation";
+import { isValidSolanaAddress, isValidDuration, isValidBet, VALID_DURATIONS, VALID_BETS } from "../utils/validation";
 import { config } from "../config";
 
 const router = Router();
@@ -93,12 +93,12 @@ router.post("/create", requireAuth, async (req: AuthRequest, res) => {
       res.status(400).json({ error: "Valid toAddress is required" });
       return;
     }
-    if (!duration || typeof duration !== "string") {
-      res.status(400).json({ error: "duration is required" });
+    if (!isValidDuration(duration)) {
+      res.status(400).json({ error: `Invalid duration. Allowed: ${VALID_DURATIONS.join(", ")}` });
       return;
     }
-    if (typeof bet !== "number" || !Number.isFinite(bet) || bet < 0) {
-      res.status(400).json({ error: "Valid bet amount is required" });
+    if (!isValidBet(bet)) {
+      res.status(400).json({ error: `Invalid bet. Allowed: $${VALID_BETS.join(", $")}` });
       return;
     }
 
