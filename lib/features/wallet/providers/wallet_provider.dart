@@ -186,50 +186,27 @@ class WalletNotifier extends Notifier<WalletState> {
       final result = await SolanaWalletAdapter.connectEagerly(walletName);
       final address = result.publicKey;
 
-      // Try using the stored JWT first.
+      // Validate the stored JWT by fetching the user profile.
       String? gamerTag;
       bool tokenValid = false;
       try {
         final userResponse = await _api.get('/user/$address');
         gamerTag = userResponse['gamerTag'] as String?;
         tokenValid = true;
-      } catch (e) {
-        if (kDebugMode) debugPrint('[Wallet] Stored JWT failed: $e — re-authenticating…');
-      }
-
-      // If stored JWT is expired/invalid, re-authenticate with a fresh token.
-      if (!tokenValid) {
-        try {
-          final nonceResponse =
-              await _api.get('/auth/nonce?address=$address');
-          final nonce = nonceResponse['nonce'] as String;
-          final message = nonceResponse['message'] as String;
-
-          final messageBytes = Uint8List.fromList(utf8.encode(message));
-          final signatureBytes =
-              await SolanaWalletAdapter.signMessage(walletName, messageBytes);
-          final signatureBase58 = _base58Encode(signatureBytes);
-
-          final authResponse = await _api.post('/auth/verify', {
-            'address': address,
-            'signature': signatureBase58,
-            'nonce': nonce,
-          });
-
-          final token = authResponse['token'] as String;
-          await _api.setToken(token);
-
-          // Retry user profile with the fresh token.
-          try {
-            final userResponse = await _api.get('/user/$address');
-            gamerTag = userResponse['gamerTag'] as String?;
-          } catch (_) {}
-
-          tokenValid = true;
-          if (kDebugMode) debugPrint('[Wallet] Re-authentication successful');
-        } catch (e) {
-          if (kDebugMode) debugPrint('[Wallet] Re-authentication failed: $e');
+      } on ApiException catch (e) {
+        if (e.statusCode == 401) {
+          // JWT expired — clear session so user re-connects with fresh auth.
+          if (kDebugMode) debugPrint('[Wallet] JWT expired — clearing session');
+          await _api.clearToken();
+          await prefs.remove(_walletTypeKey);
+          try { await SolanaWalletAdapter.disconnect(walletName); } catch (_) {}
+          return;
         }
+        // Other API error (500, etc.) — continue in wallet-only mode.
+        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
+      } catch (e) {
+        // Network error / timeout — continue in wallet-only mode.
+        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
       }
 
       _backendConnected = tokenValid;
