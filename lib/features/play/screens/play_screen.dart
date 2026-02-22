@@ -1789,9 +1789,7 @@ class _ConnectWalletButtonState extends State<_ConnectWalletButton> {
       child: GestureDetector(
         onTap: !connected
             ? widget.onTap
-            : needsDeposit
-                ? () => GoRouter.of(context).go(AppConstants.portfolioRoute)
-                : null,
+            : () => GoRouter.of(context).go(AppConstants.portfolioRoute),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
