@@ -320,6 +320,57 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     );
   }
 
+  /// Check if the connected wallet is admin and fetch rake stats if so.
+  Future<void> checkAdminStatus() async {
+    try {
+      final response = await _api.get('/balance/admin/check');
+      final isAdmin = response['isAdmin'] as bool? ?? false;
+      state = state.copyWith(isAdmin: isAdmin);
+      if (isAdmin) await fetchRakeStats();
+    } catch (_) {
+      state = state.copyWith(isAdmin: false);
+    }
+  }
+
+  /// Fetch platform rake stats (admin only).
+  Future<void> fetchRakeStats() async {
+    try {
+      final response = await _api.get('/balance/admin/stats');
+      state = state.copyWith(
+        accumulatedRake: (response['accumulatedRake'] as num?)?.toDouble() ?? 0,
+        totalRakeCollected: (response['totalRakeCollected'] as num?)?.toDouble() ?? 0,
+      );
+    } catch (_) {}
+  }
+
+  /// Withdraw accumulated rake to admin wallet (admin only).
+  Future<bool> withdrawRake() async {
+    if (state.isWithdrawingRake) return false;
+    state = state.copyWith(isWithdrawingRake: true, clearError: true);
+    try {
+      final response = await _api.post('/balance/admin/withdraw-rake', {});
+      final sig = response['txSignature'] as String?;
+      state = state.copyWith(
+        isWithdrawingRake: false,
+        accumulatedRake: 0,
+        rakeWithdrawTxSignature: sig,
+      );
+      return true;
+    } on ApiException catch (e) {
+      state = state.copyWith(
+        isWithdrawingRake: false,
+        rakeWithdrawError: e.message,
+      );
+      return false;
+    } catch (e) {
+      state = state.copyWith(
+        isWithdrawingRake: false,
+        rakeWithdrawError: 'Withdrawal failed: ${e.toString()}',
+      );
+      return false;
+    }
+  }
+
   /// Reset all portfolio state (used when switching wallets).
   void reset() {
     state = const PortfolioState();

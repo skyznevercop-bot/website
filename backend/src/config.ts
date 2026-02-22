@@ -39,6 +39,7 @@ export const config = {
   treasuryAddress:
     process.env.TREASURY_ADDRESS || "",
   rakePercent: 0.10, // 10% rake (informational; enforced on-chain via fee_bps=1000)
+  adminAddress: process.env.ADMIN_ADDRESS || process.env.TREASURY_ADDRESS || "",
 
   // ── Service intervals ──
   matchmakingIntervalMs: 500,

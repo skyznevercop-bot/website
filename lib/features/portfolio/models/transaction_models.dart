@@ -111,6 +111,14 @@ class PortfolioState {
   final String? withdrawError;
   final String? depositError;
 
+  // Admin rake fields (only populated when connected wallet is admin).
+  final bool isAdmin;
+  final double accumulatedRake;
+  final double totalRakeCollected;
+  final bool isWithdrawingRake;
+  final String? rakeWithdrawError;
+  final String? rakeWithdrawTxSignature;
+
   const PortfolioState({
     this.transactions = const [],
     this.matchHistory = const [],
@@ -120,6 +128,12 @@ class PortfolioState {
     this.isLoadingHistory = false,
     this.withdrawError,
     this.depositError,
+    this.isAdmin = false,
+    this.accumulatedRake = 0,
+    this.totalRakeCollected = 0,
+    this.isWithdrawingRake = false,
+    this.rakeWithdrawError,
+    this.rakeWithdrawTxSignature,
   });
 
   PortfolioState copyWith({
@@ -132,6 +146,12 @@ class PortfolioState {
     String? withdrawError,
     String? depositError,
     bool clearError = false,
+    bool? isAdmin,
+    double? accumulatedRake,
+    double? totalRakeCollected,
+    bool? isWithdrawingRake,
+    String? rakeWithdrawError,
+    String? rakeWithdrawTxSignature,
   }) {
     return PortfolioState(
       transactions: transactions ?? this.transactions,
@@ -142,6 +162,12 @@ class PortfolioState {
       isLoadingHistory: isLoadingHistory ?? this.isLoadingHistory,
       withdrawError: clearError ? null : (withdrawError ?? this.withdrawError),
       depositError: clearError ? null : (depositError ?? this.depositError),
+      isAdmin: isAdmin ?? this.isAdmin,
+      accumulatedRake: accumulatedRake ?? this.accumulatedRake,
+      totalRakeCollected: totalRakeCollected ?? this.totalRakeCollected,
+      isWithdrawingRake: isWithdrawingRake ?? this.isWithdrawingRake,
+      rakeWithdrawError: clearError ? null : (rakeWithdrawError ?? this.rakeWithdrawError),
+      rakeWithdrawTxSignature: rakeWithdrawTxSignature ?? this.rakeWithdrawTxSignature,
     );
   }
 }

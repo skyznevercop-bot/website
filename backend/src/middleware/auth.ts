@@ -33,6 +33,24 @@ export function requireAuth(
   }
 }
 
+/** Admin-only middleware. Must be chained after requireAuth. */
+export function requireAdmin(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  const adminAddr = config.adminAddress;
+  if (!adminAddr) {
+    res.status(503).json({ error: "Admin address not configured" });
+    return;
+  }
+  if (req.userAddress !== adminAddr) {
+    res.status(403).json({ error: "Admin access required" });
+    return;
+  }
+  next();
+}
+
 /** Generate a random nonce for wallet signature verification. */
 export function generateNonce(): string {
   const bytes = nacl.randomBytes(32);

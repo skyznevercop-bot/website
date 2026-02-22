@@ -2,6 +2,7 @@ import {
   usersRef,
   matchesRef,
   queuesRef,
+  platformRef,
   getUser,
   db,
 } from "./firebase";
@@ -603,6 +604,124 @@ export async function processWithdrawal(
     });
 
     return { success: false, error: "On-chain transfer failed. Balance has been refunded." };
+  }
+}
+
+// ── Platform rake tracking ───────────────────────────────────────
+
+/**
+ * Record rake from a settled match. Idempotent via per-match `rakeRecorded` flag.
+ */
+export async function recordRake(
+  matchId: string,
+  rakeAmount: number
+): Promise<void> {
+  const matchSnap = await matchesRef.child(matchId).once("value");
+  const matchData = matchSnap.exists() ? matchSnap.val() : {};
+  if (matchData.rakeRecorded) return;
+
+  await platformRef.transaction((current: Record<string, unknown> | null) => {
+    if (!current) {
+      return {
+        accumulatedRake: rakeAmount,
+        totalRakeCollected: rakeAmount,
+        lastRakeMatchId: matchId,
+      };
+    }
+    return {
+      ...current,
+      accumulatedRake: ((current.accumulatedRake as number) ?? 0) + rakeAmount,
+      totalRakeCollected: ((current.totalRakeCollected as number) ?? 0) + rakeAmount,
+      lastRakeMatchId: matchId,
+    };
+  });
+
+  await matchesRef.child(matchId).update({ rakeRecorded: true });
+  console.log(`[Rake] Recorded $${rakeAmount.toFixed(4)} from match ${matchId}`);
+}
+
+/**
+ * Get platform rake stats (admin only).
+ */
+export async function getPlatformStats(): Promise<{
+  accumulatedRake: number;
+  totalRakeCollected: number;
+  lastWithdrawal: { amount: number; txSignature: string; timestamp: number } | null;
+}> {
+  const snap = await platformRef.once("value");
+  const data = snap.exists() ? snap.val() : {};
+  return {
+    accumulatedRake: data.accumulatedRake ?? 0,
+    totalRakeCollected: data.totalRakeCollected ?? 0,
+    lastWithdrawal: data.lastWithdrawal ?? null,
+  };
+}
+
+/**
+ * Withdraw accumulated rake to the admin wallet on-chain.
+ * Atomically zeroes accumulatedRake, sends USDC, refunds on failure.
+ */
+export async function withdrawRake(
+  adminAddress: string
+): Promise<{ success: boolean; txSignature?: string; error?: string }> {
+  let rakeAmount = 0;
+
+  const txResult = await platformRef.transaction((current: Record<string, unknown> | null) => {
+    if (!current || ((current.accumulatedRake as number) ?? 0) <= 0) {
+      return undefined; // abort
+    }
+    rakeAmount = current.accumulatedRake as number;
+    return { ...current, accumulatedRake: 0 };
+  });
+
+  if (!txResult.committed || rakeAmount <= 0) {
+    return { success: false, error: "No rake to withdraw" };
+  }
+
+  try {
+    const connection = getConnection();
+    const authority = getAuthorityKeypair();
+    const usdcMint = getUsdcMint();
+    const adminPubkey = new PublicKey(adminAddress);
+    const vaultAta = await getAssociatedTokenAddress(usdcMint, authority.publicKey);
+    const adminAta = await getAssociatedTokenAddress(usdcMint, adminPubkey);
+    const amountLamports = Math.round(rakeAmount * 1_000_000);
+
+    const tx = new Transaction();
+    try {
+      await getAccount(connection, adminAta);
+    } catch {
+      tx.add(
+        createAssociatedTokenAccountInstruction(
+          authority.publicKey,
+          adminAta,
+          adminPubkey,
+          usdcMint
+        )
+      );
+    }
+    tx.add(createTransferInstruction(vaultAta, adminAta, authority.publicKey, amountLamports));
+
+    const sig = await sendAndConfirmTransaction(connection, tx, [authority], {
+      commitment: "confirmed",
+    });
+
+    await platformRef.update({
+      lastWithdrawal: { amount: rakeAmount, txSignature: sig, timestamp: Date.now() },
+    });
+
+    console.log(`[Rake] Withdrawal sent: $${rakeAmount} USDC | sig: ${sig}`);
+    return { success: true, txSignature: sig };
+  } catch (err) {
+    console.error(`[Rake] Withdrawal failed, restoring rake:`, err);
+    await platformRef.transaction((current: Record<string, unknown> | null) => {
+      if (!current) return { accumulatedRake: rakeAmount, totalRakeCollected: rakeAmount };
+      return {
+        ...current,
+        accumulatedRake: ((current.accumulatedRake as number) ?? 0) + rakeAmount,
+      };
+    });
+    return { success: false, error: "On-chain transfer failed. Rake has been restored." };
   }
 }
 

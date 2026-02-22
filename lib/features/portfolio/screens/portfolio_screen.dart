@@ -43,6 +43,7 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
       ref.read(queueProvider.notifier).fetchUserStats(wallet.address!);
       ref.read(portfolioProvider.notifier).fetchMatchHistory();
       ref.read(portfolioProvider.notifier).fetchTransactions();
+      ref.read(portfolioProvider.notifier).checkAdminStatus();
     }
   }
 
@@ -158,6 +159,25 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
                 onWithdraw: () => showWithdrawModal(context),
               ),
             ),
+
+            // ── Admin Revenue Card (only visible to admin wallet) ──
+            if (portfolio.isAdmin) ...[
+              const SizedBox(height: 24),
+              Padding(
+                padding: Responsive.horizontalPadding(context),
+                child: _AdminRevenueCard(
+                  accumulatedRake: portfolio.accumulatedRake,
+                  totalRakeCollected: portfolio.totalRakeCollected,
+                  isWithdrawing: portfolio.isWithdrawingRake,
+                  error: portfolio.rakeWithdrawError,
+                  txSignature: portfolio.rakeWithdrawTxSignature,
+                  onWithdraw: () {
+                    ref.read(portfolioProvider.notifier).withdrawRake();
+                  },
+                ),
+              ),
+            ],
+
             const SizedBox(height: 32),
 
             // Active matches
@@ -779,6 +799,176 @@ class _HeroButton extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Admin Revenue Card
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _AdminRevenueCard extends StatelessWidget {
+  final double accumulatedRake;
+  final double totalRakeCollected;
+  final bool isWithdrawing;
+  final String? error;
+  final String? txSignature;
+  final VoidCallback onWithdraw;
+
+  const _AdminRevenueCard({
+    required this.accumulatedRake,
+    required this.totalRakeCollected,
+    required this.isWithdrawing,
+    required this.onWithdraw,
+    this.error,
+    this.txSignature,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  'ADMIN',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.warning,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'Platform Revenue',
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Accumulated rake (big number)
+          Text(
+            '\$${accumulatedRake.toStringAsFixed(2)}',
+            style: GoogleFonts.inter(
+              fontSize: 32,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Available to withdraw',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              color: AppTheme.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Lifetime total
+          Text(
+            'Lifetime: \$${totalRakeCollected.toStringAsFixed(2)}',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Error
+          if (error != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.error.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                error!,
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  color: AppTheme.error,
+                ),
+              ),
+            ),
+          ],
+
+          // Withdraw button
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton(
+              onPressed: (isWithdrawing || accumulatedRake <= 0)
+                  ? null
+                  : onWithdraw,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.warning,
+                foregroundColor: Colors.black,
+                disabledBackgroundColor: AppTheme.warning.withValues(alpha: 0.3),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              child: isWithdrawing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.black,
+                      ),
+                    )
+                  : Text(
+                      accumulatedRake > 0
+                          ? 'Withdraw \$${accumulatedRake.toStringAsFixed(2)}'
+                          : 'No revenue to withdraw',
+                      style: GoogleFonts.inter(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+            ),
+          ),
+
+          // Tx signature link
+          if (txSignature != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Last withdrawal: ${txSignature!.substring(0, 20)}...',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.solanaGreen,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

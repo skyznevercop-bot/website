@@ -59,6 +59,7 @@ export const clansRef = db.ref("solfight/clans");
 export const noncesRef = db.ref("solfight/nonces");
 export const friendsRef = db.ref("solfight/friends");
 export const challengesRef = db.ref("solfight/challenges");
+export const platformRef = db.ref("solfight/platform");
 
 // ── User helpers ──────────────────────────────────────────────────
 

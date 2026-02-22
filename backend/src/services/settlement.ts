@@ -13,7 +13,7 @@ import {
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
 import { broadcastToMatch, broadcastToAll, broadcastToUser, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
-import { settleMatchBalances, getBalance } from "./balance";
+import { settleMatchBalances, getBalance, recordRake } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
 import { calculatePnl, liquidationPrice, roiDecimal, roiToPercent } from "../utils/pnl";
@@ -120,6 +120,12 @@ async function retryBalanceSettlement(
     );
 
     await updateMatch(matchId, { balancesSettled: true });
+
+    if (!isTie && match.betAmount > 0) {
+      const rakeAmount = match.betAmount * 2 * config.rakePercent;
+      await recordRake(matchId, rakeAmount);
+    }
+
     console.log(`[Settlement] Recovery complete for ${matchId}`);
   } catch (err) {
     console.error(`[Settlement] Recovery failed for ${matchId}:`, err);
@@ -171,6 +177,11 @@ export async function settleByForfeit(
     false
   );
   await updateMatch(matchId, { balancesSettled: true });
+
+  if (match.betAmount > 0) {
+    const rakeAmount = match.betAmount * 2 * config.rakePercent;
+    await recordRake(matchId, rakeAmount);
+  }
 
   // 2b. Send updated balances to both players via WS.
   void sendBalanceUpdates(match.player1, match.player2);
@@ -303,6 +314,11 @@ async function _doSettleMatch(
   // 2. Settle balances INSTANTLY — no on-chain waiting.
   await settleMatchBalances(matchId, winner, player1, player2, betAmount, isTie);
   await updateMatch(matchId, { balancesSettled: true });
+
+  if (!isTie && betAmount > 0) {
+    const rakeAmount = betAmount * 2 * config.rakePercent;
+    await recordRake(matchId, rakeAmount);
+  }
 
   // 2b. Send updated balances to both players via WS.
   void sendBalanceUpdates(player1, player2);
