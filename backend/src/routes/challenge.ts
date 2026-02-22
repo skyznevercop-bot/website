@@ -97,8 +97,8 @@ router.post("/create", requireAuth, async (req: AuthRequest, res) => {
       res.status(400).json({ error: `Invalid duration. Allowed: ${VALID_DURATIONS.join(", ")}` });
       return;
     }
-    if (!isValidBet(bet)) {
-      res.status(400).json({ error: `Invalid bet. Allowed: $${VALID_BETS.join(", $")}` });
+    if (bet !== 0 && !isValidBet(bet)) {
+      res.status(400).json({ error: `Invalid bet. Allowed: Free, $${VALID_BETS.join(", $")}` });
       return;
     }
 
