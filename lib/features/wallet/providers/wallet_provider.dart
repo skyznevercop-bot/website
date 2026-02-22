@@ -72,6 +72,10 @@ class WalletNotifier extends Notifier<WalletState> {
         final token = authResponse['token'] as String;
         await _api.setToken(token);
 
+        // JWT obtained — backend is available for balance fetches
+        // even if the profile fetch below fails.
+        backendAvailable = true;
+
         // Connect WebSocket with the JWT.
         _api.connectWebSocket();
 
@@ -90,13 +94,15 @@ class WalletNotifier extends Notifier<WalletState> {
           }
         });
 
-        // Fetch user profile from backend.
-        final userResponse = await _api.get('/user/$address');
-        gamerTag = userResponse['gamerTag'] as String?;
-
-        backendAvailable = true;
+        // Fetch user profile from backend (non-critical — don't fail auth).
+        try {
+          final userResponse = await _api.get('/user/$address');
+          gamerTag = userResponse['gamerTag'] as String?;
+        } catch (e) {
+          if (kDebugMode) debugPrint('[Wallet] Profile fetch failed (non-critical): $e');
+        }
       } catch (e) {
-        // Backend unreachable — wallet-only mode.
+        // Backend unreachable or auth failed — wallet-only mode.
         if (kDebugMode) debugPrint('[Wallet] Backend auth failed: $e');
         backendAvailable = false;
       }
@@ -187,12 +193,12 @@ class WalletNotifier extends Notifier<WalletState> {
       final address = result.publicKey;
 
       // Validate the stored JWT by fetching the user profile.
+      // Assume JWT is valid unless backend explicitly rejects it (401).
       String? gamerTag;
-      bool tokenValid = false;
+      bool backendAvailable = true;
       try {
         final userResponse = await _api.get('/user/$address');
         gamerTag = userResponse['gamerTag'] as String?;
-        tokenValid = true;
       } on ApiException catch (e) {
         if (e.statusCode == 401) {
           // JWT expired — clear session so user re-connects with fresh auth.
@@ -202,14 +208,14 @@ class WalletNotifier extends Notifier<WalletState> {
           try { await SolanaWalletAdapter.disconnect(walletName); } catch (_) {}
           return;
         }
-        // Other API error (500, etc.) — continue in wallet-only mode.
-        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
+        // Other API error (500, etc.) — JWT may still be valid, try balance anyway.
+        if (kDebugMode) debugPrint('[Wallet] Profile fetch failed (non-critical): $e');
       } catch (e) {
-        // Network error / timeout — continue in wallet-only mode.
-        if (kDebugMode) debugPrint('[Wallet] User profile fetch failed: $e');
+        // Network error / timeout — JWT may still be valid, try balance anyway.
+        if (kDebugMode) debugPrint('[Wallet] Profile fetch failed (non-critical): $e');
       }
 
-      _backendConnected = tokenValid;
+      _backendConnected = backendAvailable;
 
       // Connect WebSocket with the (possibly refreshed) JWT.
       _api.connectWebSocket();
