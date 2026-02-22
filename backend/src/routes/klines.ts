@@ -1,15 +1,23 @@
 import { Router, Request, Response } from "express";
 
 /**
- * Klines (candlestick) proxy — fetches 1-minute OHLC data server-side.
+ * Klines (candlestick) proxy — fetches OHLC data server-side.
  *
  * Uses Coinbase as primary (US-friendly, no geo-block), then Kraken, then Bybit.
  * Returns data in Binance klines format so the frontend JS needs no changes:
  *   [ [openTimeMs, open, high, low, close, volume], ... ]
  *
- * GET /api/klines/:symbol   (symbol e.g. "BTCUSDT")
+ * GET /api/klines/:symbol?interval=1m&limit=300
  */
 const router = Router();
+
+// Interval mapping: query param → exchange-specific values
+const INTERVAL_MAP: Record<string, { coinbaseGranularity: number; krakenInterval: number; bybitInterval: string; seconds: number }> = {
+  "1m":  { coinbaseGranularity: 60,   krakenInterval: 1,  bybitInterval: "1",  seconds: 60 },
+  "5m":  { coinbaseGranularity: 300,  krakenInterval: 5,  bybitInterval: "5",  seconds: 300 },
+  "15m": { coinbaseGranularity: 900,  krakenInterval: 15, bybitInterval: "15", seconds: 900 },
+  "1h":  { coinbaseGranularity: 3600, krakenInterval: 60, bybitInterval: "60", seconds: 3600 },
+};
 
 // Map Binance-style symbols to Coinbase product IDs
 const COINBASE_PAIRS: Record<string, string> = {
@@ -32,13 +40,13 @@ const BYBIT_PAIRS: Record<string, string> = {
   SOLUSDT: "SOLUSDT",
 };
 
-async function fetchCoinbase(symbol: string, limit: number): Promise<unknown[] | null> {
+async function fetchCoinbase(symbol: string, limit: number, granularity: number = 60): Promise<unknown[] | null> {
   const productId = COINBASE_PAIRS[symbol];
   if (!productId) return null;
 
   const end = new Date();
-  const start = new Date(end.getTime() - limit * 60 * 1000);
-  const url = `https://api.exchange.coinbase.com/products/${productId}/candles?granularity=60&start=${start.toISOString()}&end=${end.toISOString()}`;
+  const start = new Date(end.getTime() - limit * granularity * 1000);
+  const url = `https://api.exchange.coinbase.com/products/${productId}/candles?granularity=${granularity}&start=${start.toISOString()}&end=${end.toISOString()}`;
 
   const resp = await fetch(url, { signal: AbortSignal.timeout(8_000) });
   if (!resp.ok) return null;
@@ -59,13 +67,13 @@ async function fetchCoinbase(symbol: string, limit: number): Promise<unknown[] |
   ]);
 }
 
-async function fetchKraken(symbol: string, limit: number): Promise<unknown[] | null> {
+async function fetchKraken(symbol: string, limit: number, interval: number = 1): Promise<unknown[] | null> {
   const pair = KRAKEN_PAIRS[symbol];
   if (!pair) return null;
 
-  // Kraken returns up to 720 1-minute candles
-  const since = Math.floor(Date.now() / 1000) - limit * 60;
-  const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=1&since=${since}`;
+  // Kraken returns up to 720 candles
+  const since = Math.floor(Date.now() / 1000) - limit * interval * 60;
+  const url = `https://api.kraken.com/0/public/OHLC?pair=${pair}&interval=${interval}&since=${since}`;
 
   const resp = await fetch(url, { signal: AbortSignal.timeout(8_000) });
   if (!resp.ok) return null;
@@ -90,11 +98,11 @@ async function fetchKraken(symbol: string, limit: number): Promise<unknown[] | n
   ]);
 }
 
-async function fetchBybit(symbol: string, limit: number): Promise<unknown[] | null> {
+async function fetchBybit(symbol: string, limit: number, interval: string = "1"): Promise<unknown[] | null> {
   const pair = BYBIT_PAIRS[symbol];
   if (!pair) return null;
 
-  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${pair}&interval=1&limit=${limit}`;
+  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${pair}&interval=${interval}&limit=${limit}`;
 
   const resp = await fetch(url, { signal: AbortSignal.timeout(8_000) });
   if (!resp.ok) return null;
@@ -117,12 +125,14 @@ async function fetchBybit(symbol: string, limit: number): Promise<unknown[] | nu
 router.get("/:symbol", async (req: Request, res: Response) => {
   const symbol = (req.params.symbol || "BTCUSDT").toUpperCase();
   const limit = Math.min(parseInt((req.query.limit as string) || "300", 10), 720);
+  const intervalKey = ((req.query.interval as string) || "1m").toLowerCase();
+  const iv = INTERVAL_MAP[intervalKey] || INTERVAL_MAP["1m"];
 
   // Try Coinbase first (US-friendly), then Kraken, then Bybit
   for (const [name, fetcher] of [
-    ["Coinbase", () => fetchCoinbase(symbol, limit)],
-    ["Kraken",   () => fetchKraken(symbol, limit)],
-    ["Bybit",    () => fetchBybit(symbol, limit)],
+    ["Coinbase", () => fetchCoinbase(symbol, limit, iv.coinbaseGranularity)],
+    ["Kraken",   () => fetchKraken(symbol, limit, iv.krakenInterval)],
+    ["Bybit",    () => fetchBybit(symbol, limit, iv.bybitInterval)],
   ] as [string, () => Promise<unknown[] | null>][]) {
     try {
       const data = await fetcher();

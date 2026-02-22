@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:web/web.dart' as web;
 
 import '../models/trading_models.dart';
+import '../providers/chart_settings_provider.dart';
 import '../providers/price_feed_provider.dart';
 import '../providers/trading_provider.dart';
 
@@ -30,6 +31,13 @@ external void _jsTick(String containerId, double price, double timestampMs);
 
 @JS('window._resizeLWChart')
 external void _jsResize(String containerId, double width, double height);
+
+@JS('window._setLWChartInterval')
+external void _jsSetInterval(String containerId, int intervalSeconds);
+
+@JS('window._setLWChartIndicator')
+external void _jsSetIndicator(
+    String containerId, String indicatorName, bool enabled);
 
 @JS('window._addPositionLine')
 external void _jsAddLine(
@@ -201,6 +209,9 @@ class _LWChartState extends ConsumerState<LWChart> {
 
     if (!matchActive) return;
 
+    final intervalSec = ref.read(chartSettingsProvider).interval.seconds;
+    final intervalMs = intervalSec * 1000;
+
     for (final p in positions) {
       // Only mark positions for the current asset.
       if (p.assetSymbol != _assetSymbol) continue;
@@ -208,7 +219,8 @@ class _LWChartState extends ConsumerState<LWChart> {
       // Entry marker.
       final entryMarkerId = '${p.id}_entry';
       if (!_drawnMarkerIds.contains(entryMarkerId)) {
-        final time = p.openedAt.millisecondsSinceEpoch ~/ 60000 * 60;
+        final time =
+            p.openedAt.millisecondsSinceEpoch ~/ intervalMs * intervalSec;
         final text = p.isLong ? 'Long' : 'Short';
         _jsAddMarker(_containerId, time, true, p.isLong, text);
         _drawnMarkerIds.add(entryMarkerId);
@@ -218,7 +230,9 @@ class _LWChartState extends ConsumerState<LWChart> {
       final exitMarkerId = '${p.id}_exit';
       if (!p.isOpen && !_drawnMarkerIds.contains(exitMarkerId)) {
         final exitTime =
-            (p.closedAt ?? DateTime.now()).millisecondsSinceEpoch ~/ 60000 * 60;
+            (p.closedAt ?? DateTime.now()).millisecondsSinceEpoch ~/
+                intervalMs *
+                intervalSec;
         final pnlValue = p.pnl(p.exitPrice ?? p.entryPrice);
         final sign = pnlValue >= 0 ? '+' : '';
         final text = '$sign\$${pnlValue.toStringAsFixed(2)}';
@@ -255,6 +269,28 @@ class _LWChartState extends ConsumerState<LWChart> {
 
       _syncLines(next.positions, next.matchActive);
       _syncMarkers(next.positions, next.matchActive);
+    });
+
+    // ── Chart settings (interval + indicators) ──
+    ref.listen<ChartSettings>(chartSettingsProvider, (prev, next) {
+      if (!_ready) return;
+
+      // Interval changed
+      if (prev == null || prev.interval != next.interval) {
+        _jsSetInterval(_containerId, next.interval.seconds);
+      }
+
+      // Indicator toggles
+      if (prev == null || prev.indicators.ema != next.indicators.ema) {
+        _jsSetIndicator(_containerId, 'ema', next.indicators.ema);
+      }
+      if (prev == null ||
+          prev.indicators.bollingerBands != next.indicators.bollingerBands) {
+        _jsSetIndicator(_containerId, 'bb', next.indicators.bollingerBands);
+      }
+      if (prev == null || prev.indicators.rsi != next.indicators.rsi) {
+        _jsSetIndicator(_containerId, 'rsi', next.indicators.rsi);
+      }
     });
 
     return HtmlElementView(viewType: _viewType);

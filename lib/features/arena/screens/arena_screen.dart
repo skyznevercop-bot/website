@@ -12,6 +12,7 @@ import '../providers/trading_provider.dart';
 import '../widgets/arena_hud.dart';
 import '../widgets/asset_bar.dart';
 import '../widgets/battle_bar.dart';
+import '../widgets/chart_toolbar.dart';
 import '../widgets/event_feed.dart';
 import '../widgets/lw_chart_widget.dart';
 import '../widgets/match_chat_panel.dart';
@@ -214,6 +215,7 @@ class _DesktopLayout extends StatelessWidget {
           child: Column(
             children: [
               AssetBar(state: state),
+              const ChartToolbar(),
               const Expanded(child: LWChart()),
               Container(height: 1, color: AppTheme.border),
               SizedBox(
@@ -424,6 +426,7 @@ class _MobileLayout extends StatelessWidget {
     return Column(
       children: [
         AssetBar(state: state),
+        const ChartToolbar(),
         const Expanded(flex: 5, child: LWChart()),
         Container(height: 1, color: AppTheme.border),
         Expanded(
