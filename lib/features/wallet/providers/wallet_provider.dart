@@ -19,6 +19,10 @@ const _walletTypeKey = 'solfight_wallet_type';
 class WalletNotifier extends Notifier<WalletState> {
   @override
   WalletState build() {
+    ref.onDispose(() {
+      _refreshTimer?.cancel();
+      _wsSubscription?.cancel();
+    });
     // Attempt silent reconnection on startup.
     Future.microtask(() => tryReconnect());
     return const WalletState();
@@ -26,6 +30,7 @@ class WalletNotifier extends Notifier<WalletState> {
 
   final _api = ApiClient.instance;
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
+  Timer? _refreshTimer;
 
   /// Connect to a wallet provider via JS interop.
   /// Attempts backend auth (JWT) if available; falls back to wallet-only mode.
@@ -114,20 +119,22 @@ class WalletNotifier extends Notifier<WalletState> {
       await prefs.setString(_walletTypeKey, walletName);
 
       // Mark as connected immediately — don't block on balance fetches.
+      // usdcBalance left null = "not yet fetched" (avoids misleading $0.00).
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
         address: address,
-        usdcBalance: 0,
         gamerTag: gamerTag,
+        isBalanceLoading: true,
       );
 
       // Fetch on-chain USDC balance and platform balance concurrently.
       // Don't block — update state as each resolves.
       _fetchOnChainUsdcBalance(address).then((onChainBalance) {
         if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance resolved: $onChainBalance');
-        state = state.copyWith(usdcBalance: onChainBalance);
+        state = state.copyWith(usdcBalance: onChainBalance, isBalanceLoading: false);
       }).catchError((e) {
         if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance fetch error: $e');
+        state = state.copyWith(isBalanceLoading: false);
       });
 
       if (backendAvailable) {
@@ -135,6 +142,8 @@ class WalletNotifier extends Notifier<WalletState> {
           if (kDebugMode) debugPrint('[Wallet] Platform balance fetch error: $e');
         });
       }
+
+      _startPeriodicRefresh();
     } on WalletException catch (e) {
       state = state.copyWith(
         status: WalletConnectionStatus.error,
@@ -154,6 +163,8 @@ class WalletNotifier extends Notifier<WalletState> {
 
   /// Disconnect the current wallet.
   Future<void> disconnect() async {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
     final walletName = state.walletType?.name;
     if (walletName != null) {
       await SolanaWalletAdapter.disconnect(walletName);
@@ -245,22 +256,25 @@ class WalletNotifier extends Notifier<WalletState> {
         status: WalletConnectionStatus.connected,
         walletType: walletType,
         address: address,
-        usdcBalance: 0,
         gamerTag: gamerTag,
+        isBalanceLoading: true,
       );
 
       if (kDebugMode) debugPrint('[Wallet] Silent reconnect successful: ${address.substring(0, 8)}…');
 
       // Fetch balances in background.
       _fetchOnChainUsdcBalance(address).then((balance) {
-        state = state.copyWith(usdcBalance: balance);
+        state = state.copyWith(usdcBalance: balance, isBalanceLoading: false);
       }).catchError((e) {
         if (kDebugMode) debugPrint('[Wallet] Reconnect on-chain balance failed: $e');
+        state = state.copyWith(isBalanceLoading: false);
       });
 
       if (_backendConnected) {
         _fetchPlatformBalanceWithRetry();
       }
+
+      _startPeriodicRefresh();
     } catch (e) {
       // Silent reconnect failed — user will need to connect manually.
       if (kDebugMode) debugPrint('[Wallet] Silent reconnect failed: $e');
@@ -299,11 +313,13 @@ class WalletNotifier extends Notifier<WalletState> {
   /// Refresh both on-chain and platform balances.
   Future<void> refreshBalance() async {
     if (!state.isConnected || state.address == null) return;
+    state = state.copyWith(isBalanceLoading: true);
     try {
       final balance = await _fetchOnChainUsdcBalance(state.address!);
-      state = state.copyWith(usdcBalance: balance);
+      state = state.copyWith(usdcBalance: balance, isBalanceLoading: false);
     } catch (e) {
       if (kDebugMode) debugPrint('[Wallet] refreshBalance on-chain failed: $e');
+      state = state.copyWith(isBalanceLoading: false);
     }
     if (_backendConnected) {
       await _fetchPlatformBalance();
@@ -352,19 +368,24 @@ class WalletNotifier extends Notifier<WalletState> {
     await _fetchPlatformBalance();
   }
 
-  /// Fetch USDC SPL token balance from Solana RPC.
+  /// Fetch USDC SPL token balance from Solana RPC with retries.
   /// Uses backend proxy first (reliable, no CORS), falls back to direct RPC.
   static Future<double> _fetchOnChainUsdcBalance(String walletAddress) async {
-    // Backend proxy first — guaranteed no CORS issues from browser.
-    // Direct RPC as fallback (may be CORS-blocked in some browsers).
-    for (final rpcUrl in [
-      Environment.solanaRpcUrlFallback,
-      Environment.solanaRpcUrl,
-    ]) {
-      final result = await _queryUsdcBalance(walletAddress, rpcUrl);
-      if (result != null) return result;
+    // Retry the full RPC sequence up to 3 times.
+    for (int attempt = 0; attempt < 3; attempt++) {
+      for (final rpcUrl in [
+        Environment.solanaRpcUrlFallback,
+        Environment.solanaRpcUrl,
+      ]) {
+        final result = await _queryUsdcBalance(walletAddress, rpcUrl);
+        if (result != null) return result;
+      }
+      if (attempt < 2) {
+        if (kDebugMode) debugPrint('[Wallet] All RPCs failed attempt ${attempt + 1}/3 — retrying in ${2 * (attempt + 1)}s');
+        await Future.delayed(Duration(seconds: 2 * (attempt + 1)));
+      }
     }
-    if (kDebugMode) debugPrint('[Wallet] All RPCs failed for $walletAddress — returning 0');
+    if (kDebugMode) debugPrint('[Wallet] All RPC retries exhausted for $walletAddress — returning 0');
     return 0;
   }
 
@@ -424,6 +445,28 @@ class WalletNotifier extends Notifier<WalletState> {
     } catch (e) {
       if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl failed: $e');
       return null;
+    }
+  }
+
+  /// Start a periodic timer that refreshes balances every 45 seconds.
+  void _startPeriodicRefresh() {
+    _refreshTimer?.cancel();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      _silentRefresh();
+    });
+  }
+
+  /// Silent refresh — does not set isBalanceLoading to avoid UI flicker.
+  Future<void> _silentRefresh() async {
+    if (!state.isConnected || state.address == null) return;
+    try {
+      final balance = await _fetchOnChainUsdcBalance(state.address!);
+      state = state.copyWith(usdcBalance: balance);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[Wallet] Silent refresh on-chain failed: $e');
+    }
+    if (_backendConnected) {
+      await _fetchPlatformBalance();
     }
   }
 

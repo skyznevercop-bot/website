@@ -104,14 +104,17 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                             ),
                           ),
                         ),
-                        Text(
-                          '\$${wallet.availableBalance.toStringAsFixed(2)} USDC',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.solanaPurple,
-                          ),
-                        ),
+                        wallet.isBalanceLoading && wallet.platformBalance == 0
+                            ? _buildBalanceShimmer(
+                                color: AppTheme.solanaPurple)
+                            : Text(
+                                '\$${wallet.availableBalance.toStringAsFixed(2)} USDC',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.solanaPurple,
+                                ),
+                              ),
                       ],
                     ),
                   ),
@@ -142,15 +145,50 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                             ),
                           ),
                         ),
-                        Text(
-                          '\$${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
-                          style: GoogleFonts.inter(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.solanaGreenDark,
-                          ),
-                        ),
+                        wallet.usdcBalance == null
+                            ? _buildBalanceShimmer(
+                                color: AppTheme.solanaGreenDark)
+                            : Text(
+                                '\$${wallet.usdcBalance!.toStringAsFixed(2)} USDC',
+                                style: GoogleFonts.inter(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.solanaGreenDark,
+                                ),
+                              ),
                       ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () {
+                          ref
+                              .read(walletProvider.notifier)
+                              .refreshBalance();
+                        },
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.refresh_rounded,
+                              size: 14,
+                              color: AppTheme.textTertiary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Refresh',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: AppTheme.textTertiary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -248,14 +286,16 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        '\$${wallet.availableBalance.toStringAsFixed(2)}',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.solanaPurple,
-                        ),
-                      ),
+                      wallet.isBalanceLoading && wallet.platformBalance == 0
+                          ? _buildSmallShimmer()
+                          : Text(
+                              '\$${wallet.availableBalance.toStringAsFixed(2)}',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: AppTheme.solanaPurple,
+                              ),
+                            ),
                       Text(
                         '  ·  ',
                         style: GoogleFonts.inter(
@@ -263,13 +303,15 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                           color: AppTheme.textTertiary.withValues(alpha: 0.4),
                         ),
                       ),
-                      Text(
-                        '\$${wallet.usdcBalance?.toStringAsFixed(2) ?? '0.00'} USDC',
-                        style: GoogleFonts.inter(
-                          fontSize: 11,
-                          color: AppTheme.textTertiary,
-                        ),
-                      ),
+                      wallet.usdcBalance == null
+                          ? _buildSmallShimmer()
+                          : Text(
+                              '\$${wallet.usdcBalance!.toStringAsFixed(2)} USDC',
+                              style: GoogleFonts.inter(
+                                fontSize: 11,
+                                color: AppTheme.textTertiary,
+                              ),
+                            ),
                     ],
                   ),
                 ],
@@ -377,6 +419,23 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
     }
   }
 
+  Widget _buildBalanceShimmer({required Color color}) {
+    return SizedBox(
+      width: 80,
+      height: 16,
+      child: _PulsingContainer(color: color.withValues(alpha: 0.15)),
+    );
+  }
+
+  Widget _buildSmallShimmer() {
+    return SizedBox(
+      width: 50,
+      height: 12,
+      child: _PulsingContainer(
+          color: AppTheme.textTertiary.withValues(alpha: 0.15)),
+    );
+  }
+
   void _showGamerTagDialog(BuildContext context) {
     final controller = TextEditingController(
       text: ref.read(walletProvider).gamerTag ?? '',
@@ -423,6 +482,49 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
             child: const Text('Save'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Pulsing shimmer placeholder for loading balance values.
+class _PulsingContainer extends StatefulWidget {
+  final Color color;
+  const _PulsingContainer({required this.color});
+
+  @override
+  State<_PulsingContainer> createState() => _PulsingContainerState();
+}
+
+class _PulsingContainerState extends State<_PulsingContainer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, child) => Container(
+        decoration: BoxDecoration(
+          color:
+              widget.color.withValues(alpha: 0.1 + _controller.value * 0.15),
+          borderRadius: BorderRadius.circular(4),
+        ),
       ),
     );
   }

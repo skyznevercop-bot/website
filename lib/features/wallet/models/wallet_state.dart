@@ -27,6 +27,9 @@ class WalletState {
   final double platformBalance;
   final double frozenBalance;
 
+  /// Whether balances are currently being fetched.
+  final bool isBalanceLoading;
+
   const WalletState({
     this.status = WalletConnectionStatus.disconnected,
     this.walletType,
@@ -36,6 +39,7 @@ class WalletState {
     this.errorMessage,
     this.platformBalance = 0,
     this.frozenBalance = 0,
+    this.isBalanceLoading = false,
   });
 
   /// Available platform balance (total minus frozen).
@@ -60,6 +64,7 @@ class WalletState {
     String? errorMessage,
     double? platformBalance,
     double? frozenBalance,
+    bool? isBalanceLoading,
   }) {
     return WalletState(
       status: status ?? this.status,
@@ -70,6 +75,7 @@ class WalletState {
       errorMessage: errorMessage ?? this.errorMessage,
       platformBalance: platformBalance ?? this.platformBalance,
       frozenBalance: frozenBalance ?? this.frozenBalance,
+      isBalanceLoading: isBalanceLoading ?? this.isBalanceLoading,
     );
   }
 }
