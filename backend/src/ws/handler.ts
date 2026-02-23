@@ -10,6 +10,11 @@ import {
   unregisterUserConnection,
   broadcastToUser,
   broadcastToMatch,
+  broadcastToSpectators,
+  broadcastToMatchAndSpectators,
+  joinSpectatorRoom,
+  leaveSpectatorRoom,
+  getSpectatorCount,
   isUserConnected,
   getActiveMatchIds,
   getUserConnectionCount,
@@ -49,6 +54,8 @@ interface AuthenticatedSocket extends WebSocket {
   currentMatchId?: string;
   /** Whether the connection has completed authentication. */
   _authenticated?: boolean;
+  /** Whether this connection is a read-only spectator (no auth required). */
+  _isSpectator?: boolean;
   /** Message rate limiting state. */
   _msgCount?: number;
   _msgWindowStart?: number;
@@ -115,13 +122,36 @@ export function setupWebSocket(server: HttpServer): void {
     }, AUTH_TIMEOUT_MS);
 
     ws.on("message", async (raw) => {
-      // ── First message must be auth ──
+      // ── First message must be auth OR spectate_match ──
       if (!ws._authenticated) {
         clearTimeout(authTimer);
         try {
           const authData = JSON.parse(raw.toString());
+
+          // ── Spectator mode: no JWT needed ──
+          if (authData.type === "spectate_match" && typeof authData.matchId === "string") {
+            const matchId = authData.matchId as string;
+            const spectateMatch = await getMatch(matchId);
+            if (!spectateMatch || spectateMatch.status === "cancelled") {
+              ws.close(4004, "Match not found");
+              return;
+            }
+
+            ws._isSpectator = true;
+            ws._authenticated = true;
+            ws.currentMatchId = matchId;
+            joinSpectatorRoom(matchId, ws);
+
+            // Send spectator snapshot with both players' stats.
+            await sendSpectatorSnapshot(ws, matchId, spectateMatch);
+
+            log.info("spectator_joined", { matchId, spectators: getSpectatorCount(matchId) });
+            return;
+          }
+
+          // ── Standard auth flow ──
           if (authData.type !== "auth" || typeof authData.token !== "string") {
-            ws.close(4001, "First message must be { type: 'auth', token: '...' }");
+            ws.close(4001, "First message must be { type: 'auth', token: '...' } or { type: 'spectate_match', matchId: '...' }");
             return;
           }
 
@@ -191,6 +221,15 @@ export function setupWebSocket(server: HttpServer): void {
     });
 
     ws.on("close", () => {
+      // ── Spectator disconnect: just leave the spectator room ──
+      if (ws._isSpectator) {
+        if (ws.currentMatchId) {
+          leaveSpectatorRoom(ws.currentMatchId, ws);
+          log.info("spectator_left", { matchId: ws.currentMatchId, spectators: getSpectatorCount(ws.currentMatchId) });
+        }
+        return;
+      }
+
       if (ws.userAddress) {
         unregisterUserConnection(ws.userAddress, ws);
 
@@ -235,6 +274,13 @@ export function setupWebSocket(server: HttpServer): void {
       broadcastOpponentUpdate(matchId, match.player2).catch((err) => {
         log.error("opponent_update_failed", { matchId, player: "p2", error: String(err) });
       });
+
+      // Broadcast combined stats to spectators.
+      if (getSpectatorCount(matchId) > 0) {
+        broadcastSpectatorUpdate(matchId, match).catch((err) => {
+          log.error("spectator_update_failed", { matchId, error: String(err) });
+        });
+      }
     }
   }, config.opponentBroadcastIntervalMs);
 
@@ -333,7 +379,7 @@ function startForfeitTimer(matchId: string, playerAddress: string): void {
 
   log.info("forfeit_timer_started", { matchId, user: playerAddress.slice(0, 8), graceMs: FORFEIT_GRACE_MS });
 
-  broadcastToMatch(matchId, {
+  broadcastToMatchAndSpectators(matchId, {
     type: "opponent_disconnected",
     player: playerAddress,
     graceSeconds: 60,
@@ -361,7 +407,7 @@ function cancelForfeitTimersForPlayer(playerAddress: string): void {
       clearTimeout(timer);
       forfeitTimers.delete(key);
       log.info("forfeit_timer_cancelled", { matchId, user: playerAddress.slice(0, 8) });
-      broadcastToMatch(matchId, { type: "opponent_reconnected", player: playerAddress });
+      broadcastToMatchAndSpectators(matchId, { type: "opponent_reconnected", player: playerAddress });
     }
   }
 }
@@ -393,6 +439,11 @@ async function handleMessage(
   ws: AuthenticatedSocket,
   data: Record<string, unknown>
 ): Promise<void> {
+  // Spectators are read-only — block all game actions.
+  if (ws._isSpectator) {
+    ws.send(JSON.stringify({ type: "error", message: "Spectators cannot perform actions" }));
+    return;
+  }
   if (!ws.userAddress) return;
 
   switch (data.type) {
@@ -867,7 +918,7 @@ async function handleMessage(
       const chatUser = await getUser(ws.userAddress!);
       const serverTag = chatUser?.gamerTag || ws.userAddress!.slice(0, 8);
 
-      broadcastToMatch(matchId, {
+      broadcastToMatchAndSpectators(matchId, {
         type: "chat_message",
         matchId,
         senderTag: serverTag,
@@ -885,19 +936,19 @@ async function handleMessage(
   }
 }
 
-/**
- * Calculate a player's stats and send them only to their opponent.
- */
-async function broadcastOpponentUpdate(
+// ── Player stats helper (shared by opponent + spectator broadcasts) ──
+
+interface PlayerStats {
+  totalPnl: number;
+  openCount: number;
+  roi: number;
+  equity: number;
+}
+
+async function computePlayerStats(
   matchId: string,
   playerAddress: string
-): Promise<void> {
-  const match = await getMatch(matchId);
-  if (!match) return;
-
-  const opponentAddress =
-    match.player1 === playerAddress ? match.player2 : match.player1;
-
+): Promise<PlayerStats> {
   const positions = await getPositions(matchId, playerAddress);
 
   const prices = getLatestPrices();
@@ -921,13 +972,111 @@ async function broadcastOpponentUpdate(
   }
 
   const roi = roiToPercent(roiDecimal(totalPnl, DEMO_BALANCE));
+  return { totalPnl, openCount, roi, equity: DEMO_BALANCE + totalPnl };
+}
+
+/**
+ * Calculate a player's stats and send them only to their opponent.
+ */
+async function broadcastOpponentUpdate(
+  matchId: string,
+  playerAddress: string
+): Promise<void> {
+  const match = await getMatch(matchId);
+  if (!match) return;
+
+  const opponentAddress =
+    match.player1 === playerAddress ? match.player2 : match.player1;
+
+  const stats = await computePlayerStats(matchId, playerAddress);
 
   broadcastToUser(opponentAddress, {
     type: "opponent_update",
     player: playerAddress,
-    equity: DEMO_BALANCE + totalPnl,
-    pnl: totalPnl,
-    positionCount: openCount,
-    roi,
+    equity: stats.equity,
+    pnl: stats.totalPnl,
+    positionCount: stats.openCount,
+    roi: stats.roi,
   });
+}
+
+/**
+ * Broadcast both players' high-level stats to all spectators of a match.
+ */
+async function broadcastSpectatorUpdate(
+  matchId: string,
+  match: { player1: string; player2: string }
+): Promise<void> {
+  const [p1Stats, p2Stats, p1User, p2User] = await Promise.all([
+    computePlayerStats(matchId, match.player1),
+    computePlayerStats(matchId, match.player2),
+    getUser(match.player1),
+    getUser(match.player2),
+  ]);
+
+  broadcastToSpectators(matchId, {
+    type: "spectator_update",
+    player1: {
+      address: match.player1,
+      gamerTag: p1User?.gamerTag || match.player1.slice(0, 8),
+      roi: p1Stats.roi,
+      equity: p1Stats.equity,
+      positionCount: p1Stats.openCount,
+    },
+    player2: {
+      address: match.player2,
+      gamerTag: p2User?.gamerTag || match.player2.slice(0, 8),
+      roi: p2Stats.roi,
+      equity: p2Stats.equity,
+      positionCount: p2Stats.openCount,
+    },
+    spectatorCount: getSpectatorCount(matchId),
+  });
+}
+
+/**
+ * Send initial spectator snapshot when a spectator joins a match.
+ */
+async function sendSpectatorSnapshot(
+  ws: WebSocket,
+  matchId: string,
+  match: { player1: string; player2: string; duration?: string; betAmount?: number; startTime?: number; endTime?: number; status: string; winner?: string; player1Roi?: number; player2Roi?: number }
+): Promise<void> {
+  const [p1Stats, p2Stats, p1User, p2User] = await Promise.all([
+    computePlayerStats(matchId, match.player1),
+    computePlayerStats(matchId, match.player2),
+    getUser(match.player1),
+    getUser(match.player2),
+  ]);
+
+  const prices = getLatestPrices();
+  const settled = ["completed", "tied", "forfeited"];
+  const isEnded = settled.includes(match.status);
+
+  ws.send(JSON.stringify({
+    type: "spectator_snapshot",
+    matchId,
+    player1: {
+      address: match.player1,
+      gamerTag: p1User?.gamerTag || match.player1.slice(0, 8),
+      roi: isEnded && match.player1Roi != null ? Math.round(match.player1Roi * 10000) / 100 : p1Stats.roi,
+      equity: p1Stats.equity,
+      positionCount: p1Stats.openCount,
+    },
+    player2: {
+      address: match.player2,
+      gamerTag: p2User?.gamerTag || match.player2.slice(0, 8),
+      roi: isEnded && match.player2Roi != null ? Math.round(match.player2Roi * 10000) / 100 : p2Stats.roi,
+      equity: p2Stats.equity,
+      positionCount: p2Stats.openCount,
+    },
+    duration: match.duration || "5m",
+    betAmount: match.betAmount || 0,
+    startTime: match.startTime || Date.now(),
+    endTime: match.endTime || Date.now(),
+    status: match.status,
+    winner: match.winner || null,
+    spectatorCount: getSpectatorCount(matchId),
+    prices: { btc: prices.btc, eth: prices.eth, sol: prices.sol },
+  }));
 }

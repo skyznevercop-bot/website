@@ -15,6 +15,7 @@ import '../../features/privacy/screens/privacy_screen.dart';
 import '../../features/referral/screens/referral_screen.dart';
 import '../../features/rules/screens/rules_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
+import '../../features/spectate/screens/spectate_screen.dart';
 import '../../features/terms/screens/terms_screen.dart';
 import '../../shared/widgets/app_shell.dart';
 import '../constants/app_constants.dart';
@@ -125,6 +126,15 @@ final routerProvider = Provider<GoRouter>((ref) {
             pageBuilder: (context, state) => const NoTransitionPage(
               child: TermsScreen(),
             ),
+          ),
+          GoRoute(
+            path: '${AppConstants.spectateRoute}/:matchId',
+            pageBuilder: (context, state) {
+              final matchId = state.pathParameters['matchId']!;
+              return NoTransitionPage(
+                child: SpectateScreen(matchId: matchId),
+              );
+            },
           ),
           GoRoute(
             path: '/profile/:address',

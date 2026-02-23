@@ -6,6 +6,9 @@ const matchRooms = new Map<string, Set<WebSocket>>();
 /** Map of userAddress → set of connected WebSocket clients. */
 const userConnections = new Map<string, Set<WebSocket>>();
 
+/** Map of matchId → set of spectator WebSocket clients. */
+const spectatorRooms = new Map<string, Set<WebSocket>>();
+
 export function joinMatchRoom(matchId: string, ws: WebSocket): void {
   if (!matchRooms.has(matchId)) {
     matchRooms.set(matchId, new Set());
@@ -19,6 +22,69 @@ export function leaveMatchRoom(matchId: string, ws: WebSocket): void {
     room.delete(ws);
     if (room.size === 0) matchRooms.delete(matchId);
   }
+}
+
+// ── Spectator room management ──
+
+export function joinSpectatorRoom(matchId: string, ws: WebSocket): void {
+  if (!spectatorRooms.has(matchId)) {
+    spectatorRooms.set(matchId, new Set());
+  }
+  spectatorRooms.get(matchId)!.add(ws);
+}
+
+export function leaveSpectatorRoom(matchId: string, ws: WebSocket): void {
+  const room = spectatorRooms.get(matchId);
+  if (room) {
+    room.delete(ws);
+    if (room.size === 0) spectatorRooms.delete(matchId);
+  }
+}
+
+export function getSpectatorCount(matchId: string): number {
+  return spectatorRooms.get(matchId)?.size ?? 0;
+}
+
+/**
+ * Broadcast a message to spectators of a specific match.
+ * Special key "__all_active__" broadcasts to ALL spectator rooms.
+ */
+export function broadcastToSpectators(
+  matchId: string,
+  data: Record<string, unknown>
+): void {
+  const message = JSON.stringify(data);
+
+  if (matchId === "__all_active__") {
+    for (const [, room] of spectatorRooms) {
+      for (const ws of room) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(message);
+        }
+      }
+    }
+    return;
+  }
+
+  const room = spectatorRooms.get(matchId);
+  if (!room) return;
+
+  for (const ws of room) {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+    }
+  }
+}
+
+/**
+ * Broadcast a message to both players AND spectators of a match.
+ */
+export function broadcastToMatchAndSpectators(
+  matchId: string,
+  data: Record<string, unknown>
+): void {
+  broadcastToMatch(matchId, data);
+  broadcastToSpectators(matchId, data);
 }
 
 export function registerUserConnection(
@@ -54,6 +120,14 @@ export function broadcastToMatch(
 
   if (matchId === "__all_active__") {
     for (const [, room] of matchRooms) {
+      for (const ws of room) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(message);
+        }
+      }
+    }
+    // Also broadcast to all spectator rooms (e.g. price updates).
+    for (const [, room] of spectatorRooms) {
       for (const ws of room) {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(message);

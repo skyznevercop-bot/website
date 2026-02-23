@@ -177,6 +177,7 @@ class MatchFoundData {
 }
 
 class LiveMatch {
+  final String matchId;
   final String player1;
   final String player2;
   final String duration;
@@ -184,8 +185,10 @@ class LiveMatch {
   final double bet;
   final int? endTime;
   final int? startTime;
+  final int spectatorCount;
 
   const LiveMatch({
+    required this.matchId,
     required this.player1,
     required this.player2,
     required this.duration,
@@ -193,6 +196,7 @@ class LiveMatch {
     this.bet = 0,
     this.endTime,
     this.startTime,
+    this.spectatorCount = 0,
   });
 }
 
@@ -524,6 +528,7 @@ class QueueNotifier extends Notifier<QueueState> {
       final matches = matchesJson.take(5).map((m) {
         final match = m as Map<String, dynamic>;
         return LiveMatch(
+          matchId: match['matchId'] as String? ?? match['id'] as String? ?? '',
           player1: match['player1GamerTag'] as String? ?? '???',
           player2: match['player2GamerTag'] as String? ?? '???',
           duration: match['duration'] as String? ?? '',
@@ -535,6 +540,7 @@ class QueueNotifier extends Notifier<QueueState> {
               (match['betAmount'] as num?)?.toDouble() ?? 0,
           endTime: (match['endTime'] as num?)?.toInt(),
           startTime: (match['startTime'] as num?)?.toInt(),
+          spectatorCount: (match['spectatorCount'] as num?)?.toInt() ?? 0,
         );
       }).toList();
 

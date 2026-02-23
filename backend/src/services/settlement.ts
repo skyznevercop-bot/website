@@ -12,7 +12,7 @@ import {
   DbMatch,
 } from "./firebase";
 import { getLatestPrices } from "./price-oracle";
-import { broadcastToMatch, broadcastToAll, broadcastToUser, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
+import { broadcastToMatchAndSpectators, broadcastToAll, broadcastToUser, isUserConnected, getMatchLastPrices, clearMatchPrices, freezeMatchPrices } from "../ws/rooms";
 import { settleMatchBalances, getBalance, recordRake } from "./balance";
 import { expireStaleChallenges } from "../routes/challenge";
 import { checkAndAwardAchievements, type MatchContext } from "./achievements";
@@ -192,8 +192,8 @@ export async function settleByForfeit(
   // 3b. Notify all clients to refresh leaderboard.
   broadcastToAll({ type: "leaderboard_update" });
 
-  // 4. Broadcast result.
-  broadcastToMatch(matchId, {
+  // 4. Broadcast result to players and spectators.
+  broadcastToMatchAndSpectators(matchId, {
     type: "match_end",
     matchId,
     winner,
@@ -331,7 +331,7 @@ async function _doSettleMatch(
 
   // 4. Broadcast result immediately — users see it with zero delay.
   //    Include settlement prices so client can reconcile its own PnL.
-  broadcastToMatch(matchId, {
+  broadcastToMatchAndSpectators(matchId, {
     type: "match_end",
     matchId,
     winner: winner || null,

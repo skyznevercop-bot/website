@@ -1118,13 +1118,21 @@ class _LiveContent extends StatelessWidget {
   }
 }
 
-class _MatchRow extends StatelessWidget {
+class _MatchRow extends StatefulWidget {
   final LiveMatch match;
   const _MatchRow({required this.match});
 
+  @override
+  State<_MatchRow> createState() => _MatchRowState();
+}
+
+class _MatchRowState extends State<_MatchRow> {
+  bool _hovered = false;
+
   String _timeRemaining() {
-    if (match.endTime == null) return match.duration;
-    final remaining = match.endTime! - DateTime.now().millisecondsSinceEpoch;
+    if (widget.match.endTime == null) return widget.match.duration;
+    final remaining =
+        widget.match.endTime! - DateTime.now().millisecondsSinceEpoch;
     if (remaining <= 0) return 'Ending...';
     final minutes = remaining ~/ 60000;
     final seconds = (remaining % 60000) ~/ 1000;
@@ -1138,57 +1146,125 @@ class _MatchRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 3,
-          height: 28,
+    final match = widget.match;
+
+    return MouseRegion(
+      cursor: match.matchId.isNotEmpty
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        onTap: match.matchId.isNotEmpty
+            ? () => context.go('${AppConstants.spectateRoute}/${match.matchId}')
+            : null,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
           decoration: BoxDecoration(
-            color:
-                match.player1Leading ? AppTheme.solanaGreen : AppTheme.error,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(match.player1,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: match.player1Leading
-                    ? AppTheme.solanaGreen
-                    : Colors.white70,
-              ),
-              overflow: TextOverflow.ellipsis),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppTheme.solanaPurple.withValues(alpha: 0.15),
+            color: _hovered
+                ? AppTheme.solanaPurple.withValues(alpha: 0.08)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
-          child: Text(
-            '${match.bet > 0 ? '\$${match.bet.toStringAsFixed(0)} · ' : ''}${_timeRemaining()}',
-            style: GoogleFonts.inter(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: Colors.white54,
-            ),
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: match.player1Leading
+                      ? AppTheme.solanaGreen
+                      : AppTheme.error,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(match.player1,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: match.player1Leading
+                          ? AppTheme.solanaGreen
+                          : Colors.white70,
+                    ),
+                    overflow: TextOverflow.ellipsis),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.solanaPurple.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${match.bet > 0 ? '\$${match.bet.toStringAsFixed(0)} · ' : ''}${_timeRemaining()}',
+                  style: GoogleFonts.inter(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white54,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(match.player2,
+                    textAlign: TextAlign.end,
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: match.player1Leading
+                          ? Colors.white70
+                          : AppTheme.solanaGreen,
+                    ),
+                    overflow: TextOverflow.ellipsis),
+              ),
+              const SizedBox(width: 8),
+              // Watch button with spectator count.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _hovered
+                      ? AppTheme.solanaPurple.withValues(alpha: 0.2)
+                      : Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: _hovered
+                        ? AppTheme.solanaPurple.withValues(alpha: 0.4)
+                        : Colors.white.withValues(alpha: 0.08),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.visibility_rounded,
+                      size: 12,
+                      color: _hovered
+                          ? AppTheme.solanaPurple
+                          : Colors.white38,
+                    ),
+                    if (match.spectatorCount > 0) ...[
+                      const SizedBox(width: 3),
+                      Text(
+                        '${match.spectatorCount}',
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: _hovered
+                              ? AppTheme.solanaPurple
+                              : Colors.white38,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
-        Expanded(
-          child: Text(match.player2,
-              textAlign: TextAlign.end,
-              style: GoogleFonts.inter(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: match.player1Leading
-                    ? Colors.white70
-                    : AppTheme.solanaGreen,
-              ),
-              overflow: TextOverflow.ellipsis),
-        ),
-      ],
+      ),
     );
   }
 }

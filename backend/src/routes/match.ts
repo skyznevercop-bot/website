@@ -11,6 +11,7 @@ import { getLatestPrices } from "../services/price-oracle";
 import { isValidSolanaAddress } from "../utils/validation";
 import { config } from "../config";
 import { roiToPercent } from "../utils/pnl";
+import { getSpectatorCount } from "../ws/rooms";
 
 const router = Router();
 
@@ -42,11 +43,12 @@ router.get("/active/list", async (_req, res) => {
     tagMap.set(a, users[i]?.gamerTag || a.slice(0, 8));
   });
 
-  // Enrich matches with gamer tags.
+  // Enrich matches with gamer tags and spectator counts.
   const matches = rawMatches.map((m) => ({
     ...m,
     player1GamerTag: tagMap.get(m.player1 as string) || (m.player1 as string).slice(0, 8),
     player2GamerTag: tagMap.get(m.player2 as string) || (m.player2 as string).slice(0, 8),
+    spectatorCount: getSpectatorCount(m.id),
   }));
 
   res.json({ matches });
@@ -198,6 +200,39 @@ router.get("/history/:address", async (req, res) => {
     total: rawMatches.length,
     page,
     limit,
+  });
+});
+
+/** GET /api/match/:id/spectate — Get spectator-safe match data (no auth required). */
+router.get("/:id/spectate", async (req, res) => {
+  const match = await getMatch(req.params.id);
+
+  if (!match) {
+    res.status(404).json({ error: "Match not found" });
+    return;
+  }
+
+  const [p1, p2] = await Promise.all([
+    getUser(match.player1),
+    getUser(match.player2),
+  ]);
+
+  res.json({
+    matchId: req.params.id,
+    player1: {
+      address: match.player1,
+      gamerTag: p1?.gamerTag || match.player1.slice(0, 8),
+    },
+    player2: {
+      address: match.player2,
+      gamerTag: p2?.gamerTag || match.player2.slice(0, 8),
+    },
+    duration: match.duration,
+    betAmount: match.betAmount,
+    startTime: match.startTime,
+    endTime: match.endTime,
+    status: match.status,
+    spectatorCount: getSpectatorCount(req.params.id),
   });
 });
 
