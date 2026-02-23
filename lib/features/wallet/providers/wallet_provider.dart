@@ -141,6 +141,9 @@ class WalletNotifier extends Notifier<WalletState> {
         _fetchPlatformBalanceWithRetry().catchError((e) {
           if (kDebugMode) debugPrint('[Wallet] Platform balance fetch error: $e');
         });
+      } else {
+        // Backend was down (cold start). Retry auth + balance after delay.
+        _retryBackendAuth(walletName, address);
       }
 
       _startPeriodicRefresh();
@@ -446,6 +449,67 @@ class WalletNotifier extends Notifier<WalletState> {
     } catch (e) {
       if (kDebugMode) debugPrint('[Wallet] RPC $rpcUrl failed: $e');
       return null;
+    }
+  }
+
+  /// Retry backend auth after a cold-start failure.
+  /// Waits for the backend to wake up, then re-attempts auth + balance fetch.
+  Future<void> _retryBackendAuth(String walletName, String address) async {
+    for (int attempt = 0; attempt < 3; attempt++) {
+      await Future.delayed(Duration(seconds: 15 + (attempt * 15)));
+      if (!state.isConnected || state.address != address) return;
+
+      if (kDebugMode) debugPrint('[Wallet] Retry backend auth attempt ${attempt + 1}/3');
+
+      try {
+        final nonceResponse = await _api.get('/auth/nonce?address=$address');
+        final nonce = nonceResponse['nonce'] as String;
+        final message = nonceResponse['message'] as String;
+
+        final messageBytes = Uint8List.fromList(utf8.encode(message));
+        final signatureBytes =
+            await SolanaWalletAdapter.signMessage(walletName, messageBytes);
+        final signatureBase58 = _base58Encode(signatureBytes);
+
+        final authResponse = await _api.post('/auth/verify', {
+          'address': address,
+          'signature': signatureBase58,
+          'nonce': nonce,
+        });
+
+        final token = authResponse['token'] as String;
+        await _api.setToken(token);
+        _backendConnected = true;
+
+        _api.connectWebSocket();
+        _wsSubscription?.cancel();
+        _wsSubscription = _api.wsStream.listen((data) {
+          if (data['type'] == 'balance_update') {
+            final bal = (data['balance'] as num?)?.toDouble();
+            final frozen = (data['frozenBalance'] as num?)?.toDouble();
+            if (bal != null) {
+              state = state.copyWith(
+                platformBalance: bal,
+                frozenBalance: frozen ?? state.frozenBalance,
+              );
+            }
+          }
+        });
+
+        // Fetch profile + balance now that backend is alive.
+        try {
+          final userResponse = await _api.get('/user/$address');
+          final tag = userResponse['gamerTag'] as String?;
+          if (tag != null) state = state.copyWith(gamerTag: tag);
+        } catch (_) {}
+
+        await _fetchPlatformBalance();
+
+        if (kDebugMode) debugPrint('[Wallet] Backend auth retry succeeded');
+        return;
+      } catch (e) {
+        if (kDebugMode) debugPrint('[Wallet] Backend auth retry ${attempt + 1}/3 failed: $e');
+      }
     }
   }
 
