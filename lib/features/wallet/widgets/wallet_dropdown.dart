@@ -145,11 +145,11 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                             ),
                           ),
                         ),
-                        wallet.usdcBalance == null
+                        wallet.usdcBalance == null && wallet.isBalanceLoading
                             ? _buildBalanceShimmer(
                                 color: AppTheme.solanaGreenDark)
                             : Text(
-                                '\$${wallet.usdcBalance!.toStringAsFixed(2)} USDC',
+                                '\$${(wallet.usdcBalance ?? 0).toStringAsFixed(2)} USDC',
                                 style: GoogleFonts.inter(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w700,
@@ -303,10 +303,10 @@ class _WalletDropdownState extends ConsumerState<WalletDropdown> {
                           color: AppTheme.textTertiary.withValues(alpha: 0.4),
                         ),
                       ),
-                      wallet.usdcBalance == null
+                      wallet.usdcBalance == null && wallet.isBalanceLoading
                           ? _buildSmallShimmer()
                           : Text(
-                              '\$${wallet.usdcBalance!.toStringAsFixed(2)} USDC',
+                              '\$${(wallet.usdcBalance ?? 0).toStringAsFixed(2)} USDC',
                               style: GoogleFonts.inter(
                                 fontSize: 11,
                                 color: AppTheme.textTertiary,

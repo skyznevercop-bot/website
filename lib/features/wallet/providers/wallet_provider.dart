@@ -134,7 +134,7 @@ class WalletNotifier extends Notifier<WalletState> {
         state = state.copyWith(usdcBalance: onChainBalance, isBalanceLoading: false);
       }).catchError((e) {
         if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance fetch error: $e');
-        state = state.copyWith(isBalanceLoading: false);
+        state = state.copyWith(usdcBalance: 0, isBalanceLoading: false);
       });
 
       if (backendAvailable) {
@@ -267,7 +267,7 @@ class WalletNotifier extends Notifier<WalletState> {
         state = state.copyWith(usdcBalance: balance, isBalanceLoading: false);
       }).catchError((e) {
         if (kDebugMode) debugPrint('[Wallet] Reconnect on-chain balance failed: $e');
-        state = state.copyWith(isBalanceLoading: false);
+        state = state.copyWith(usdcBalance: 0, isBalanceLoading: false);
       });
 
       if (_backendConnected) {
@@ -319,7 +319,7 @@ class WalletNotifier extends Notifier<WalletState> {
       state = state.copyWith(usdcBalance: balance, isBalanceLoading: false);
     } catch (e) {
       if (kDebugMode) debugPrint('[Wallet] refreshBalance on-chain failed: $e');
-      state = state.copyWith(isBalanceLoading: false);
+      state = state.copyWith(usdcBalance: state.usdcBalance ?? 0, isBalanceLoading: false);
     }
     if (_backendConnected) {
       await _fetchPlatformBalance();
