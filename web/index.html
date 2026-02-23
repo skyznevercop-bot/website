@@ -212,8 +212,9 @@
       // Try multiple RPCs: provided URL, PublicNode, then backend proxy.
       var rpcs = [];
       if (typeof rpcUrl === 'string' && rpcUrl.length > 0) rpcs.push(rpcUrl);
-      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0');
       rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+      rpcs.push('https://api.mainnet-beta.solana.com');
 
       for (var ri = 0; ri < rpcs.length; ri++) {
         try {
@@ -254,8 +255,9 @@
     window._getSolBalance = async function(address, rpcUrl) {
       var rpcs = [];
       if (rpcUrl) rpcs.push(rpcUrl);
-      rpcs.push('https://solana-rpc.publicnode.com');
+      rpcs.push('https://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0');
       rpcs.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+      rpcs.push('https://api.mainnet-beta.solana.com');
       for (var ri = 0; ri < rpcs.length; ri++) {
         try {
           var r = await fetch(rpcs[ri], {
@@ -297,8 +299,9 @@
       var Connection = solanaWeb3.Connection;
       var rpcList = [];
       if (rpcUrl) rpcList.push(rpcUrl);
-      rpcList.push('https://solana-rpc.publicnode.com');
+      rpcList.push('https://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0');
       rpcList.push('https://solfight-backend.onrender.com/api/rpc-proxy');
+      rpcList.push('https://api.mainnet-beta.solana.com');
       for (var r = 0; r < rpcList.length; r++) {
         try {
           var testConn = new Connection(rpcList[r], 'confirmed');

@@ -13,15 +13,20 @@ class Environment {
       'wss://solfight-backend.onrender.com/ws';
 
   // ── Solana ──────────────────────────────────────────────
-  /// Primary RPC — PublicNode (free, CORS-friendly).
+  /// Primary RPC — Helius (dedicated, reliable).
   static const String solanaRpcUrl = useDevnet
       ? 'https://api.devnet.solana.com'
-      : 'https://solana-rpc.publicnode.com';
+      : 'https://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0';
 
   /// Fallback RPC — our own backend proxy (server-side, no CORS issues).
   static const String solanaRpcUrlFallback = useDevnet
       ? 'https://api.devnet.solana.com'
       : '$apiBaseUrl/rpc-proxy';
+
+  /// Tertiary RPC — official Solana mainnet.
+  static const String solanaRpcUrl2 = useDevnet
+      ? 'https://api.devnet.solana.com'
+      : 'https://api.mainnet-beta.solana.com';
 
   static const String programId =
       '268xoH5VPMgtcuaBgXimyRHebsubszqQzPUrU5duJLL8';

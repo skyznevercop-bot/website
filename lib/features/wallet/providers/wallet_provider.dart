@@ -374,8 +374,9 @@ class WalletNotifier extends Notifier<WalletState> {
     // Retry the full RPC sequence up to 3 times.
     for (int attempt = 0; attempt < 3; attempt++) {
       for (final rpcUrl in [
-        Environment.solanaRpcUrlFallback,
         Environment.solanaRpcUrl,
+        Environment.solanaRpcUrlFallback,
+        Environment.solanaRpcUrl2,
       ]) {
         final result = await _queryUsdcBalance(walletAddress, rpcUrl);
         if (result != null) return result;
