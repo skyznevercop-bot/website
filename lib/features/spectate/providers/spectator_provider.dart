@@ -81,6 +81,14 @@ class SpectatorNotifier extends Notifier<SpectatorState> {
     }
   }
 
+  List<SpectatorPosition> _parsePositions(Map<String, dynamic> player) {
+    final list = player['positions'] as List<dynamic>?;
+    if (list == null) return const [];
+    return list
+        .map((p) => SpectatorPosition.fromJson(p as Map<String, dynamic>))
+        .toList();
+  }
+
   void _handleSnapshot(Map<String, dynamic> data) {
     final p1 = data['player1'] as Map<String, dynamic>? ?? {};
     final p2 = data['player2'] as Map<String, dynamic>? ?? {};
@@ -107,6 +115,7 @@ class SpectatorNotifier extends Notifier<SpectatorState> {
         roi: (p1['roi'] as num?)?.toDouble() ?? 0,
         equity: (p1['equity'] as num?)?.toDouble() ?? 1000000,
         positionCount: (p1['positionCount'] as num?)?.toInt() ?? 0,
+        positions: _parsePositions(p1),
       ),
       player2: SpectatorPlayer(
         address: p2['address'] as String? ?? '',
@@ -114,6 +123,7 @@ class SpectatorNotifier extends Notifier<SpectatorState> {
         roi: (p2['roi'] as num?)?.toDouble() ?? 0,
         equity: (p2['equity'] as num?)?.toDouble() ?? 1000000,
         positionCount: (p2['positionCount'] as num?)?.toInt() ?? 0,
+        positions: _parsePositions(p2),
       ),
       spectatorCount: (data['spectatorCount'] as num?)?.toInt() ?? 0,
       durationSeconds: durationSeconds,
@@ -151,18 +161,27 @@ class SpectatorNotifier extends Notifier<SpectatorState> {
     final newP1Roi = (p1['roi'] as num?)?.toDouble() ?? state.player1.roi;
     final newP2Roi = (p2['roi'] as num?)?.toDouble() ?? state.player2.roi;
 
+    final p1Positions = p1.containsKey('positions')
+        ? _parsePositions(p1)
+        : state.player1.positions;
+    final p2Positions = p2.containsKey('positions')
+        ? _parsePositions(p2)
+        : state.player2.positions;
+
     state = state.copyWith(
       player1: state.player1.copyWith(
         roi: newP1Roi,
         equity: (p1['equity'] as num?)?.toDouble() ?? state.player1.equity,
         positionCount: (p1['positionCount'] as num?)?.toInt() ??
             state.player1.positionCount,
+        positions: p1Positions,
       ),
       player2: state.player2.copyWith(
         roi: newP2Roi,
         equity: (p2['equity'] as num?)?.toDouble() ?? state.player2.equity,
         positionCount: (p2['positionCount'] as num?)?.toInt() ??
             state.player2.positionCount,
+        positions: p2Positions,
       ),
       spectatorCount: (data['spectatorCount'] as num?)?.toInt() ??
           state.spectatorCount,

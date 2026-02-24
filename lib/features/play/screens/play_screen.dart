@@ -196,11 +196,12 @@ class _ArenaCardState extends ConsumerState<_ArenaCard> {
   @override
   void deactivate() {
     final keysNotifier = ref.read(onboardingKeysProvider.notifier);
-    final queueNotifier = ref.read(queueProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         keysNotifier.clear();
-        queueNotifier.dispose();
+        // Do NOT dispose the queue notifier here — its WS listener must
+        // stay active globally (managed by AppShell) so match_found
+        // events from challenges are received on any screen.
       }
     });
     super.deactivate();
@@ -1825,18 +1826,16 @@ class _HeroStat extends StatelessWidget {
 
 class _InfoTile extends StatelessWidget {
   final IconData icon;
-  final double? iconSize;
-  final Color? iconColor;
   final String label;
   final String value;
   const _InfoTile(
-      {required this.icon, this.iconSize, this.iconColor, required this.label, required this.value});
+      {required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Icon(icon, size: iconSize ?? 22, color: iconColor ?? Colors.white38),
+        Icon(icon, size: 22, color: Colors.white38),
         const SizedBox(height: 6),
         Text(value,
             style: GoogleFonts.inter(

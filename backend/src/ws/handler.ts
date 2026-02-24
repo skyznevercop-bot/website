@@ -945,6 +945,15 @@ interface PlayerStats {
   equity: number;
 }
 
+interface SpectatorPositionSummary {
+  asset: string;
+  isLong: boolean;
+  leverage: number;
+  size: number;
+  entryPrice: number;
+  pnl: number;
+}
+
 async function computePlayerStats(
   matchId: string,
   playerAddress: string
@@ -973,6 +982,33 @@ async function computePlayerStats(
 
   const roi = roiToPercent(roiDecimal(totalPnl, DEMO_BALANCE));
   return { totalPnl, openCount, roi, equity: DEMO_BALANCE + totalPnl };
+}
+
+/**
+ * Get open positions summary for spectators (no SL/TP details).
+ */
+async function getSpectatorPositions(
+  matchId: string,
+  playerAddress: string
+): Promise<SpectatorPositionSummary[]> {
+  const positions = await getPositions(matchId, playerAddress);
+  const prices = getLatestPrices();
+  const priceMap: Record<string, number> = {
+    BTC: prices.btc,
+    ETH: prices.eth,
+    SOL: prices.sol,
+  };
+
+  return positions
+    .filter((p) => !p.closedAt)
+    .map((p) => ({
+      asset: p.assetSymbol,
+      isLong: p.isLong,
+      leverage: p.leverage,
+      size: p.size,
+      entryPrice: p.entryPrice,
+      pnl: calculatePnl(p, priceMap[p.assetSymbol] ?? p.entryPrice),
+    }));
 }
 
 /**
@@ -1007,11 +1043,13 @@ async function broadcastSpectatorUpdate(
   matchId: string,
   match: { player1: string; player2: string }
 ): Promise<void> {
-  const [p1Stats, p2Stats, p1User, p2User] = await Promise.all([
+  const [p1Stats, p2Stats, p1User, p2User, p1Positions, p2Positions] = await Promise.all([
     computePlayerStats(matchId, match.player1),
     computePlayerStats(matchId, match.player2),
     getUser(match.player1),
     getUser(match.player2),
+    getSpectatorPositions(matchId, match.player1),
+    getSpectatorPositions(matchId, match.player2),
   ]);
 
   broadcastToSpectators(matchId, {
@@ -1022,6 +1060,7 @@ async function broadcastSpectatorUpdate(
       roi: p1Stats.roi,
       equity: p1Stats.equity,
       positionCount: p1Stats.openCount,
+      positions: p1Positions,
     },
     player2: {
       address: match.player2,
@@ -1029,6 +1068,7 @@ async function broadcastSpectatorUpdate(
       roi: p2Stats.roi,
       equity: p2Stats.equity,
       positionCount: p2Stats.openCount,
+      positions: p2Positions,
     },
     spectatorCount: getSpectatorCount(matchId),
   });
@@ -1042,11 +1082,13 @@ async function sendSpectatorSnapshot(
   matchId: string,
   match: { player1: string; player2: string; duration?: string; betAmount?: number; startTime?: number; endTime?: number; status: string; winner?: string; player1Roi?: number; player2Roi?: number }
 ): Promise<void> {
-  const [p1Stats, p2Stats, p1User, p2User] = await Promise.all([
+  const [p1Stats, p2Stats, p1User, p2User, p1Positions, p2Positions] = await Promise.all([
     computePlayerStats(matchId, match.player1),
     computePlayerStats(matchId, match.player2),
     getUser(match.player1),
     getUser(match.player2),
+    getSpectatorPositions(matchId, match.player1),
+    getSpectatorPositions(matchId, match.player2),
   ]);
 
   const prices = getLatestPrices();
@@ -1062,6 +1104,7 @@ async function sendSpectatorSnapshot(
       roi: isEnded && match.player1Roi != null ? Math.round(match.player1Roi * 10000) / 100 : p1Stats.roi,
       equity: p1Stats.equity,
       positionCount: p1Stats.openCount,
+      positions: p1Positions,
     },
     player2: {
       address: match.player2,
@@ -1069,6 +1112,7 @@ async function sendSpectatorSnapshot(
       roi: isEnded && match.player2Roi != null ? Math.round(match.player2Roi * 10000) / 100 : p2Stats.roi,
       equity: p2Stats.equity,
       positionCount: p2Stats.openCount,
+      positions: p2Positions,
     },
     duration: match.duration || "5m",
     betAmount: match.betAmount || 0,

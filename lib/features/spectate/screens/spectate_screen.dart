@@ -814,8 +814,11 @@ class _EventsChatTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final totalPositions =
+        state.player1.positions.length + state.player2.positions.length;
+
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Column(
         children: [
           Container(
@@ -830,6 +833,36 @@ class _EventsChatTabs extends StatelessWidget {
               labelStyle:
                   GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w600),
               tabs: [
+                Tab(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.candlestick_chart_rounded, size: 14),
+                      const SizedBox(width: 4),
+                      const Text('Positions'),
+                      if (totalPositions > 0) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color:
+                                AppTheme.solanaPurple.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$totalPositions',
+                            style: interStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.solanaPurple,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
                 Tab(
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -896,6 +929,7 @@ class _EventsChatTabs extends StatelessWidget {
           Expanded(
             child: TabBarView(
               children: [
+                _SpectatorPositions(state: state),
                 _SpectatorEventFeed(events: state.events),
                 _SpectatorChat(
                   messages: state.chatMessages,
@@ -905,6 +939,255 @@ class _EventsChatTabs extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// Spectator Positions — Shows both players' open positions
+// =============================================================================
+
+class _SpectatorPositions extends StatelessWidget {
+  final SpectatorState state;
+
+  const _SpectatorPositions({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final p1Positions = state.player1.positions;
+    final p2Positions = state.player2.positions;
+
+    if (p1Positions.isEmpty && p2Positions.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.candlestick_chart_rounded,
+                size: 32, color: AppTheme.textTertiary),
+            const SizedBox(height: 8),
+            Text('No open positions',
+                style:
+                    interStyle(fontSize: 12, color: AppTheme.textTertiary)),
+            const SizedBox(height: 4),
+            Text('Player trades will appear here',
+                style:
+                    interStyle(fontSize: 10, color: AppTheme.textTertiary)),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      children: [
+        if (p1Positions.isNotEmpty) ...[
+          _PlayerPositionHeader(
+            tag: state.player1.gamerTag,
+            color: AppTheme.solanaPurple,
+            count: p1Positions.length,
+          ),
+          const SizedBox(height: 4),
+          for (final pos in p1Positions)
+            _SpectatorPositionTile(
+              position: pos,
+              playerColor: AppTheme.solanaPurple,
+            ),
+          const SizedBox(height: 10),
+        ],
+        if (p2Positions.isNotEmpty) ...[
+          _PlayerPositionHeader(
+            tag: state.player2.gamerTag,
+            color: const Color(0xFFFF6B35),
+            count: p2Positions.length,
+          ),
+          const SizedBox(height: 4),
+          for (final pos in p2Positions)
+            _SpectatorPositionTile(
+              position: pos,
+              playerColor: const Color(0xFFFF6B35),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+class _PlayerPositionHeader extends StatelessWidget {
+  final String tag;
+  final Color color;
+  final int count;
+
+  const _PlayerPositionHeader({
+    required this.tag,
+    required this.color,
+    required this.count,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 18,
+            height: 18,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color.withValues(alpha: 0.15),
+              border: Border.all(color: color, width: 1.5),
+            ),
+            child: Center(
+              child: Text(
+                tag.isNotEmpty ? tag[0].toUpperCase() : '?',
+                style: interStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            tag,
+            style: interStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            '($count)',
+            style: interStyle(
+              fontSize: 10,
+              color: AppTheme.textTertiary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SpectatorPositionTile extends StatelessWidget {
+  final SpectatorPosition position;
+  final Color playerColor;
+
+  const _SpectatorPositionTile({
+    required this.position,
+    required this.playerColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dirColor = position.isLong ? AppTheme.success : AppTheme.error;
+    final dirLabel = position.isLong ? 'LONG' : 'SHORT';
+    final aColor = assetColor(position.asset);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppTheme.surfaceAlt,
+          borderRadius: BorderRadius.circular(8),
+          border: Border(
+            left: BorderSide(color: playerColor.withValues(alpha: 0.5), width: 3),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Asset icon + name.
+            Container(
+              width: 24,
+              height: 24,
+              decoration: BoxDecoration(
+                color: aColor.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  position.asset[0],
+                  style: interStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: aColor,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+
+            // Asset + direction + leverage.
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        position.asset,
+                        style: interStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: dirColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          dirLabel,
+                          style: interStyle(
+                            fontSize: 8,
+                            fontWeight: FontWeight.w700,
+                            color: dirColor,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${position.leverage.toStringAsFixed(position.leverage == position.leverage.roundToDouble() ? 0 : 1)}x',
+                        style: interStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textTertiary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Entry \$${fmtPrice(position.entryPrice)}  ·  \$${position.size.toStringAsFixed(0)} margin',
+                    style: interStyle(
+                      fontSize: 9,
+                      color: AppTheme.textTertiary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // PnL.
+            Text(
+              '${position.pnl >= 0 ? '+' : ''}\$${position.pnl.toStringAsFixed(2)}',
+              style: interStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: pnlColor(position.pnl),
+                tabularFigures: true,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

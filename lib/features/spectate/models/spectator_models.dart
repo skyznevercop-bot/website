@@ -1,13 +1,44 @@
 import '../../arena/models/chat_message.dart';
 import '../../arena/models/match_event.dart';
 
-/// High-level player stats visible to spectators (no position details).
+/// An open position visible to spectators.
+class SpectatorPosition {
+  final String asset;
+  final bool isLong;
+  final double leverage;
+  final double size;
+  final double entryPrice;
+  final double pnl;
+
+  const SpectatorPosition({
+    required this.asset,
+    required this.isLong,
+    required this.leverage,
+    required this.size,
+    required this.entryPrice,
+    this.pnl = 0,
+  });
+
+  factory SpectatorPosition.fromJson(Map<String, dynamic> json) {
+    return SpectatorPosition(
+      asset: json['asset'] as String? ?? '',
+      isLong: json['isLong'] as bool? ?? true,
+      leverage: (json['leverage'] as num?)?.toDouble() ?? 1,
+      size: (json['size'] as num?)?.toDouble() ?? 0,
+      entryPrice: (json['entryPrice'] as num?)?.toDouble() ?? 0,
+      pnl: (json['pnl'] as num?)?.toDouble() ?? 0,
+    );
+  }
+}
+
+/// Player stats visible to spectators, including open positions.
 class SpectatorPlayer {
   final String address;
   final String gamerTag;
   final double roi;
   final double equity;
   final int positionCount;
+  final List<SpectatorPosition> positions;
 
   const SpectatorPlayer({
     required this.address,
@@ -15,6 +46,7 @@ class SpectatorPlayer {
     this.roi = 0,
     this.equity = 1000000,
     this.positionCount = 0,
+    this.positions = const [],
   });
 
   SpectatorPlayer copyWith({
@@ -23,6 +55,7 @@ class SpectatorPlayer {
     double? roi,
     double? equity,
     int? positionCount,
+    List<SpectatorPosition>? positions,
   }) {
     return SpectatorPlayer(
       address: address ?? this.address,
@@ -30,6 +63,7 @@ class SpectatorPlayer {
       roi: roi ?? this.roi,
       equity: equity ?? this.equity,
       positionCount: positionCount ?? this.positionCount,
+      positions: positions ?? this.positions,
     );
   }
 }

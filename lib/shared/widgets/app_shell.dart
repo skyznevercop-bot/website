@@ -33,6 +33,10 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (!mounted) return;
       // Trigger onboarding on first visit.
       ref.read(onboardingProvider.notifier).maybeStartOnboarding();
+      // Ensure the queue provider's WS listener is always active so
+      // match_found events (from challenges or matchmaking) are handled
+      // regardless of which screen the user is on.
+      ref.read(queueProvider.notifier).init();
       // Check for active match if wallet is already connected.
       _checkForActiveMatch();
     });
