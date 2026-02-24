@@ -166,7 +166,11 @@ export async function updateMatch(
   matchId: string,
   data: Partial<DbMatch>
 ): Promise<void> {
-  await matchesRef.child(matchId).update(data);
+  // Firebase Realtime Database rejects `undefined` values — strip them.
+  const cleaned = Object.fromEntries(
+    Object.entries(data).filter(([, v]) => v !== undefined)
+  );
+  await matchesRef.child(matchId).update(cleaned);
 }
 
 export async function getMatchesByStatus(
