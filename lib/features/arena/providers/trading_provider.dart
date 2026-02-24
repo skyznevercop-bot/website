@@ -467,8 +467,53 @@ class TradingNotifier extends Notifier<TradingState> {
         );
         break;
 
+      case 'error':
+        // If the error includes a positionId, the server rejected an
+        // open_position — roll back the optimistic phantom position.
+        final errorPosId = data['positionId'] as String?;
+        if (errorPosId != null && state.matchActive) {
+          final idx = state.positions.indexWhere(
+              (p) => p.id == errorPosId && p.isOpen);
+          if (idx != -1) {
+            final phantom = state.positions[idx];
+            state = state.copyWith(
+              positions: [
+                ...state.positions.sublist(0, idx),
+                ...state.positions.sublist(idx + 1),
+              ],
+              balance: state.balance + phantom.size, // restore margin
+            );
+          }
+        }
+        break;
+
+      case 'position_opened':
+        // Server confirmed the position — reconcile entry price so client
+        // PnL matches server calculations exactly.
+        final posData = data['position'] as Map<String, dynamic>?;
+        if (posData != null) {
+          final posId = posData['id'] as String?;
+          final serverEntry = (posData['entryPrice'] as num?)?.toDouble();
+          if (posId != null && serverEntry != null) {
+            bool changed = false;
+            final updated = state.positions.map((p) {
+              if (p.id == posId && (p.entryPrice - serverEntry).abs() > 0.001) {
+                p.entryPrice = serverEntry;
+                changed = true;
+              }
+              return p;
+            }).toList();
+            if (changed) {
+              state = state.copyWith(positions: updated);
+            }
+          }
+        }
+        break;
+
       case 'position_closed':
-        // Server closed a position (SL/TP/liquidation triggered server-side).
+        // Server closed a position (SL/TP/liquidation triggered server-side,
+        // or manual close response). Also reconciles already-closed positions
+        // so client PnL matches server.
         final closedId = data['positionId'] as String?;
         final exitPx = (data['exitPrice'] as num?)?.toDouble();
         final serverPnl = (data['pnl'] as num?)?.toDouble();
@@ -478,17 +523,30 @@ class TradingNotifier extends Notifier<TradingState> {
           double balanceReturn = 0;
           double? closedPnl;
           final updated = state.positions.map((p) {
-            if (p.id == closedId && p.isOpen) {
-              p.exitPrice = exitPx;
-              p.closedAt = now;
-              p.closeReason = reason;
-              closedPnl = serverPnl ?? p.pnl(exitPx);
-              balanceReturn = (p.size + closedPnl!).clamp(0.0, double.infinity);
+            if (p.id == closedId) {
+              if (p.isOpen) {
+                // Not yet closed locally — close it now.
+                p.exitPrice = exitPx;
+                p.closedAt = now;
+                p.closeReason = reason;
+                closedPnl = serverPnl ?? p.pnl(exitPx);
+                balanceReturn =
+                    (p.size + closedPnl!).clamp(0.0, double.infinity);
+              } else if (serverPnl != null) {
+                // Already closed locally — reconcile PnL with server.
+                final oldPnl = p.pnl(p.exitPrice ?? p.entryPrice);
+                p.exitPrice = exitPx;
+                final oldReturn =
+                    (p.size + oldPnl).clamp(0.0, double.infinity);
+                final newReturn =
+                    (p.size + serverPnl).clamp(0.0, double.infinity);
+                balanceReturn = newReturn - oldReturn;
+              }
             }
             return p;
           }).toList();
 
-          // Track consecutive wins/losses.
+          // Track consecutive wins/losses (only for newly closed).
           int newConsecutive = state.consecutiveWins;
           int newBest = state.bestStreak;
           if (closedPnl != null) {

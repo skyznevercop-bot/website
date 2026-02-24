@@ -602,36 +602,45 @@ async function handleMessage(
         positionId?: string;
       };
 
+      // Helper: send error with positionId so client can roll back phantom positions.
+      const sendOpenError = (message: string) => {
+        ws.send(JSON.stringify({
+          type: "error",
+          message,
+          ...(localPositionId != null && { positionId: localPositionId }),
+        }));
+      };
+
       if (typeof isLong !== "boolean") {
-        ws.send(JSON.stringify({ type: "error", message: "isLong must be a boolean" }));
+        sendOpenError("isLong must be a boolean");
         return;
       }
 
       const matchData = await getMatch(matchId);
       if (!matchData || matchData.status !== "active") {
-        ws.send(JSON.stringify({ type: "error", message: "Match is not active" }));
+        sendOpenError("Match is not active");
         return;
       }
       if (ws.userAddress !== matchData.player1 && ws.userAddress !== matchData.player2) {
-        ws.send(JSON.stringify({ type: "error", message: "Not a player in this match" }));
+        sendOpenError("Not a player in this match");
         return;
       }
 
       if (typeof size !== "number" || !Number.isFinite(size) || size < 1 || size > DEMO_BALANCE) {
-        ws.send(JSON.stringify({ type: "error", message: "Invalid position size (1 – $1M)" }));
+        sendOpenError("Invalid position size (1 – $1M)");
         return;
       }
       if (typeof leverage !== "number" || !Number.isFinite(leverage) || leverage < 1 || leverage > config.maxLeverage) {
-        ws.send(JSON.stringify({ type: "error", message: `Invalid leverage (1x – ${config.maxLeverage}x)` }));
+        sendOpenError(`Invalid leverage (1x – ${config.maxLeverage}x)`);
         return;
       }
       if (!config.validAssets.includes(asset)) {
-        ws.send(JSON.stringify({ type: "error", message: "Unknown asset" }));
+        sendOpenError("Unknown asset");
         return;
       }
 
       if (localPositionId != null && !/^[a-zA-Z0-9_-]{1,64}$/.test(localPositionId)) {
-        ws.send(JSON.stringify({ type: "error", message: "Invalid position ID format" }));
+        sendOpenError("Invalid position ID format");
         return;
       }
 
@@ -661,13 +670,13 @@ async function handleMessage(
         .filter((p) => !p.closedAt)
         .reduce((sum, p) => sum + p.size, 0);
       if (size > DEMO_BALANCE - usedMargin) {
-        ws.send(JSON.stringify({ type: "error", message: "Insufficient balance" }));
+        sendOpenError("Insufficient balance");
         return;
       }
 
       const prices = getLatestPrices();
       if (Date.now() - prices.timestamp > PRICE_MAX_AGE_MS) {
-        ws.send(JSON.stringify({ type: "error", message: "Price data is stale — try again shortly" }));
+        sendOpenError("Price data is stale — try again shortly");
         return;
       }
 
@@ -678,30 +687,30 @@ async function handleMessage(
       };
       const entryPrice = priceMap[asset];
       if (!entryPrice) {
-        ws.send(JSON.stringify({ type: "error", message: "Price unavailable" }));
+        sendOpenError("Price unavailable");
         return;
       }
 
       // Validate SL/TP direction.
       if (sl != null) {
         if (typeof sl !== "number" || !Number.isFinite(sl) || sl <= 0) {
-          ws.send(JSON.stringify({ type: "error", message: "Invalid stop loss" }));
+          sendOpenError("Invalid stop loss");
           return;
         }
         const slValid = isLong ? sl < entryPrice : sl > entryPrice;
         if (!slValid) {
-          ws.send(JSON.stringify({ type: "error", message: "SL must be below entry for longs, above for shorts" }));
+          sendOpenError("SL must be below entry for longs, above for shorts");
           return;
         }
       }
       if (tp != null) {
         if (typeof tp !== "number" || !Number.isFinite(tp) || tp <= 0) {
-          ws.send(JSON.stringify({ type: "error", message: "Invalid take profit" }));
+          sendOpenError("Invalid take profit");
           return;
         }
         const tpValid = isLong ? tp > entryPrice : tp < entryPrice;
         if (!tpValid) {
-          ws.send(JSON.stringify({ type: "error", message: "TP must be above entry for longs, below for shorts" }));
+          sendOpenError("TP must be above entry for longs, below for shorts");
           return;
         }
       }

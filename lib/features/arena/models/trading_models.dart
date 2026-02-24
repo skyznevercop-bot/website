@@ -262,7 +262,7 @@ class Position {
   final String id;
   final String assetSymbol;
   final bool isLong;
-  final double entryPrice;
+  double entryPrice; // mutable for server reconciliation
   double size; // margin in USDC (mutable for partial close)
   final double leverage;
   final DateTime openedAt;
