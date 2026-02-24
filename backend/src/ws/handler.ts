@@ -361,6 +361,14 @@ export function setupWebSocket(server: HttpServer): void {
           broadcastOpponentUpdate(matchId, pos.playerAddress).catch((err) => {
             log.error("opponent_update_failed", { matchId, player: pos.playerAddress.slice(0, 8), trigger: closeReason, error: String(err) });
           });
+
+          // Also send the opponent's stats back to the player whose
+          // position was auto-closed so their opponent-ROI stays fresh.
+          const autoCloseOpponent =
+            match.player1 === pos.playerAddress
+              ? match.player2
+              : match.player1;
+          broadcastOpponentUpdate(matchId, autoCloseOpponent).catch(() => {});
         } finally {
           _closingPositions.delete(pos.id);
         }
@@ -791,7 +799,16 @@ async function handleMessage(
           pnl,
         }));
 
+        // Send the closing user's updated stats to their opponent.
         broadcastOpponentUpdate(matchId, ws.userAddress);
+
+        // Also send the opponent's stats back to the closing user so their
+        // opponent-ROI display stays fresh immediately after close.
+        const closeOpponent =
+          closeMatchData.player1 === ws.userAddress
+            ? closeMatchData.player2
+            : closeMatchData.player1;
+        broadcastOpponentUpdate(matchId, closeOpponent);
       } finally {
         _closingPositions.delete(positionId);
       }
@@ -888,6 +905,13 @@ async function handleMessage(
         });
 
         broadcastOpponentUpdate(matchId, ws.userAddress);
+
+        // Also send the opponent's stats back to the closing user.
+        const partialOpponent =
+          partialMatchData.player1 === ws.userAddress
+            ? partialMatchData.player2
+            : partialMatchData.player1;
+        broadcastOpponentUpdate(matchId, partialOpponent);
       } finally {
         _closingPositions.delete(positionId);
       }
