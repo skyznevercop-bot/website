@@ -163,15 +163,35 @@ class _MatchResultOverlayState extends ConsumerState<MatchResultOverlay>
       widget.state.matchIsTie;
 
   bool get _isWinner {
+    if (widget.state.matchIsTie) return false;
+    // Primary: compare winner address to our wallet.
     final wallet = ref.read(walletProvider);
-    return widget.state.matchWinner != null &&
-        widget.state.matchWinner == wallet.address;
+    if (widget.state.matchWinner != null && wallet.address != null) {
+      return widget.state.matchWinner == wallet.address;
+    }
+    // Fallback: use server-authoritative ROI comparison.
+    final myRoi = widget.state.serverMyRoi;
+    final oppRoi = widget.state.serverOppRoi;
+    if (myRoi != null && oppRoi != null) {
+      return myRoi > oppRoi;
+    }
+    return false;
   }
 
   bool get _isLoser {
+    if (widget.state.matchIsTie) return false;
+    // Primary: compare winner address to our wallet.
     final wallet = ref.read(walletProvider);
-    return widget.state.matchWinner != null &&
-        widget.state.matchWinner != wallet.address;
+    if (widget.state.matchWinner != null && wallet.address != null) {
+      return widget.state.matchWinner != wallet.address;
+    }
+    // Fallback: use server-authoritative ROI comparison.
+    final myRoi = widget.state.serverMyRoi;
+    final oppRoi = widget.state.serverOppRoi;
+    if (myRoi != null && oppRoi != null) {
+      return myRoi < oppRoi;
+    }
+    return false;
   }
 
   double get _myRoi {

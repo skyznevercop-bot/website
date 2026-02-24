@@ -1268,8 +1268,12 @@ class TradingNotifier extends Notifier<TradingState> {
   void _persistMatchResult(
       MatchStats? stats, String? winner, bool isTie, double? serverRoi) {
     final wallet = ref.read(walletProvider);
-    final isWin =
-        !isTie && winner != null && winner == wallet.address;
+    // Primary: winner address matches our wallet.
+    bool isWin = !isTie && winner != null && winner == wallet.address;
+    // Fallback: use server ROI comparison if address match fails.
+    if (!isTie && !isWin && serverRoi != null && state.serverOppRoi != null) {
+      isWin = serverRoi > state.serverOppRoi!;
+    }
     final result = isTie
         ? 'TIE'
         : isWin
