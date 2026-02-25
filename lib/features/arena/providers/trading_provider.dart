@@ -433,6 +433,10 @@ class TradingNotifier extends Notifier<TradingState> {
         break;
 
       case 'price_update':
+        // Ignore price updates after the match timer fires — prices are
+        // frozen at that point and only the server's settlement prices
+        // (delivered via match_end) should update them.
+        if (!state.matchActive) break;
         final prices = <String, double>{};
         if (data['btc'] != null) prices['BTC'] = (data['btc'] as num).toDouble();
         if (data['eth'] != null) prices['ETH'] = (data['eth'] as num).toDouble();
@@ -441,6 +445,10 @@ class TradingNotifier extends Notifier<TradingState> {
         break;
 
       case 'opponent_update':
+        // Ignore opponent updates after the match timer fires — we've
+        // frozen prices locally and only the server's match_end should
+        // update the final opponent ROI.
+        if (!state.matchActive) break;
         final pnl = (data['pnl'] as num?)?.toDouble() ?? 0;
         final equity =
             (data['equity'] as num?)?.toDouble() ?? TradingState.demoBalance;
@@ -1278,17 +1286,25 @@ class TradingNotifier extends Notifier<TradingState> {
       _startResultPolling();
 
       // Safety net: if the server never responds within 15s, settle locally.
+      // Snapshot both ROIs NOW (same price state, same moment) so the
+      // fallback compares apples to apples. myRoiPercent uses client
+      // prices (which are now frozen — price_update is ignored after
+      // matchActive=false), and opponentRoi uses the last server broadcast.
+      final snapshotMyRoi = state.myRoiPercent;
+      final snapshotOppRoi = state.opponentRoi;
+      final snapshotWalletAddr = ref.read(walletProvider).address;
       _settlementTimeoutTimer?.cancel();
       _settlementTimeoutTimer = Timer(const Duration(seconds: 15), () {
         if (state.matchWinner == null && !state.matchIsTie) {
-          final myRoi = state.myRoiPercent;
-          final oppRoi = state.opponentRoi;
-          final walletAddr = ref.read(walletProvider).address;
+          // Tie tolerance: 0.001% matches server's 0.00001 decimal.
+          const tieTolerance = 0.001;
           endMatch(
-            winner: myRoi >= oppRoi ? walletAddr : state.opponentAddress,
-            isTie: (myRoi - oppRoi).abs() < 0.01,
-            serverMyRoi: myRoi,
-            serverOppRoi: oppRoi,
+            winner: snapshotMyRoi >= snapshotOppRoi
+                ? snapshotWalletAddr
+                : state.opponentAddress,
+            isTie: (snapshotMyRoi - snapshotOppRoi).abs() < tieTolerance,
+            serverMyRoi: snapshotMyRoi,
+            serverOppRoi: snapshotOppRoi,
           );
         }
       });

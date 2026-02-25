@@ -30624,7 +30624,11 @@ aBE:function aBE(){},
 aBF:function aBF(a,b,c){this.a=a
 this.b=b
 this.c=c},
-aBG:function aBG(a){this.a=a},
+aBG:function aBG(a,b,c,d){var _=this
+_.a=a
+_.b=b
+_.c=c
+_.d=d},
 aBy:function aBy(a,b){this.a=a
 this.b=b},
 EH:function EH(a,b,c,d,e,f,g,h){var _=this
@@ -105192,13 +105196,15 @@ default:s=null}this.y=A.j5(A.dW(0,s,0),new A.aBz(this))},
 aye(b7){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2,a3,a4,a5,a6,a7,a8,a9,b0,b1,b2,b3,b4=this,b5=null,b6="positionId"
 switch(b7.i(0,"type")){case"ws_connected":if(b4.gm().w!=null)b4.ay.kA(A.ar(["type","join_match","matchId",b4.gm().w],t.N,t.z))
 break
-case"price_update":s=A.v(t.N,t.i)
+case"price_update":if(!b4.gm().f)break
+s=A.v(t.N,t.i)
 if(b7.i(0,"btc")!=null)s.p(0,"BTC",A.e0(b7.i(0,"btc")))
 if(b7.i(0,"eth")!=null)s.p(0,"ETH",A.e0(b7.i(0,"eth")))
 if(b7.i(0,"sol")!=null)s.p(0,"SOL",A.e0(b7.i(0,"sol")))
 if(s.a!==0)b4.Rc(s)
 break
-case"opponent_update":r=A.aS(b7.i(0,"pnl"))
+case"opponent_update":if(!b4.gm().f)break
+r=A.aS(b7.i(0,"pnl"))
 q=r==null?b5:r
 if(q==null)q=0
 r=A.aS(b7.i(0,"equity"))
@@ -105489,62 +105495,65 @@ break
 case 6:case 1:return A.G(q,r)
 case 2:return A.F(o.at(-1),r)}})
 return A.H($async$yt,r)},
-z8(a4,a5,a6,a7,a8){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2=this,a3=a2.x
-if(a3!=null)a3.aa()
-a3=a2.y
-if(a3!=null)a3.aa()
-A.cB(a2).ad($.Ei().gaK(),t.wA).e2()
-a3=a8==null
-if(a3)s=a5===!0
+z8(a6,a7,a8,a9,b0){var s,r,q,p,o,n,m,l,k,j,i,h,g,f,e,d,c,b,a,a0,a1,a2,a3,a4=this,a5=a4.x
+if(a5!=null)a5.aa()
+a5=a4.y
+if(a5!=null)a5.aa()
+A.cB(a4).ad($.Ei().gaK(),t.wA).e2()
+a5=b0==null
+if(a5)s=a7===!0
 else s=!0
-if(s){s=a2.z
+if(s){s=a4.z
 if(s!=null)s.aa()}r=!0
-if(a3)if(a5!==!0){s=a4===!0||a2.gm().k2
-r=s}q=B.b.i9(a2.gm().c,new A.aBE())
-p=a2.gm().c
-o=a2.gm().d
-n=a2.gm().cy
+if(a5)if(a7!==!0){s=a6===!0||a4.gm().k2
+r=s}q=B.b.i9(a4.gm().c,new A.aBE())
+p=a4.gm().c
+o=a4.gm().d
+n=a4.gm().cy
 if(q&&r){s={}
 m=Date.now()
 s.a=0
-l=a2.gm().c
+l=a4.gm().c
 k=A.a9(l).h("a3<1,fX>")
-p=A.a_(new A.a3(l,new A.aBF(s,a2,new A.c7(m,0,!1)),k),k.h("al.E"))
-o=a2.gm().d+s.a
-s=a2.gm()
-m=a2.gm().cx>o?a2.gm().cx:o
-n=A.bik(o,s.r,m,p)}j=a3?a2.gm().ay:a8
-i=a5==null?a2.gm().ch:a5
-h=a4==null?a2.gm().CW:a4
-g=a6==null?a2.gm().db:a6
-f=a7==null?a2.gm().dx:a7
-a3=j==null
-e=!a3||i
-a2.sm(a2.gm().aCT(o,!1,h,i,B.kK,n,0,j,p,g,f))
-s=a2.ch
+p=A.a_(new A.a3(l,new A.aBF(s,a4,new A.c7(m,0,!1)),k),k.h("al.E"))
+o=a4.gm().d+s.a
+s=a4.gm()
+m=a4.gm().cx>o?a4.gm().cx:o
+n=A.bik(o,s.r,m,p)}j=a5?a4.gm().ay:b0
+i=a7==null?a4.gm().ch:a7
+h=a6==null?a4.gm().CW:a6
+g=a8==null?a4.gm().db:a8
+f=a9==null?a4.gm().dx:a9
+a5=j==null
+e=!a5||i
+a4.sm(a4.gm().aCT(o,!1,h,i,B.kK,n,0,j,p,g,f))
+s=a4.ch
 if(s!=null)s.aa()
-if(!a2.gm().k2)if(e){d=A.cB(a2).ad($.ci(),t.Q)
+if(!a4.gm().k2)if(e){d=A.cB(a4).ad($.ci(),t.Q)
 s=!i
-c=s&&!a3&&j===d.c
-if(s&&!c&&g!=null&&a2.gm().dx!=null){a3=a2.gm().dx
-a3.toString
-c=g>a3}if(i)b="TIE"
+c=s&&!a5&&j===d.c
+if(s&&!c&&g!=null&&a4.gm().dx!=null){a5=a4.gm().dx
+a5.toString
+c=g>a5}if(i)b="TIE"
 else b=c?"WIN":"LOSS"
-if(g!=null)a=g/100*a2.gm().r
-else a=a2.gm().r>0?a2.gm().gl3()-a2.gm().r:0
-a0=B.k.b2(a2.gm().fr,60)
+if(g!=null)a=g/100*a4.gm().r
+else a=a4.gm().r>0?a4.gm().gl3()-a4.gm().r:0
+a0=B.k.b2(a4.gm().fr,60)
 a1=a0>=60?""+B.k.b2(a0,60)+"h":""+a0+"m"
-a3=A.cB(a2).ad($.nJ().gaK(),t.uZ)
-s=a2.gm().w
+a5=A.cB(a4).ad($.nJ().gaK(),t.uZ)
+s=a4.gm().w
 if(s==null)s="local_"+Date.now()
-m=a2.gm().y
+m=a4.gm().y
 if(m==null)m="Unknown"
 Date.now()
-a3.azV(new A.mP(s,m,a1,b,a))}else if(a2.gm().w!=null){a2.ay.kA(A.ar(["type","join_match","matchId",a2.gm().w],t.N,t.z))
-a2.axz()
-a3=a2.z
-if(a3!=null)a3.aa()
-a2.z=A.c9(B.ef,new A.aBG(a2))}},
+a5.azV(new A.mP(s,m,a1,b,a))}else if(a4.gm().w!=null){a4.ay.kA(A.ar(["type","join_match","matchId",a4.gm().w],t.N,t.z))
+a4.axz()
+a2=a4.gm().gA9()
+a3=a4.gm().gGQ()
+a5=A.cB(a4).ad($.ci(),t.Q)
+s=a4.z
+if(s!=null)s.aa()
+a4.z=A.c9(B.ef,new A.aBG(a4,a2,a3,a5.c))}},
 a4U(a){var s=null
 return this.z8(a,s,s,s,s)},
 aFp(a,b,c,d){return this.z8(null,a,b,c,d)},
@@ -105762,12 +105771,11 @@ r=this.a
 r.a=r.a+B.d.b6(a.e+a.ip(s),0,1/0)}return a},
 $S:85}
 A.aBG.prototype={
-$0(){var s,r,q,p,o=this.a
-if(o.gm().ay==null&&!o.gm().ch){s=o.gm().gA9()
-r=o.gm().gGQ()
-q=A.cB(o).ad($.ci(),t.Q).c
-p=s>=r?q:o.gm().x
-o.aFp(Math.abs(s-r)<0.01,s,r,p)}},
+$0(){var s,r,q,p=this,o=p.a
+if(o.gm().ay==null&&!o.gm().ch){s=p.b
+r=p.c
+q=s>=r?p.d:o.gm().x
+o.aFp(Math.abs(s-r)<0.001,s,r,q)}},
 $S:0}
 A.aBy.prototype={
 $0(){this.a.xG(this.b)},
