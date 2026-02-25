@@ -267,15 +267,22 @@ class PortfolioNotifier extends Notifier<PortfolioState> {
     }
   }
 
-  /// Get the platform vault address for deposits.
+  /// Get the platform vault address for deposits (retries for cold starts).
   Future<String?> getVaultAddress() async {
-    try {
-      final response = await _api.get('/balance/vault');
-      return response['vaultAddress'] as String?;
-    } catch (e) {
-      if (kDebugMode) debugPrint('[Portfolio] getVaultAddress failed: $e');
-      return null;
+    for (int attempt = 0; attempt < 5; attempt++) {
+      try {
+        final response = await _api.get('/balance/vault');
+        return response['vaultAddress'] as String?;
+      } catch (e) {
+        if (kDebugMode) {
+          debugPrint('[Portfolio] getVaultAddress attempt ${attempt + 1}/5 failed: $e');
+        }
+        if (attempt < 4) {
+          await Future.delayed(Duration(seconds: 3 * (attempt + 1)));
+        }
+      }
     }
+    return null;
   }
 
   /// Fetch completed match history from the backend.

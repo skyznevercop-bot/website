@@ -50,6 +50,8 @@ class WalletNotifier extends Notifier<WalletState> {
 
       // 2. Try backend auth — gracefully fall back if backend is unreachable.
       String? gamerTag;
+      double? initialPlatformBalance;
+      double? initialFrozenBalance;
       bool backendAvailable = false;
 
       try {
@@ -99,7 +101,14 @@ class WalletNotifier extends Notifier<WalletState> {
           }
         });
 
-        // Fetch user profile from backend (non-critical — don't fail auth).
+        // Fetch balance + profile concurrently right after auth (non-critical).
+        try {
+          final balanceResponse = await _api.get('/balance');
+          initialPlatformBalance = (balanceResponse['balance'] as num?)?.toDouble();
+          initialFrozenBalance = (balanceResponse['frozenBalance'] as num?)?.toDouble();
+        } catch (e) {
+          if (kDebugMode) debugPrint('[Wallet] Initial balance fetch (non-critical): $e');
+        }
         try {
           final userResponse = await _api.get('/user/$address');
           gamerTag = userResponse['gamerTag'] as String?;
@@ -118,17 +127,17 @@ class WalletNotifier extends Notifier<WalletState> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_walletTypeKey, walletName);
 
-      // Mark as connected immediately — don't block on balance fetches.
-      // usdcBalance left null = "not yet fetched" (avoids misleading $0.00).
+      // Mark as connected with balance if we already fetched it.
       state = state.copyWith(
         status: WalletConnectionStatus.connected,
         address: address,
         gamerTag: gamerTag,
+        platformBalance: initialPlatformBalance ?? state.platformBalance,
+        frozenBalance: initialFrozenBalance ?? state.frozenBalance,
         isBalanceLoading: true,
       );
 
-      // Fetch on-chain USDC balance and platform balance concurrently.
-      // Don't block — update state as each resolves.
+      // Fetch on-chain USDC balance in background.
       _fetchOnChainUsdcBalance(address).then((onChainBalance) {
         if (kDebugMode) debugPrint('[Wallet] On-chain USDC balance resolved: $onChainBalance');
         state = state.copyWith(usdcBalance: onChainBalance, isBalanceLoading: false);
@@ -137,11 +146,12 @@ class WalletNotifier extends Notifier<WalletState> {
         state = state.copyWith(usdcBalance: 0, isBalanceLoading: false);
       });
 
-      if (backendAvailable) {
+      // If we didn't get the balance during auth, retry in background.
+      if (backendAvailable && initialPlatformBalance == null) {
         _fetchPlatformBalanceWithRetry().catchError((e) {
           if (kDebugMode) debugPrint('[Wallet] Platform balance fetch error: $e');
         });
-      } else {
+      } else if (!backendAvailable) {
         // Backend was down (cold start). Retry auth + balance after delay.
         _retryBackendAuth(walletName, address);
       }
@@ -357,8 +367,9 @@ class WalletNotifier extends Notifier<WalletState> {
   }
 
   /// Fetch platform balance with retries (handles backend cold starts).
+  /// Up to 8 attempts over ~60s total to survive Render cold starts.
   Future<void> _fetchPlatformBalanceWithRetry() async {
-    for (int attempt = 0; attempt < 4; attempt++) {
+    for (int attempt = 0; attempt < 8; attempt++) {
       try {
         final response = await _api.get('/balance');
         final balance = (response['balance'] as num?)?.toDouble() ?? 0;
@@ -367,11 +378,13 @@ class WalletNotifier extends Notifier<WalletState> {
           platformBalance: balance,
           frozenBalance: frozen,
         );
+        _backendConnected = true;
         return; // Success — stop retrying.
       } catch (e) {
-        if (kDebugMode) debugPrint('[Wallet] Balance fetch attempt ${attempt + 1}/4 failed: $e');
-        if (attempt < 3) {
-          await Future.delayed(Duration(seconds: 2 * (attempt + 1)));
+        if (kDebugMode) debugPrint('[Wallet] Balance fetch attempt ${attempt + 1}/8 failed: $e');
+        if (attempt < 7) {
+          // Backoff: 3s, 5s, 7s, 9s, 10s, 10s, 10s (~54s total)
+          await Future.delayed(Duration(seconds: (3 + attempt * 2).clamp(3, 10)));
         }
       }
     }
@@ -542,9 +555,9 @@ class WalletNotifier extends Notifier<WalletState> {
     } catch (e) {
       if (kDebugMode) debugPrint('[Wallet] Silent refresh on-chain failed: $e');
     }
-    if (_backendConnected) {
-      await _fetchPlatformBalance();
-    }
+    // Always attempt platform balance refresh — the backend may have
+    // come back online since initial connection.
+    await _fetchPlatformBalance();
   }
 
   /// Simple Base58 encoder (Bitcoin-style).
