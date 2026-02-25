@@ -197,7 +197,19 @@ export function setupWebSocket(server: HttpServer): void {
         ws._msgCount = (ws._msgCount ?? 0) + 1;
         if (ws._msgCount > WS_RATE_LIMIT_MAX) {
           log.warn("rate_limit_exceeded", { user: ws.userAddress?.slice(0, 8), count: ws._msgCount, windowMs: WS_RATE_LIMIT_WINDOW_MS });
-          ws.send(JSON.stringify({ type: "error", message: "Rate limit exceeded — slow down" }));
+          // Try to extract positionId so client can roll back phantom positions.
+          let positionId: string | undefined;
+          try {
+            const parsed = JSON.parse(raw.toString());
+            if (parsed.type === "open_position" && typeof parsed.positionId === "string") {
+              positionId = parsed.positionId;
+            }
+          } catch { /* ignore parse errors */ }
+          ws.send(JSON.stringify({
+            type: "error",
+            message: "Rate limit exceeded — slow down",
+            ...(positionId != null && { positionId }),
+          }));
           return;
         }
       }
@@ -214,8 +226,20 @@ export function setupWebSocket(server: HttpServer): void {
         await handleMessage(ws, data);
       } catch (err) {
         log.error("message_handling_error", { user: ws.userAddress?.slice(0, 8) ?? "unknown", error: String(err) });
+        // Try to extract positionId so client can roll back phantom positions.
+        let positionId: string | undefined;
+        try {
+          const parsed = JSON.parse(raw.toString());
+          if (parsed.type === "open_position" && typeof parsed.positionId === "string") {
+            positionId = parsed.positionId;
+          }
+        } catch { /* ignore parse errors */ }
         ws.send(
-          JSON.stringify({ type: "error", message: "Invalid message format" })
+          JSON.stringify({
+            type: "error",
+            message: "Invalid message format",
+            ...(positionId != null && { positionId }),
+          })
         );
       }
     });

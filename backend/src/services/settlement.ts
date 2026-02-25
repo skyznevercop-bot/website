@@ -250,6 +250,27 @@ async function _doSettleMatch(
   const openCount = allPositions.filter((p) => !p.closedAt).length;
   console.log(`[Settlement] Match ${matchId}: ${allPositions.length} positions (P1=${p1Count}, P2=${p2Count}, open=${openCount})`);
 
+  // ── Pre-settlement diagnostic: compute "live" ROI before closing positions ──
+  // This uses the same logic as computePlayerStats (the live broadcast) so we
+  // can compare and detect any divergence between live and settlement ROI.
+  {
+    let preLivePnl1 = 0;
+    let preLivePnl2 = 0;
+    for (const pos of allPositions) {
+      if (pos.closedAt) {
+        const pnl = pos.pnl ?? 0;
+        if (pos.playerAddress === p1Addr) preLivePnl1 += pnl;
+        else preLivePnl2 += pnl;
+      } else {
+        const currentPrice = priceMap[pos.assetSymbol] ?? pos.entryPrice;
+        const pnl = calculatePnl(pos, currentPrice);
+        if (pos.playerAddress === p1Addr) preLivePnl1 += pnl;
+        else preLivePnl2 += pnl;
+      }
+    }
+    console.log(`[Settlement] Match ${matchId} PRE-CLOSE (live-equivalent): P1=${roiToPercent(roiDecimal(preLivePnl1, DEMO_BALANCE)).toFixed(2)}% ($${preLivePnl1.toFixed(2)}) | P2=${roiToPercent(roiDecimal(preLivePnl2, DEMO_BALANCE)).toFixed(2)}% ($${preLivePnl2.toFixed(2)})`);
+  }
+
   // Close any open positions at the last-broadcast prices.
   await closeOpenPositions(matchId, allPositions, priceMap);
 
@@ -269,19 +290,26 @@ async function _doSettleMatch(
   }
 
   // Calculate final PnL from verified (persisted) positions.
+  // For already-closed positions (closedAt + pnl set), prefer the stored pnl
+  // to guard against edge cases where exitPrice might be missing from Firebase.
+  // This matches how computePlayerStats (live ROI) works.
   const p1Pnl = verifiedPositions
     .filter((p) => p.playerAddress === player1)
     .reduce((sum, p) => {
-      const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
-      console.log(`[Settlement]   P1 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} → pnl=${pnl.toFixed(2)}`);
+      const pnl = (p.closedAt && p.pnl != null)
+        ? p.pnl
+        : calculatePnl(p, p.exitPrice ?? priceMap[p.assetSymbol] ?? p.entryPrice);
+      console.log(`[Settlement]   P1 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} storedPnl=${p.pnl} → pnl=${pnl.toFixed(2)}`);
       return sum + pnl;
     }, 0);
 
   const p2Pnl = verifiedPositions
     .filter((p) => p.playerAddress === player2)
     .reduce((sum, p) => {
-      const pnl = calculatePnl(p, p.exitPrice ?? p.entryPrice);
-      console.log(`[Settlement]   P2 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} → pnl=${pnl.toFixed(2)}`);
+      const pnl = (p.closedAt && p.pnl != null)
+        ? p.pnl
+        : calculatePnl(p, p.exitPrice ?? priceMap[p.assetSymbol] ?? p.entryPrice);
+      console.log(`[Settlement]   P2 pos ${p.id}: ${p.assetSymbol} ${p.isLong ? 'LONG' : 'SHORT'} entry=${p.entryPrice} exit=${p.exitPrice} size=${p.size} lev=${p.leverage} storedPnl=${p.pnl} → pnl=${pnl.toFixed(2)}`);
       return sum + pnl;
     }, 0);
 
