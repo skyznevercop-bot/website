@@ -231,6 +231,7 @@ class TradingState {
 class TradingNotifier extends Notifier<TradingState> {
   Timer? _matchTimer;
   Timer? _checkTimer;
+  Timer? _settlementTimeoutTimer;
   StreamSubscription? _wsSubscription;
   int _positionCounter = 0;
   int _orderCounter = 0;
@@ -245,6 +246,7 @@ class TradingNotifier extends Notifier<TradingState> {
     ref.onDispose(() {
       _matchTimer?.cancel();
       _checkTimer?.cancel();
+      _settlementTimeoutTimer?.cancel();
       _resultPollTimer?.cancel();
       _wsSubscription?.cancel();
       _priceFeed.stop();
@@ -1191,14 +1193,27 @@ class TradingNotifier extends Notifier<TradingState> {
     // cleaned up in build()'s onDispose.
     _priceFeed.stop();
 
-    // ── Phase 1: Close the match (first call only) ──
-    // On subsequent calls (e.g. server result arrives after client timer),
-    // positions are already closed and stats already computed — skip this.
+    // Cancel settlement timeout when server data arrives.
+    if (winner != null || (isTie ?? false)) {
+      _settlementTimeoutTimer?.cancel();
+    }
+
+    // ── Phase 1: Close positions only when we have settlement data ──
+    // When the timer fires (no args), positions stay open so the overlay
+    // shows "Determining winner..." while waiting for the server's
+    // match_end event with settlement prices. Positions are closed once
+    // settlement data arrives (or in practice/forfeit modes immediately).
+    final hasSettlement = (winner != null) ||
+        (isTie ?? false) ||
+        (isForfeit ?? false) ||
+        state.isPracticeMode;
+    final hasOpenPositions = state.positions.any((p) => p.isOpen);
+
     List<Position> updatedPositions = state.positions;
     double myFinalBalance = state.balance;
     MatchStats? stats = state.matchStats;
 
-    if (state.matchActive) {
+    if (hasOpenPositions && hasSettlement) {
       final now = DateTime.now();
       double balanceReturn = 0;
       updatedPositions = state.positions.map((p) {
@@ -1249,7 +1264,7 @@ class TradingNotifier extends Notifier<TradingState> {
       serverOppRoi: resolvedOppRoi,
     );
 
-    // ── Phase 3: Persist or poll ──
+    // ── Phase 3: Persist, poll, or start safety timeout ──
     _resultPollTimer?.cancel();
     if (state.isPracticeMode) {
       // Practice mode: no backend, no portfolio persistence. Done.
@@ -1261,6 +1276,22 @@ class TradingNotifier extends Notifier<TradingState> {
       // polling the backend with exponential backoff.
       _api.wsSend({'type': 'join_match', 'matchId': state.matchId});
       _startResultPolling();
+
+      // Safety net: if the server never responds within 15s, settle locally.
+      _settlementTimeoutTimer?.cancel();
+      _settlementTimeoutTimer = Timer(const Duration(seconds: 15), () {
+        if (state.matchWinner == null && !state.matchIsTie) {
+          final myRoi = state.myRoiPercent;
+          final oppRoi = state.opponentRoi;
+          final walletAddr = ref.read(walletProvider).address;
+          endMatch(
+            winner: myRoi >= oppRoi ? walletAddr : state.opponentAddress,
+            isTie: (myRoi - oppRoi).abs() < 0.01,
+            serverMyRoi: myRoi,
+            serverOppRoi: oppRoi,
+          );
+        }
+      });
     }
   }
 
