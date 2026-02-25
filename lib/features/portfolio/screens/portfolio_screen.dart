@@ -40,6 +40,8 @@ class _PortfolioScreenState extends ConsumerState<PortfolioScreen> {
     final wallet = ref.read(walletProvider);
     if (wallet.isConnected && wallet.address != null) {
       _lastAddress = wallet.address;
+      // Always refresh platform balance when loading portfolio.
+      ref.read(walletProvider.notifier).refreshPlatformBalance();
       ref.read(queueProvider.notifier).fetchUserStats(wallet.address!);
       ref.read(portfolioProvider.notifier).fetchMatchHistory();
       ref.read(portfolioProvider.notifier).fetchTransactions();

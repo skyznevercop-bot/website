@@ -377,9 +377,9 @@ class WalletNotifier extends Notifier<WalletState> {
     }
   }
 
-  /// Refresh only the platform balance (called after deposit/withdraw).
+  /// Refresh only the platform balance (called after deposit/withdraw
+  /// and whenever the portfolio screen loads).
   Future<void> refreshPlatformBalance() async {
-    if (!_backendConnected) return;
     await _fetchPlatformBalance();
   }
 
