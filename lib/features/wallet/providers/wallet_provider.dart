@@ -206,13 +206,22 @@ class WalletNotifier extends Notifier<WalletState> {
       final result = await SolanaWalletAdapter.connectEagerly(walletName);
       final address = result.publicKey;
 
-      // Validate the stored JWT by fetching the user profile.
-      // Assume JWT is valid unless backend explicitly rejects it (401).
+      // Validate the stored JWT by fetching /balance (authenticated endpoint).
+      // /user/:address is public and won't catch expired JWTs.
       String? gamerTag;
       bool backendAvailable = true;
+      double? cachedBalance;
+      double? cachedFrozen;
       try {
-        final userResponse = await _api.get('/user/$address');
-        gamerTag = userResponse['gamerTag'] as String?;
+        final balanceResponse = await _api.get('/balance');
+        cachedBalance = (balanceResponse['balance'] as num?)?.toDouble() ?? 0;
+        cachedFrozen = (balanceResponse['frozenBalance'] as num?)?.toDouble() ?? 0;
+
+        // JWT is valid — also fetch gamerTag (non-critical, public endpoint).
+        try {
+          final userResponse = await _api.get('/user/$address');
+          gamerTag = userResponse['gamerTag'] as String?;
+        } catch (_) {}
       } on ApiException catch (e) {
         if (e.statusCode == 401) {
           // JWT expired — clear session so user re-connects with fresh auth.
@@ -223,10 +232,10 @@ class WalletNotifier extends Notifier<WalletState> {
           return;
         }
         // Other API error (500, etc.) — JWT may still be valid, try balance anyway.
-        if (kDebugMode) debugPrint('[Wallet] Profile fetch failed (non-critical): $e');
+        if (kDebugMode) debugPrint('[Wallet] Balance validation failed (non-critical): $e');
       } catch (e) {
         // Network error / timeout — JWT may still be valid, try balance anyway.
-        if (kDebugMode) debugPrint('[Wallet] Profile fetch failed (non-critical): $e');
+        if (kDebugMode) debugPrint('[Wallet] Balance validation failed (non-critical): $e');
       }
 
       _backendConnected = backendAvailable;
@@ -260,12 +269,14 @@ class WalletNotifier extends Notifier<WalletState> {
         walletType: walletType,
         address: address,
         gamerTag: gamerTag,
+        platformBalance: cachedBalance ?? state.platformBalance,
+        frozenBalance: cachedFrozen ?? state.frozenBalance,
         isBalanceLoading: true,
       );
 
       if (kDebugMode) debugPrint('[Wallet] Silent reconnect successful: ${address.substring(0, 8)}…');
 
-      // Fetch balances in background.
+      // Fetch on-chain balance in background.
       _fetchOnChainUsdcBalance(address).then((balance) {
         state = state.copyWith(usdcBalance: balance, isBalanceLoading: false);
       }).catchError((e) {
@@ -273,7 +284,8 @@ class WalletNotifier extends Notifier<WalletState> {
         state = state.copyWith(usdcBalance: 0, isBalanceLoading: false);
       });
 
-      if (_backendConnected) {
+      // Only fetch platform balance if we didn't already get it during validation.
+      if (_backendConnected && cachedBalance == null) {
         _fetchPlatformBalanceWithRetry();
       }
 
