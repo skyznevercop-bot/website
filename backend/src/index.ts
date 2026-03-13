@@ -39,7 +39,7 @@ app.set("trust proxy", 1);
 
 // Middleware
 app.use(helmet());  // Security headers (X-Content-Type-Options, X-Frame-Options, etc.)
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+app.use(cors({ origin: config.corsOrigins, credentials: true }));
 app.use(express.json({ limit: "1mb" }));  // Prevent large-payload DoS
 app.use(rateLimit(100, 60_000)); // 100 requests per minute
 

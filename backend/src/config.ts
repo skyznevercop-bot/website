@@ -3,7 +3,9 @@ dotenv.config();
 
 export const config = {
   port: parseInt(process.env.PORT || "3000", 10),
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:8080",
+  corsOrigins: (process.env.CORS_ORIGIN || "https://www.solfight.io")
+    .split(",")
+    .map((s) => s.trim()),
 
   // Firebase
   firebaseServiceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT || null,
