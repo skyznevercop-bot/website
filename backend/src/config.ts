@@ -10,11 +10,11 @@ export const config = {
   firebaseDatabaseUrl:
     process.env.FIREBASE_DATABASE_URL || "https://solfight-6e7d2-default-rtdb.firebaseio.com",
 
-  // Solana
+  // Solana — defaults match frontend (mainnet) so deposits work out of the box.
   solanaRpcUrl:
-    process.env.SOLANA_RPC_URL || "https://api.devnet.solana.com",
+    process.env.SOLANA_RPC_URL || "https://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0",
   solanaWsUrl:
-    process.env.SOLANA_WS_URL || "wss://api.devnet.solana.com",
+    process.env.SOLANA_WS_URL || "wss://mainnet.helius-rpc.com/?api-key=3ed6e181-117d-475f-9e54-2cd48e3f19a0",
   authorityKeypair: (() => {
     if (!process.env.AUTHORITY_KEYPAIR) return null;
     try {
@@ -25,7 +25,7 @@ export const config = {
     }
   })(),
   usdcMint:
-    process.env.USDC_MINT || "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    process.env.USDC_MINT || "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 
   // Auth — JWT_SECRET must be set in production (no insecure fallback).
   jwtSecret: process.env.JWT_SECRET || "",
