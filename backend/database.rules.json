@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "solfight": {
+      "matches": {
+        ".indexOn": ["status", "player1", "player2"]
+      },
+      "challenges": {
+        ".indexOn": ["status"]
+      }
+    }
+  }
+}

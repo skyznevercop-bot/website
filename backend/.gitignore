@@ -1,1 +1,7 @@
 .vercel
+node_modules/
+dist/
+
+# Secrets — never commit these
+.env
+firebase-service-account.json
